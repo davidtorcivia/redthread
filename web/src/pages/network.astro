@@ -16,9 +16,11 @@ for (const e of entities()) byType[e.type] = (byType[e.type] ?? 0) + 1;
       <div class="entity-eyebrow"><span>Tools</span></div>
       <h1 class="entity-title">The full network</h1>
       <p class="entity-dek">
-        Every {total.toLocaleString()} entries in the vault, plotted as a single graph.
-        Click a node to navigate; drag to pan; scroll to zoom.
-        Bridge entities are ringed in gold.
+        Every {total.toLocaleString()} entries in the vault on one map. At this scale most nodes
+        look small until you zoom in — <strong>scroll</strong> to zoom, <strong>drag</strong> to pan,
+        <strong>click</strong> a node to navigate. Bridge entities are ringed in gold.
+        If your machine struggles, toggle <strong>Edges: off</strong> to hide the ~12,000
+        connection lines and keep just the nodes.
       </p>
     </header>
 
@@ -155,18 +157,47 @@ for (const e of entities()) byType[e.type] = (byType[e.type] ?? 0) + 1;
         ));
       }
 
+      // Yield to the browser long enough for a real paint between
+      // synchronous chunks of work. Without this the user sees a stuck
+      // status message even though the JS has moved on, because the
+      // browser couldn't repaint between setText and the next big task.
+      function yieldPaint() {
+        return new Promise((resolve) =>
+          requestAnimationFrame(() => requestAnimationFrame(resolve)),
+        );
+      }
+
       async function init() {
         loadBtn.disabled = true;
-        loadBtn.textContent = 'Loading…';
+        loadBtn.textContent = 'Loading data…';
         try {
           const [_, data] = await Promise.all([
             loadCytoscape(),
             fetch('/adjacency.json').then((r) => (r.ok ? r.json() : Promise.reject())),
           ]);
-          status.setAttribute('hidden', '');
+
+          // Reveal the controls right away so the user has something to
+          // engage with while the canvas warms up.
           controls.removeAttribute('hidden');
           filters.removeAttribute('hidden');
-          render(data);
+
+          // Phase 1: render nodes (cheap).
+          loadBtn.textContent = `Rendering ${data.ids.length.toLocaleString()} nodes…`;
+          await yieldPaint();
+          const edgeElements = renderNodes(data);
+
+          // Phase 2: add edges in a single batch. cy.batch defers all the
+          // internal style/render updates so this is ~2x faster than
+          // adding edges one-chunk-at-a-time with the cache invalidating
+          // between chunks.
+          loadBtn.textContent = `Rendering ${edgeElements.length.toLocaleString()} connections…`;
+          await yieldPaint();
+          cy.batch(() => cy.add(edgeElements));
+          cy.fit(undefined, 40);
+
+          // Done — hide the load overlay.
+          status.setAttribute('hidden', '');
+          wireInteractions();
         } catch (err) {
           loadBtn.disabled = false;
           loadBtn.textContent = 'Load network';
@@ -177,13 +208,14 @@ for (const e of entities()) byType[e.type] = (byType[e.type] ?? 0) + 1;
       }
 
       function nodeSize(mentions, isBridge) {
-        // Big graph wants modest sizes — log-scale keeps the hubs visible
-        // without burying the long tail. Bridges nudge up slightly.
-        const base = 6 + Math.log2(1 + (mentions || 0)) * 2.2;
-        return Math.min(28, isBridge ? base + 3 : base);
+        // Sized to stay legible at the fit-zoom you get with a 1,811-node
+        // canvas — roughly 30-40% scale. Smaller and the long tail vanishes
+        // into the background.
+        const base = 14 + Math.log2(1 + (mentions || 0)) * 3.2;
+        return Math.min(56, isBridge ? base + 6 : base);
       }
 
-      function render(data) {
+      function renderNodes(data) {
         const colors = readColors();
 
         // bridges arrived as { idx: {rank, score} } from the parser; the
@@ -321,21 +353,9 @@ for (const e of entities()) byType[e.type] = (byType[e.type] ?? 0) + 1;
           layout: { name: 'preset', fit: true, padding: 40 },
         });
 
-        // Chunk the edge insertion. 12k edges in one batch jams the main
-        // thread; splitting into rAF-paced chunks keeps the page interactive
-        // while the network fills in. Looks like a slight "fade-in" effect.
-        const EDGE_CHUNK = 2000;
-        function addEdgesChunked(idx) {
-          if (idx >= edgeElements.length) return;
-          const slice = edgeElements.slice(idx, idx + EDGE_CHUNK);
-          cy.add(slice);
-          requestAnimationFrame(() => addEdgesChunked(idx + EDGE_CHUNK));
-        }
-        // Defer one frame so the nodes-only render lands before we start
-        // pumping edges.
-        requestAnimationFrame(() => addEdgesChunked(0));
-
-        wireInteractions();
+        // Caller (init) handles edge insertion + interaction wiring so
+        // the loading status can update between phases.
+        return edgeElements;
       }
 
       function wireInteractions() {
