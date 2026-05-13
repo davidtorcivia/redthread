@@ -4,8 +4,28 @@ interface Props {
   title: string;
   description?: string;
   bodyClass?: string;
+  /** og:type — "article" for entity pages, "profile" for people, "website" for browse pages (default). */
+  ogType?: string;
+  /** Optional structured-data block (JSON-LD). Entity pages pass schema.org payload. */
+  jsonLd?: Record<string, unknown> | null;
+  /** Set true for utility pages (e.g. /random/) we don't want crawlers indexing. */
+  noindex?: boolean;
 }
-const { title, description, bodyClass } = Astro.props;
+const {
+  title,
+  description,
+  bodyClass,
+  ogType = 'website',
+  jsonLd = null,
+  noindex = false,
+} = Astro.props;
+
+// Canonical URL is resolved from Astro's `site` config + the current path.
+// Falls back to the relative path if site isn't set (e.g. local dev runs
+// without SITE_URL exported).
+const canonical = Astro.site
+  ? new URL(Astro.url.pathname, Astro.site).href
+  : Astro.url.pathname;
 ---
 <!doctype html>
 <html lang="en">
@@ -14,6 +34,28 @@ const { title, description, bodyClass } = Astro.props;
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>{title}</title>
     {description && <meta name="description" content={description} />}
+    {noindex && <meta name="robots" content="noindex, nofollow" />}
+    <link rel="canonical" href={canonical} />
+
+    {/* Open Graph — used by Slack, Discord, iMessage, Facebook, etc. when
+        a link to this page is pasted. */}
+    <meta property="og:site_name" content="The Info Web" />
+    <meta property="og:title" content={title} />
+    {description && <meta property="og:description" content={description} />}
+    <meta property="og:url" content={canonical} />
+    <meta property="og:type" content={ogType} />
+    <meta property="og:locale" content="en_US" />
+
+    {/* Twitter card metadata. summary (not summary_large_image) because
+        we don't currently emit per-entity OG images. */}
+    <meta name="twitter:card" content="summary" />
+    <meta name="twitter:title" content={title} />
+    {description && <meta name="twitter:description" content={description} />}
+
+    {jsonLd && (
+      <script type="application/ld+json" set:html={JSON.stringify(jsonLd)} is:inline />
+    )}
+
     <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' fill='%23f7f2e7'/%3E%3Ctext y='.85em' x='8' font-family='Georgia,serif' font-size='86' font-weight='600' fill='%2394322a'%3EI%3C/text%3E%3C/svg%3E" />
     <link href="/pagefind/pagefind-ui.css" rel="stylesheet" />
     <script src="/pagefind/pagefind-ui.js" is:inline></script>

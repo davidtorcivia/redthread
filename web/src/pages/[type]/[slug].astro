@@ -48,11 +48,44 @@ if (born || died) {
   dateValue = date;
 }
 const locations = entity.locations ?? [];
+
+// Schema.org JSON-LD — maps our entity types to the closest schema.org
+// type and emits known dates/locations. Search engines use this for
+// knowledge-panel-style results.
+const SCHEMA_TYPE: Record<string, string> = {
+  person: 'Person',
+  organization: 'Organization',
+  event: 'Event',
+  place: 'Place',
+  program: 'CreativeWork',
+  concept: 'Thing',
+  source: 'CreativeWork',
+};
+const jsonLd: Record<string, unknown> = {
+  '@context': 'https://schema.org',
+  '@type': SCHEMA_TYPE[entity.type] ?? 'Thing',
+  name: entity.title,
+};
+if (entity.summary) jsonLd.description = entity.summary;
+if (dates.born) jsonLd.birthDate = dates.born;
+if (dates.died) jsonLd.deathDate = dates.died;
+if ((dates.start || dates.date) && (entity.type === 'event' || entity.type === 'program')) {
+  jsonLd.startDate = dates.start ?? dates.date;
+}
+if (dates.end && (entity.type === 'event' || entity.type === 'program')) {
+  jsonLd.endDate = dates.end;
+}
+if (locations.length > 0) jsonLd.location = locations.length === 1 ? locations[0] : locations;
+if (entity.tags?.length) jsonLd.keywords = entity.tags.map(String).join(', ');
+
+const ogType = entity.type === 'person' ? 'profile' : 'article';
 ---
 <Base
   title={`${entity.title} — The Info Web`}
   description={entity.summary ?? undefined}
   bodyClass={`entity type-${entity.type}`}
+  ogType={ogType}
+  jsonLd={jsonLd}
 >
   <article
     class="entity-article"
