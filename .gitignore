@@ -14,6 +14,7 @@ web/src/content/generated/
 
 # Files copied into Astro public/ by the build scripts (regenerated)
 web/public/previews.json
+web/public/adjacency.json
 web/public/api/
 
 # Python
