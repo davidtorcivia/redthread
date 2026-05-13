@@ -34,17 +34,22 @@ const total = entities().length;
         </p>
       </div>
 
-      <div class="net-controls" hidden id="net-controls">
-        <button class="graph-btn net-layout" type="button">Layout: Force</button>
-        <button class="graph-btn net-fit" type="button">Refit</button>
-        <button class="graph-btn net-edges" type="button" aria-pressed="true">Hide edges</button>
-        <button class="graph-btn net-implicit" type="button" aria-pressed="false">+ Inferred</button>
-        <button class="graph-btn net-multi" type="button" aria-pressed="false">Multi: off</button>
-        <button class="graph-btn net-fullscreen" type="button" aria-pressed="false">Fullscreen</button>
+      <div class="net-controls net-drawer net-drawer-right" hidden id="net-controls">
+        <button class="net-drawer-toggle" id="net-controls-toggle" type="button" aria-label="Toggle settings" aria-expanded="true">
+          <span class="net-carrot" aria-hidden="true"></span>
+        </button>
+        <div class="net-drawer-body net-controls-body">
+          <button class="graph-btn net-layout" type="button">Layout: Force</button>
+          <button class="graph-btn net-fit" type="button">Refit</button>
+          <button class="graph-btn net-edges" type="button" aria-pressed="true">Hide edges</button>
+          <button class="graph-btn net-implicit" type="button" aria-pressed="false">+ Inferred</button>
+          <button class="graph-btn net-multi" type="button" aria-pressed="false">Multi: off</button>
+          <button class="graph-btn net-fullscreen" type="button" aria-pressed="false">Fullscreen</button>
+        </div>
       </div>
 
-      <div class="net-sliders" hidden id="net-sliders">
-        <div class="net-sliders-body">
+      <div class="net-sliders net-drawer net-drawer-left" hidden id="net-sliders">
+        <div class="net-drawer-body net-sliders-body">
           <label class="net-slider" id="net-opacity-slider">
             <span class="net-slider-label">Opacity</span>
             <input type="range" class="net-slider-input" id="net-opacity" min="0" max="100" value="100" />
@@ -61,19 +66,24 @@ const total = entities().length;
             <span class="net-slider-val" id="net-force-val">100%</span>
           </label>
         </div>
-        <button class="net-sliders-toggle" id="net-sliders-toggle" type="button" aria-label="Toggle sliders" aria-expanded="true">
-          <span class="net-sliders-carrot" aria-hidden="true"></span>
+        <button class="net-drawer-toggle" id="net-sliders-toggle" type="button" aria-label="Toggle sliders" aria-expanded="true">
+          <span class="net-carrot" aria-hidden="true"></span>
         </button>
       </div>
 
-      <div class="net-filters" hidden id="net-filters" aria-label="Filter by type">
-        <span class="net-filters-label">Show</span>
-        <button class="net-chip active type-person" data-type="person" aria-pressed="true">People</button>
-        <button class="net-chip active type-organization" data-type="organization" aria-pressed="true">Orgs</button>
-        <button class="net-chip active type-program" data-type="program" aria-pressed="true">Programs</button>
-        <button class="net-chip active type-event" data-type="event" aria-pressed="true">Events</button>
-        <button class="net-chip active type-concept" data-type="concept" aria-pressed="true">Concepts</button>
-        <button class="net-chip active type-place" data-type="place" aria-pressed="true">Places</button>
+      <div class="net-filters net-drawer net-drawer-left" hidden id="net-filters" aria-label="Filter by type">
+        <div class="net-drawer-body net-filters-body">
+          <span class="net-filters-label">Show</span>
+          <button class="net-chip active type-person" data-type="person" aria-pressed="true">People</button>
+          <button class="net-chip active type-organization" data-type="organization" aria-pressed="true">Orgs</button>
+          <button class="net-chip active type-program" data-type="program" aria-pressed="true">Programs</button>
+          <button class="net-chip active type-event" data-type="event" aria-pressed="true">Events</button>
+          <button class="net-chip active type-concept" data-type="concept" aria-pressed="true">Concepts</button>
+          <button class="net-chip active type-place" data-type="place" aria-pressed="true">Places</button>
+        </div>
+        <button class="net-drawer-toggle" id="net-filters-toggle" type="button" aria-label="Toggle filters" aria-expanded="true">
+          <span class="net-carrot" aria-hidden="true"></span>
+        </button>
       </div>
 
       <div class="graph-selection net-selection" hidden id="net-selection">
@@ -1103,15 +1113,21 @@ const total = entities().length;
           requestDraw();
         });
 
-        // Slider-panel collapse toggle — the chevron tab on the panel's
-        // left edge. Clicking slides the body offscreen to the right,
-        // leaving just the tab clickable. Clicking again slides it back.
-        const slidersPanel = document.getElementById('net-sliders');
-        const slidersToggle = document.getElementById('net-sliders-toggle');
-        slidersToggle.addEventListener('click', () => {
-          const collapsed = slidersPanel.classList.toggle('collapsed');
-          slidersToggle.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
-        });
+        // Drawer collapse toggles — same pattern for sliders, filters,
+        // and controls. Each pair shares the .collapsed class and an
+        // aria-expanded attribute so screen readers know what's happening.
+        function wireDrawer(panelId, toggleId) {
+          const panel = document.getElementById(panelId);
+          const toggle = document.getElementById(toggleId);
+          if (!panel || !toggle) return;
+          toggle.addEventListener('click', () => {
+            const collapsed = panel.classList.toggle('collapsed');
+            toggle.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
+          });
+        }
+        wireDrawer('net-sliders', 'net-sliders-toggle');
+        wireDrawer('net-filters', 'net-filters-toggle');
+        wireDrawer('net-controls', 'net-controls-toggle');
 
         // Force slider — scales positions in real time around the current
         // screen center. This is dynamic (not a full layout re-run), so

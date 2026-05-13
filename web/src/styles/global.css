@@ -1687,70 +1687,15 @@ body.graph-fullscreen-active { overflow: hidden; }
 .net-filters[hidden],
 .net-sliders[hidden] { display: none !important; }
 
-/* Sliders panel — collapsible drawer anchored to the LEFT edge.
-   The chevron tab is on the panel's right side. When the panel is
-   collapsed, the body slides off to the left (right-to-left motion)
-   and only the tab remains, sticking out at the left edge of the
-   canvas. Clicking again slides the body back left-to-right. */
+/* Sliders panel uses the .net-drawer-left base styles for collapse +
+   carrot. Only position + slight body-padding tweaks are panel-specific. */
 .net-sliders {
-  position: absolute;
   top: 3rem;
-  left: 0;
-  z-index: 3;
-  display: flex;
-  align-items: stretch;
-  transition: transform 0.25s ease;
-  /* Default = expanded: panel nudged slightly off the left edge so
-     it doesn't kiss the canvas border. */
-  transform: translateX(0.6rem);
 }
-.net-sliders.collapsed {
-  /* Slide left until only the tab pokes back in from the left edge. */
-  transform: translateX(calc(-100% + 1.5rem));
-}
-.net-sliders-toggle {
-  flex: 0 0 auto;
-  width: 1.5rem;
-  background: var(--card);
-  border: 1px solid var(--line-2);
-  border-left: none;
-  border-radius: 0 4px 4px 0;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--muted);
-  padding: 0;
-  font-family: var(--sans);
-  font-size: 0.65rem;
-  font-weight: 700;
-}
-.net-sliders-toggle:hover { color: var(--accent); }
-.net-sliders-carrot {
-  display: inline-block;
-  width: 0.5rem;
-  height: 0.5rem;
-  border-right: 1.5px solid currentColor;
-  border-bottom: 1.5px solid currentColor;
-  /* Default = expanded → carrot points LEFT (click will collapse leftward) */
-  transform: rotate(135deg);
-  transition: transform 0.2s ease;
-}
-.net-sliders.collapsed .net-sliders-carrot {
-  /* Collapsed → carrot points RIGHT (click will expand rightward) */
-  transform: rotate(-45deg);
-}
-.net-sliders-body {
-  display: flex;
+.net-sliders .net-drawer-body {
   flex-wrap: wrap;
-  align-items: center;
   gap: 0.35rem 0.7rem;
-  background: var(--card);
-  border: 1px solid var(--line-2);
-  border-right: none;
-  border-radius: 4px 0 0 4px;
   padding: 0.4rem 0.65rem;
-  box-shadow: 0 4px 12px -6px rgba(20, 16, 8, 0.3);
 }
 .net-slider {
   display: inline-flex;
@@ -1807,15 +1752,97 @@ body.graph-fullscreen-active { overflow: hidden; }
   max-width: 24rem;
   margin: 0;
 }
-.net-controls {
+/* ----- Generic drawer pattern. Used by:
+   • Filters (top-left, collapses leftward, tab on body's right side)
+   • Sliders (mid-left, same)
+   • Controls (top-right, mirror)
+   The tab + body are flex children; collapsing translates the whole
+   drawer along the axis so only the 1.5rem tab pokes back in from
+   the panel's anchored edge.
+*/
+.net-drawer {
   position: absolute;
-  top: 0.6rem;
-  right: 0.6rem;
+  z-index: 3;
   display: flex;
   align-items: stretch;
-  gap: 0.4rem;
-  z-index: 3;
+  transition: transform 0.25s ease;
+}
+.net-drawer-left {
+  left: 0;
+  transform: translateX(0.6rem);
+}
+.net-drawer-left.collapsed {
+  transform: translateX(calc(-100% + 1.5rem));
+}
+.net-drawer-right {
+  right: 0;
+  transform: translateX(-0.6rem);
+}
+.net-drawer-right.collapsed {
+  transform: translateX(calc(100% - 1.5rem));
+}
+.net-drawer-toggle {
+  flex: 0 0 auto;
+  width: 1.5rem;
+  background: var(--card);
+  border: 1px solid var(--line-2);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--muted);
+  padding: 0;
+  font-family: var(--sans);
+}
+.net-drawer-toggle:hover { color: var(--accent); }
+.net-drawer-left .net-drawer-toggle {
+  border-left: none;
+  border-radius: 0 4px 4px 0;
+}
+.net-drawer-right .net-drawer-toggle {
+  border-right: none;
+  border-radius: 4px 0 0 4px;
+}
+.net-drawer-body {
+  background: var(--card);
+  border: 1px solid var(--line-2);
+  box-shadow: 0 4px 12px -6px rgba(20, 16, 8, 0.3);
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0 0.55rem;
+}
+.net-drawer-left .net-drawer-body {
+  border-right: none;
+  border-radius: 4px 0 0 4px;
+}
+.net-drawer-right .net-drawer-body {
+  border-left: none;
+  border-radius: 0 4px 4px 0;
+}
+/* Carrot — visually points in the direction click will move the panel. */
+.net-carrot {
+  display: inline-block;
+  width: 0.5rem;
+  height: 0.5rem;
+  border-right: 1.5px solid currentColor;
+  border-bottom: 1.5px solid currentColor;
+  transition: transform 0.2s ease;
+}
+.net-drawer-left .net-carrot { transform: rotate(135deg); }
+.net-drawer-left.collapsed .net-carrot { transform: rotate(-45deg); }
+.net-drawer-right .net-carrot { transform: rotate(-45deg); }
+.net-drawer-right.collapsed .net-carrot { transform: rotate(135deg); }
+
+/* Position the three drawers individually. Each uses .net-drawer-left/right
+   for behavior; this block just places them and tweaks heights. */
+.net-controls {
+  top: 0.6rem;
   height: 2rem;
+}
+.net-controls .net-drawer-body {
+  gap: 0.4rem;
+  padding: 0 0.6rem;
 }
 .net-controls .graph-btn {
   height: 100%;
@@ -1824,20 +1851,12 @@ body.graph-fullscreen-active { overflow: hidden; }
   padding: 0 0.7rem;
 }
 .net-filters {
-  position: absolute;
   top: 0.6rem;
-  left: 0.6rem;
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.3rem;
-  background: var(--card);
-  border: 1px solid var(--line-2);
-  border-radius: 4px;
-  padding: 0 0.5rem;
-  z-index: 3;
-  box-shadow: 0 4px 12px -6px rgba(20, 16, 8, 0.3);
   height: 2rem;
+}
+.net-filters .net-drawer-body {
+  flex-wrap: wrap;
+  gap: 0.3rem;
 }
 .net-filters-label {
   font-family: var(--sans);
