@@ -1,0 +1,320 @@
+---
+import Base from '../layouts/Base.astro';
+import { entities, hrefFor } from '../lib/data.ts';
+
+// Embed a small autocomplete pool so the inputs work without a separate
+// fetch on first paint. ~50KB for 1,811 entries — same trick we use on
+// /random/. The full adjacency map is fetched lazily on first search.
+const pool = entities().map((e) => ({
+  id: e.id,
+  title: e.title,
+  type: e.type,
+  href: hrefFor({ id: e.id, type: e.type }),
+}));
+---
+<Base
+  title="Find a path — The Info Web"
+  description="Find the shortest chain of connections between any two entries in the vault."
+>
+  <article class="path-article">
+    <div class="entity-eyebrow">
+      <span>Tools</span>
+    </div>
+    <h1 class="entity-title">Find a path</h1>
+    <p class="entity-dek">
+      Pick any two entities; we'll trace the shortest chain of documented connections
+      between them through the wikilink + NER graph.
+    </p>
+
+    <form class="path-form" id="path-form" autocomplete="off">
+      <div class="path-row">
+        <label class="path-field">
+          <span class="path-label">From</span>
+          <input
+            type="text"
+            id="path-from"
+            class="path-input"
+            placeholder="Type an entity name…"
+            autocomplete="off"
+            spellcheck="false"
+          />
+          <ul class="path-suggest" id="path-from-suggest" role="listbox"></ul>
+        </label>
+        <button type="button" class="path-swap" id="path-swap" aria-label="Swap endpoints" title="Swap endpoints">⇄</button>
+        <label class="path-field">
+          <span class="path-label">To</span>
+          <input
+            type="text"
+            id="path-to"
+            class="path-input"
+            placeholder="Type an entity name…"
+            autocomplete="off"
+            spellcheck="false"
+          />
+          <ul class="path-suggest" id="path-to-suggest" role="listbox"></ul>
+        </label>
+      </div>
+      <div class="path-actions">
+        <button type="submit" class="path-go">Find path</button>
+        <span class="path-status" id="path-status"></span>
+      </div>
+    </form>
+
+    <section class="path-result" id="path-result" hidden></section>
+  </article>
+
+  <script is:inline define:vars={{ pool }}>
+    (function () {
+      const TYPE_LABELS = {
+        person: 'Person', organization: 'Organization', program: 'Program',
+        event: 'Event', concept: 'Concept', place: 'Place',
+        source: 'Source', meta: 'Meta', misc: 'Misc', page: 'Page',
+      };
+
+      const idIndex = new Map(pool.map((p) => [p.id, p]));
+      const fromInput = document.getElementById('path-from');
+      const toInput = document.getElementById('path-to');
+      const fromSuggest = document.getElementById('path-from-suggest');
+      const toSuggest = document.getElementById('path-to-suggest');
+      const status = document.getElementById('path-status');
+      const result = document.getElementById('path-result');
+      const swapBtn = document.getElementById('path-swap');
+
+      // Picked IDs — set when the user clicks/keys a suggestion. We rely
+      // on these (not the text in the input) so case + typo variance
+      // can't trip the BFS.
+      let fromId = null;
+      let toId = null;
+
+      // Pre-populate from URL params so deep links work
+      // (?from=elliott-abrams&to=manuel-noriega).
+      const params = new URLSearchParams(window.location.search);
+      const urlFrom = params.get('from');
+      const urlTo = params.get('to');
+      if (urlFrom && idIndex.has(urlFrom)) {
+        fromId = urlFrom;
+        fromInput.value = idIndex.get(urlFrom).title;
+      }
+      if (urlTo && idIndex.has(urlTo)) {
+        toId = urlTo;
+        toInput.value = idIndex.get(urlTo).title;
+      }
+
+      // Substring match autocomplete. Case-insensitive; ranks exact-prefix
+      // higher than mid-string matches; caps at 8 suggestions.
+      function suggest(query) {
+        const q = query.trim().toLowerCase();
+        if (!q) return [];
+        const prefix = [];
+        const middle = [];
+        for (const p of pool) {
+          const t = p.title.toLowerCase();
+          if (t === q) prefix.unshift(p);
+          else if (t.startsWith(q)) prefix.push(p);
+          else if (t.includes(q)) middle.push(p);
+          if (prefix.length + middle.length > 60) break;
+        }
+        return prefix.concat(middle).slice(0, 8);
+      }
+
+      function renderSuggestions(input, suggestEl, results, onPick) {
+        suggestEl.innerHTML = '';
+        if (!results.length) {
+          suggestEl.classList.remove('open');
+          return;
+        }
+        for (const r of results) {
+          const li = document.createElement('li');
+          li.className = `path-suggest-item type-${r.type}`;
+          li.setAttribute('role', 'option');
+          li.dataset.entityId = r.id;
+          li.innerHTML =
+            '<span class="ps-type">' + (TYPE_LABELS[r.type] || r.type) + '</span>' +
+            '<span class="ps-title"></span>';
+          li.querySelector('.ps-title').textContent = r.title;
+          li.addEventListener('mousedown', (e) => {
+            // mousedown not click — input.blur fires before click, which
+            // would hide the menu via the focusout handler.
+            e.preventDefault();
+            onPick(r);
+          });
+          suggestEl.appendChild(li);
+        }
+        suggestEl.classList.add('open');
+      }
+
+      function wireAutocomplete(input, suggestEl, setId) {
+        input.addEventListener('input', () => {
+          setId(null);
+          renderSuggestions(input, suggestEl, suggest(input.value), (r) => {
+            input.value = r.title;
+            setId(r.id);
+            suggestEl.classList.remove('open');
+          });
+        });
+        input.addEventListener('focus', () => {
+          if (input.value) {
+            renderSuggestions(input, suggestEl, suggest(input.value), (r) => {
+              input.value = r.title;
+              setId(r.id);
+              suggestEl.classList.remove('open');
+            });
+          }
+        });
+        input.addEventListener('blur', () => {
+          // Delay so a click on a suggestion can resolve first.
+          setTimeout(() => suggestEl.classList.remove('open'), 120);
+        });
+        input.addEventListener('keydown', (e) => {
+          if (e.key !== 'Enter') return;
+          // If the menu is open and there's a first result, pick it.
+          const first = suggestEl.querySelector('.path-suggest-item');
+          if (first && suggestEl.classList.contains('open')) {
+            e.preventDefault();
+            const id = first.dataset.entityId;
+            const r = idIndex.get(id);
+            if (r) {
+              input.value = r.title;
+              setId(r.id);
+              suggestEl.classList.remove('open');
+            }
+          }
+        });
+      }
+      wireAutocomplete(fromInput, fromSuggest, (id) => { fromId = id; });
+      wireAutocomplete(toInput, toSuggest, (id) => { toId = id; });
+
+      swapBtn.addEventListener('click', () => {
+        const tmpVal = fromInput.value;
+        const tmpId = fromId;
+        fromInput.value = toInput.value; fromId = toId;
+        toInput.value = tmpVal; toId = tmpId;
+      });
+
+      // Adjacency is fetched lazily on the first search; cached afterward.
+      let adjacency = null;
+      let adjacencyPromise = null;
+      function loadAdjacency() {
+        if (adjacency) return Promise.resolve(adjacency);
+        if (adjacencyPromise) return adjacencyPromise;
+        status.textContent = 'Loading network…';
+        adjacencyPromise = fetch('/adjacency.json')
+          .then((r) => (r.ok ? r.json() : Promise.reject(new Error('fetch failed'))))
+          .then((d) => {
+            adjacency = d;
+            adjacency.idToIdx = new Map();
+            for (let i = 0; i < d.ids.length; i++) adjacency.idToIdx.set(d.ids[i], i);
+            status.textContent = '';
+            return adjacency;
+          })
+          .catch((err) => {
+            status.textContent = 'Failed to load adjacency data.';
+            adjacencyPromise = null;
+            throw err;
+          });
+        return adjacencyPromise;
+      }
+
+      // BFS from src to dst (numeric indices). Returns the shortest
+      // node-index path or null if disconnected.
+      function bfsPath(adj, src, dst) {
+        if (src === dst) return [src];
+        const prev = new Int32Array(adj.length).fill(-1);
+        prev[src] = src; // mark visited
+        const queue = [src];
+        let head = 0;
+        while (head < queue.length) {
+          const v = queue[head++];
+          const neigh = adj[v];
+          for (let i = 0; i < neigh.length; i++) {
+            const w = neigh[i];
+            if (prev[w] !== -1) continue;
+            prev[w] = v;
+            if (w === dst) {
+              // Reconstruct path
+              const path = [w];
+              let cur = w;
+              while (cur !== src) {
+                cur = prev[cur];
+                path.push(cur);
+              }
+              return path.reverse();
+            }
+            queue.push(w);
+          }
+        }
+        return null;
+      }
+
+      async function findPath() {
+        result.setAttribute('hidden', '');
+        result.innerHTML = '';
+        if (!fromId || !toId) {
+          status.textContent = 'Pick an entity for both From and To.';
+          return;
+        }
+        if (fromId === toId) {
+          status.textContent = 'Source and target are the same.';
+          return;
+        }
+        const data = await loadAdjacency();
+        const si = data.idToIdx.get(fromId);
+        const ti = data.idToIdx.get(toId);
+        if (si == null || ti == null) {
+          status.textContent = 'One of the entities is missing from the network.';
+          return;
+        }
+        const path = bfsPath(data.adj, si, ti);
+        if (!path) {
+          status.textContent = `No documented path between ${idIndex.get(fromId).title} and ${idIndex.get(toId).title}.`;
+          return;
+        }
+        status.textContent = `${path.length - 1} hop${path.length - 1 === 1 ? '' : 's'}.`;
+        renderPath(data, path);
+      }
+
+      function renderPath(data, path) {
+        result.innerHTML = '';
+        const ol = document.createElement('ol');
+        ol.className = 'path-chain';
+        for (let i = 0; i < path.length; i++) {
+          const idx = path[i];
+          const id = data.ids[idx];
+          const title = data.titles[idx];
+          const type = data.types[idx];
+          const li = document.createElement('li');
+          li.className = `path-node type-${type}`;
+          if (i === 0) li.classList.add('is-start');
+          if (i === path.length - 1) li.classList.add('is-end');
+          const pool = idIndex.get(id);
+          const href = pool ? pool.href : '#';
+          li.innerHTML =
+            '<a class="pn-link" href="' + href + '">' +
+              '<span class="pn-type">' + (TYPE_LABELS[type] || type) + '</span>' +
+              '<span class="pn-title"></span>' +
+            '</a>';
+          li.querySelector('.pn-title').textContent = title;
+          ol.appendChild(li);
+          if (i < path.length - 1) {
+            const arrow = document.createElement('li');
+            arrow.className = 'path-arrow';
+            arrow.textContent = '→';
+            arrow.setAttribute('aria-hidden', 'true');
+            ol.appendChild(arrow);
+          }
+        }
+        result.appendChild(ol);
+        result.removeAttribute('hidden');
+      }
+
+      document.getElementById('path-form').addEventListener('submit', (e) => {
+        e.preventDefault();
+        findPath();
+      });
+
+      // Auto-run if both endpoints came from URL params — supports deep
+      // linking like /path/?from=elliott-abrams&to=manuel-noriega.
+      if (fromId && toId) findPath();
+    })();
+  </script>
+</Base>

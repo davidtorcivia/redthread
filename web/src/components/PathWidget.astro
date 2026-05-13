@@ -1,0 +1,199 @@
+---
+import { entities, hrefFor } from '../lib/data.ts';
+
+interface Props {
+  fromId: string;
+  fromTitle: string;
+}
+const { fromId, fromTitle } = Astro.props;
+
+// Reuse the same autocomplete pool as /path/. ~50KB; acceptable on
+// entity pages since it's already cached after the first one a user
+// visits.
+const pool = entities()
+  .filter((e) => e.id !== fromId)
+  .map((e) => ({ id: e.id, title: e.title, type: e.type, href: hrefFor({ id: e.id, type: e.type }) }));
+const widgetId = `pw-${fromId}`;
+---
+<section class="path-widget" data-from-id={fromId} id={widgetId}>
+  <div class="pw-head">
+    <h2 class="section-heading">Find a path from {fromTitle} to&hellip;</h2>
+    <a href={`/path/?from=${encodeURIComponent(fromId)}`} class="pw-full" aria-label="Open full path finder">
+      Full finder &rarr;
+    </a>
+  </div>
+  <form class="pw-form" autocomplete="off">
+    <div class="pw-field">
+      <input
+        type="text"
+        class="pw-input path-input"
+        placeholder="Type any entity name…"
+        autocomplete="off"
+        spellcheck="false"
+        aria-label="Target entity"
+      />
+      <ul class="pw-suggest path-suggest" role="listbox"></ul>
+    </div>
+    <button type="submit" class="pw-go path-go">Find path</button>
+  </form>
+  <div class="pw-result" hidden></div>
+  <div class="pw-status" hidden></div>
+</section>
+
+<script is:inline define:vars={{ pool, fromId, fromTitle, widgetId }}>
+  (function () {
+    const TYPE_LABELS = {
+      person: 'Person', organization: 'Organization', program: 'Program',
+      event: 'Event', concept: 'Concept', place: 'Place',
+      source: 'Source', meta: 'Meta', misc: 'Misc', page: 'Page',
+    };
+
+    const root = document.getElementById(widgetId);
+    if (!root) return;
+    const input = root.querySelector('.pw-input');
+    const suggestEl = root.querySelector('.pw-suggest');
+    const result = root.querySelector('.pw-result');
+    const status = root.querySelector('.pw-status');
+    const form = root.querySelector('.pw-form');
+
+    const idIndex = new Map(pool.map((p) => [p.id, p]));
+    let toId = null;
+
+    function suggest(q) {
+      q = q.trim().toLowerCase();
+      if (!q) return [];
+      const prefix = [], middle = [];
+      for (const p of pool) {
+        const t = p.title.toLowerCase();
+        if (t === q) prefix.unshift(p);
+        else if (t.startsWith(q)) prefix.push(p);
+        else if (t.includes(q)) middle.push(p);
+        if (prefix.length + middle.length > 60) break;
+      }
+      return prefix.concat(middle).slice(0, 8);
+    }
+    function renderSuggestions(items, onPick) {
+      suggestEl.innerHTML = '';
+      if (!items.length) { suggestEl.classList.remove('open'); return; }
+      for (const r of items) {
+        const li = document.createElement('li');
+        li.className = `path-suggest-item type-${r.type}`;
+        li.setAttribute('role', 'option');
+        li.dataset.entityId = r.id;
+        li.innerHTML =
+          '<span class="ps-type">' + (TYPE_LABELS[r.type] || r.type) + '</span>' +
+          '<span class="ps-title"></span>';
+        li.querySelector('.ps-title').textContent = r.title;
+        li.addEventListener('mousedown', (e) => { e.preventDefault(); onPick(r); });
+        suggestEl.appendChild(li);
+      }
+      suggestEl.classList.add('open');
+    }
+    input.addEventListener('input', () => {
+      toId = null;
+      renderSuggestions(suggest(input.value), (r) => {
+        input.value = r.title;
+        toId = r.id;
+        suggestEl.classList.remove('open');
+      });
+    });
+    input.addEventListener('blur', () => setTimeout(() => suggestEl.classList.remove('open'), 120));
+    input.addEventListener('keydown', (e) => {
+      if (e.key !== 'Enter') return;
+      const first = suggestEl.querySelector('.path-suggest-item');
+      if (first && suggestEl.classList.contains('open')) {
+        e.preventDefault();
+        const r = idIndex.get(first.dataset.entityId);
+        if (r) { input.value = r.title; toId = r.id; suggestEl.classList.remove('open'); }
+      }
+    });
+
+    // BFS reused from /path/ but inlined here for self-containment. We
+    // keep the adjacency fetch cached on `window` so navigating between
+    // entity pages doesn't re-download it.
+    function loadAdjacency() {
+      if (window._adjacency) return Promise.resolve(window._adjacency);
+      if (window._adjacencyP) return window._adjacencyP;
+      window._adjacencyP = fetch('/adjacency.json')
+        .then((r) => (r.ok ? r.json() : Promise.reject()))
+        .then((d) => {
+          d.idToIdx = new Map();
+          for (let i = 0; i < d.ids.length; i++) d.idToIdx.set(d.ids[i], i);
+          window._adjacency = d;
+          return d;
+        });
+      return window._adjacencyP;
+    }
+    function bfsPath(adj, src, dst) {
+      if (src === dst) return [src];
+      const prev = new Int32Array(adj.length).fill(-1);
+      prev[src] = src;
+      const queue = [src];
+      let head = 0;
+      while (head < queue.length) {
+        const v = queue[head++];
+        const neigh = adj[v];
+        for (let i = 0; i < neigh.length; i++) {
+          const w = neigh[i];
+          if (prev[w] !== -1) continue;
+          prev[w] = v;
+          if (w === dst) {
+            const path = [w];
+            let cur = w;
+            while (cur !== src) { cur = prev[cur]; path.push(cur); }
+            return path.reverse();
+          }
+          queue.push(w);
+        }
+      }
+      return null;
+    }
+
+    async function run() {
+      result.setAttribute('hidden', '');
+      result.innerHTML = '';
+      status.setAttribute('hidden', '');
+      if (!toId) { status.textContent = 'Pick a target.'; status.removeAttribute('hidden'); return; }
+      status.textContent = 'Loading network…'; status.removeAttribute('hidden');
+      const data = await loadAdjacency().catch(() => null);
+      if (!data) { status.textContent = 'Failed to load network.'; return; }
+      const si = data.idToIdx.get(fromId);
+      const ti = data.idToIdx.get(toId);
+      if (si == null || ti == null) { status.textContent = 'Entity missing from network.'; return; }
+      const path = bfsPath(data.adj, si, ti);
+      if (!path) { status.textContent = `No documented path to ${idIndex.get(toId).title}.`; return; }
+      status.textContent = `${path.length - 1} hop${path.length - 1 === 1 ? '' : 's'}.`;
+      const ol = document.createElement('ol');
+      ol.className = 'path-chain';
+      for (let i = 0; i < path.length; i++) {
+        const idx = path[i];
+        const id = data.ids[idx];
+        const title = data.titles[idx];
+        const type = data.types[idx];
+        const li = document.createElement('li');
+        li.className = `path-node type-${type}`;
+        if (i === 0) li.classList.add('is-start');
+        if (i === path.length - 1) li.classList.add('is-end');
+        const pe = idIndex.get(id);
+        const href = pe ? pe.href : '#';
+        li.innerHTML =
+          '<a class="pn-link" href="' + href + '">' +
+            '<span class="pn-type">' + (TYPE_LABELS[type] || type) + '</span>' +
+            '<span class="pn-title"></span>' +
+          '</a>';
+        li.querySelector('.pn-title').textContent = title;
+        ol.appendChild(li);
+        if (i < path.length - 1) {
+          const arrow = document.createElement('li');
+          arrow.className = 'path-arrow';
+          arrow.textContent = '→';
+          arrow.setAttribute('aria-hidden', 'true');
+          ol.appendChild(arrow);
+        }
+      }
+      result.appendChild(ol);
+      result.removeAttribute('hidden');
+    }
+    form.addEventListener('submit', (e) => { e.preventDefault(); run(); });
+  })();
+</script>

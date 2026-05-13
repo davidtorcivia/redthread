@@ -9,12 +9,25 @@ const items = related(id).slice(0, limit);
     <h2 class="section-heading">Connected to</h2>
     <div class="related-grid">
       {items.map((r) => (
-        <a class={`related-card type-${r.type}`} href={hrefFor({ id: r.id, type: r.type })}>
-          <div class="rc-eyebrow">{TYPE_LABELS[r.type]}</div>
-          <div class="rc-title">{r.title}</div>
-          {r.summary && <div class="rc-summary">{r.summary}</div>}
-          <div class="rc-count">{r.count} shared page{r.count === 1 ? '' : 's'}</div>
-        </a>
+        <article class={`related-card type-${r.type}`}>
+          <a class="rc-link" href={hrefFor({ id: r.id, type: r.type })} aria-label={r.title}>
+            <div class="rc-eyebrow">{TYPE_LABELS[r.type]}</div>
+            <div class="rc-title">{r.title}</div>
+            {r.summary && <div class="rc-summary">{r.summary}</div>}
+            <div class="rc-count">{r.count} shared page{r.count === 1 ? '' : 's'}</div>
+          </a>
+          {r.via && r.via.length > 0 && (
+            <div class="rc-via">
+              <span class="rc-via-label">via</span>
+              {r.via.map((v, i) => (
+                <>
+                  {i > 0 && <span class="rc-via-sep"> · </span>}
+                  <a class="rc-via-link" href={hrefFor({ id: v.id, type: v.type })}>{v.title}</a>
+                </>
+              ))}
+            </div>
+          )}
+        </article>
       ))}
     </div>
   </section>

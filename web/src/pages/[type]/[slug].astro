@@ -3,6 +3,7 @@ import Base from '../../layouts/Base.astro';
 import Backlinks from '../../components/Backlinks.astro';
 import Graph from '../../components/Graph.astro';
 import HiddenConnections from '../../components/HiddenConnections.astro';
+import PathWidget from '../../components/PathWidget.astro';
 import RelatedGrid from '../../components/RelatedGrid.astro';
 import TableOfContents from '../../components/TableOfContents.astro';
 import { entities, tagHref, TYPE_DIRS, TYPE_LABELS, TYPE_PLURALS } from '../../lib/data.ts';
@@ -130,6 +131,14 @@ const ogType = entity.type === 'person' ? 'profile' : 'article';
           <span class="meta-value">{entity.mention_count}</span>
         </span>
       )}
+      {entity.bridge_rank && (
+        <span class="meta-item">
+          <span class="bridge-badge" title={`Bridges otherwise-disconnected clusters in the network (network rank #${entity.bridge_rank}).`}>
+            <span class="bridge-icon" aria-hidden="true">⤬</span>
+            Bridge <span class="bridge-rank">#{entity.bridge_rank}</span>
+          </span>
+        </span>
+      )}
       {entity.tags.length > 0 && (
         <span class="meta-item">
           <span class="meta-label">Tags</span>
@@ -161,6 +170,8 @@ const ogType = entity.type === 'person' ? 'profile' : 'article';
     <RelatedGrid id={entity.id} />
 
     <HiddenConnections id={entity.id} />
+
+    <PathWidget fromId={entity.id} fromTitle={entity.title} />
 
     <Graph id={entity.id} title={entity.title} />
 

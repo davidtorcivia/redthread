@@ -26,6 +26,7 @@ const { id, title } = Astro.props;
         <span class="gs-title"></span>
       </div>
       <div class="gs-meta"><span class="gs-count"></span> mentions across the vault</div>
+      <div class="gs-bridge" hidden>Bridge entity (rank <span class="gs-bridge-rank"></span>)</div>
       <div class="gs-actions">
         <a class="gs-go" href="#">Go to page &rarr;</a>
         <button class="gs-deselect" type="button">Deselect</button>
@@ -43,6 +44,8 @@ const { id, title } = Astro.props;
     <span class="lg-divider">&middot;</span>
     <span class="lg-edge lg-edge-explicit"><i></i>Wikilink</span>
     <span class="lg-edge lg-edge-implicit"><i></i>Implicit (NER)</span>
+    <span class="lg-divider">&middot;</span>
+    <span class="lg-bridge"><i></i>Bridge entity</span>
   </div>
 </section>
 
@@ -63,6 +66,8 @@ const { id, title } = Astro.props;
     const selCount = section.querySelector('.gs-count');
     const selGo = section.querySelector('.gs-go');
     const selDeselect = section.querySelector('.gs-deselect');
+    const selBridge = section.querySelector('.gs-bridge');
+    const selBridgeRank = section.querySelector('.gs-bridge-rank');
     const tooltip = section.querySelector('.graph-tooltip');
 
     const TYPE_LABELS = {
@@ -97,6 +102,7 @@ const { id, title } = Astro.props;
         accentSoft:   get('--accent-soft',    '#c97a6a'),
         ink:          get('--ink',            '#1a1814'),
         paper:        get('--paper',          '#f7f2e7'),
+        gold:         get('--gold',           '#8a6e25'),
       };
     }
 
@@ -201,6 +207,10 @@ const { id, title } = Astro.props;
           isFocus: n.id === entityId ? 1 : 0,
           // 2-hop nodes (added later) carry hop=2 so we can dim them.
           hop: n.hop || 1,
+          // Bridge entities get a gold halo via a CSS style rule. The
+          // value is the network-wide bridge rank (1 = strongest).
+          isBridge: n.bridge_rank ? 1 : 0,
+          bridgeRank: n.bridge_rank || 0,
           size: nodeSize(n),
           color: colors[n.type] || colors.muted,
         },
@@ -298,6 +308,28 @@ const { id, title } = Astro.props;
               'opacity': 0.55,
               'text-opacity': 0.65,
               'font-size': 9,
+            },
+          },
+          {
+            // Bridge nodes — gold ring marks entities that connect
+            // otherwise-disconnected clusters in the network.
+            selector: 'node[isBridge = 1]',
+            style: {
+              'border-width': 2,
+              'border-color': colors.gold,
+              'border-opacity': 0.9,
+            },
+          },
+          {
+            // Focus + bridge: keep the accent for focus prominent but
+            // hint the bridge status via a slightly thicker, gold-tinted
+            // outline on the SECOND border. cytoscape doesn't support
+            // multi-border, so we use overlay padding as the "halo".
+            selector: 'node[isFocus = 1][isBridge = 1]',
+            style: {
+              'overlay-color': colors.gold,
+              'overlay-padding': 3,
+              'overlay-opacity': 0.25,
             },
           },
           {
@@ -401,6 +433,12 @@ const { id, title } = Astro.props;
         // The popup shows the vault-wide total (mention_count), separate
         // from the in-graph degree that's appended to the node label.
         selCount.textContent = d.count.toLocaleString();
+        if (d.bridgeRank) {
+          selBridgeRank.textContent = `#${d.bridgeRank}`;
+          selBridge.removeAttribute('hidden');
+        } else {
+          selBridge.setAttribute('hidden', '');
+        }
         if (d.id === entityId) {
           selGo.setAttribute('hidden', '');
           selGo.removeAttribute('href');

@@ -28,11 +28,13 @@ Write-Host "[build] (1/2) parsing vault..."
 & py -3 "$scriptDir\build\parse_vault.py" --vault $VaultPath --out "$scriptDir\data"
 if ($LASTEXITCODE -ne 0) { throw "parse failed" }
 
-# Copy previews.json + per-entity neighborhood JSONs into Astro public so
-# the browser can fetch them at runtime (hover previews + graph widget).
+# Copy runtime-fetched data into Astro public/. previews.json drives the
+# wikilink hover-preview popovers; adjacency.json drives the /path/ page;
+# the per-entity neighborhood JSONs drive the graph widget.
 $publicDir = Join-Path $scriptDir 'web\public'
 New-Item -ItemType Directory -Force -Path $publicDir | Out-Null
 Copy-Item -Force (Join-Path $scriptDir 'data\previews.json') (Join-Path $publicDir 'previews.json')
+Copy-Item -Force (Join-Path $scriptDir 'data\adjacency.json') (Join-Path $publicDir 'adjacency.json')
 
 $ngSrc = Join-Path $scriptDir 'data\api\neighborhood'
 $ngDst = Join-Path $publicDir 'api\neighborhood'

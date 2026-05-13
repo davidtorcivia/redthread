@@ -44,6 +44,8 @@ export interface Entity {
   wikilinks: Wikilink[];
   mention_count: number;
   page_density: number;
+  /** Top-50 bridge entity by betweenness centrality. Lower rank = stronger bridge. */
+  bridge_rank?: number;
   /**
    * Date fields populated from frontmatter when present. All values are
    * normalized to strings ("YYYY" or "YYYY-MM-DD") regardless of how
@@ -63,12 +65,20 @@ export interface Entity {
   locations: string[];
 }
 
+export interface RelatedVia {
+  id: string;
+  title: string;
+  type: EntityType;
+}
+
 export interface Related {
   id: string;
   count: number;
   type: EntityType;
   title: string;
   summary: string | null;
+  /** Up to 5 pages where this pair co-occurred — the evidence behind the connection. */
+  via?: RelatedVia[];
 }
 
 export interface Edge {

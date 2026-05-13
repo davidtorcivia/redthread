@@ -23,10 +23,12 @@ else
   python3 "$script_dir/build/parse_vault.py" --vault "$vault_path" --out "$script_dir/data"
 fi
 
-# Copy previews.json + per-entity neighborhood JSONs into Astro public so
-# the browser can fetch them at runtime (hover previews + graph widget).
+# Copy runtime-fetched data into Astro public/. previews.json drives the
+# wikilink hover-preview popovers; adjacency.json drives the /path/ page;
+# the per-entity neighborhood JSONs drive the graph widget.
 mkdir -p "$script_dir/web/public"
 cp -f "$script_dir/data/previews.json" "$script_dir/web/public/previews.json"
+cp -f "$script_dir/data/adjacency.json" "$script_dir/web/public/adjacency.json"
 
 ng_dst="$script_dir/web/public/api/neighborhood"
 rm -rf "$ng_dst"

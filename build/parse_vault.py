@@ -310,7 +310,9 @@ def compute_relationships(
 ) -> tuple[dict[str, list[dict[str, Any]]], dict[str, int], dict[str, int]]:
     """
     Compute three indices:
-      related: entity_id -> [{id, count, type, title, summary}, ...] top N by co-occurrence
+      related: entity_id -> [{id, count, type, title, summary, via}, ...]
+               top N by co-occurrence. `via` is up to 5 page references
+               where the pair co-occurred — the evidence behind the link.
       mention_count: entity_id -> total inbound mentions (page count)
       page_density: entity_id -> number of distinct entities its page touches
 
@@ -328,33 +330,54 @@ def compute_relationships(
         s = page_ents.setdefault(edge["source"], {edge["source"]})
         s.add(edge["target_id"])
 
-    # Pair counts. Skip very dense pages (>40 entities) since they swamp the signal.
-    pair: Counter = Counter()
-    for ents in page_ents.values():
+    # Track WHICH pages contributed each co-occurrence pair so we can surface
+    # them as evidence on the Connected-to cards. Skip very dense pages
+    # (>40 entities) since they swamp the signal AND would explode the
+    # via-list memory.
+    pair_pages: dict[tuple[str, str], list[str]] = defaultdict(list)
+    for src, ents in page_ents.items():
         if len(ents) > 40:
             continue
         items = sorted(ents)
         for i, a in enumerate(items):
             for b in items[i + 1:]:
-                pair[(a, b)] += 1
+                pair_pages[(a, b)].append(src)
 
-    per_entity: dict[str, list[tuple[str, int]]] = defaultdict(list)
-    for (a, b), c in pair.items():
-        per_entity[a].append((b, c))
-        per_entity[b].append((a, c))
+    # per_entity[a] = [(neighbor_id, [pages...]), ...]
+    per_entity: dict[str, list[tuple[str, list[str]]]] = defaultdict(list)
+    for (a, b), pages in pair_pages.items():
+        per_entity[a].append((b, pages))
+        per_entity[b].append((a, pages))
+
+    # When ranking neighbors for an entity, prefer pages that aren't the
+    # entity itself (a page co-occurring with itself is trivially true)
+    # and the most-referenced co-occurrences first.
+    def via_for(eid: str, pages: list[str]) -> list[dict[str, Any]]:
+        seen = set()
+        out = []
+        for p in pages:
+            if p == eid or p in seen or p not in by_id:
+                continue
+            seen.add(p)
+            target = by_id[p]
+            out.append({"id": p, "title": target["title"], "type": target["type"]})
+            if len(out) >= 5:
+                break
+        return out
 
     related: dict[str, list[dict[str, Any]]] = {}
     for eid, rels in per_entity.items():
-        rels.sort(key=lambda x: (-x[1], x[0]))
+        rels.sort(key=lambda x: (-len(x[1]), x[0]))
         related[eid] = [
             {
                 "id": rid,
-                "count": cnt,
+                "count": len(pages),
                 "type": by_id[rid]["type"] if rid in by_id else "page",
                 "title": by_id[rid]["title"] if rid in by_id else rid,
                 "summary": (by_id[rid].get("summary") if rid in by_id else None),
+                "via": via_for(eid, pages),
             }
-            for rid, cnt in rels[:top_n]
+            for rid, pages in rels[:top_n]
             if rid in by_id
         ]
 
@@ -759,6 +782,106 @@ def load_config(path: Path | None) -> dict[str, Any]:
     return cfg
 
 
+def build_adjacency(
+    entities: list[dict[str, Any]],
+    edges: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """Compact undirected adjacency map for client-side path-finding.
+
+    Uses parallel arrays with numeric indices instead of a {slug: [slug...]}
+    object — same data in roughly a third the bytes, since slug strings
+    only appear once each. Includes both explicit and implicit edges,
+    because researchers care about any documented connection.
+
+    Shape:
+      { ids: [slug, slug, ...],
+        titles: [title, title, ...],
+        types: [type, type, ...],
+        adj: [[neighbor_idx, ...], ...] }   parallel to ids[].
+    """
+    eid_to_idx: dict[str, int] = {}
+    ids: list[str] = []
+    titles: list[str] = []
+    types: list[str] = []
+    for i, e in enumerate(entities):
+        eid_to_idx[e["id"]] = i
+        ids.append(e["id"])
+        titles.append(e["title"])
+        types.append(e["type"])
+
+    adj_sets: list[set[int]] = [set() for _ in entities]
+    for edge in edges:
+        s, t = edge.get("source"), edge.get("target_id")
+        if not s or not t or s == t:
+            continue
+        si = eid_to_idx.get(s)
+        ti = eid_to_idx.get(t)
+        if si is None or ti is None:
+            continue
+        adj_sets[si].add(ti)
+        adj_sets[ti].add(si)
+
+    adj = [sorted(s) for s in adj_sets]
+    return {"ids": ids, "titles": titles, "types": types, "adj": adj}
+
+
+def compute_betweenness(adj: list[list[int]]) -> list[float]:
+    """Brandes' algorithm for unweighted-graph betweenness centrality.
+
+    Returns a list parallel to `adj` with per-node bridge scores in
+    [0, 1] (normalized for undirected graphs).
+
+    Complexity: O(V * (V + E)). For this vault (~1,811 nodes, ~28k
+    edges) that's about 50M operations — runs in roughly 20 seconds
+    in pure Python on a modern laptop. Acceptable for a once-per-build
+    pass; we'd switch to sampling if the vault grew an order of
+    magnitude.
+    """
+    n = len(adj)
+    cb = [0.0] * n
+    if n < 3:
+        return cb
+
+    from collections import deque
+
+    for s in range(n):
+        # Single-source BFS, tracking predecessor DAG + shortest-path counts.
+        stack: list[int] = []
+        pred: list[list[int]] = [[] for _ in range(n)]
+        sigma = [0] * n
+        sigma[s] = 1
+        dist = [-1] * n
+        dist[s] = 0
+        queue = deque([s])
+        while queue:
+            v = queue.popleft()
+            stack.append(v)
+            dv = dist[v]
+            sv = sigma[v]
+            for w in adj[v]:
+                if dist[w] < 0:
+                    queue.append(w)
+                    dist[w] = dv + 1
+                if dist[w] == dv + 1:
+                    sigma[w] += sv
+                    pred[w].append(v)
+        # Back-accumulate dependency scores.
+        delta = [0.0] * n
+        while stack:
+            w = stack.pop()
+            dw = delta[w]
+            sw = sigma[w]
+            for v in pred[w]:
+                delta[v] += (sigma[v] / sw) * (1.0 + dw)
+            if w != s:
+                cb[w] += delta[w]
+
+    # Each shortest path is counted from both endpoints in an undirected
+    # graph, so halve. Then normalize by the maximum-possible pair count.
+    scale = 1.0 / ((n - 1) * (n - 2))
+    return [c * scale for c in cb]
+
+
 def build_neighborhoods(
     entities: list[dict[str, Any]],
     edges: list[dict[str, Any]],
@@ -805,15 +928,18 @@ def build_neighborhoods(
         )[:max_neighbors]
         keep = {nid for nid, _ in ranked} | {eid}
 
-        nodes = [
-            {
+        nodes = []
+        for nid in keep:
+            n = {
                 "id": nid,
                 "title": by_id[nid]["title"],
                 "type": by_id[nid]["type"],
                 "mention_count": by_id[nid].get("mention_count", 0),
             }
-            for nid in keep
-        ]
+            br = by_id[nid].get("bridge_rank")
+            if br:
+                n["bridge_rank"] = br
+            nodes.append(n)
 
         # Edges among kept nodes, in either direction. Collapse same-pair
         # explicit + implicit into one entry with both weights (the renderer
@@ -846,7 +972,8 @@ def write_outputs(out_dir: Path, entities: list[dict[str, Any]],
                   slug_index: dict[str, str], edges: list[dict[str, Any]],
                   stats: dict[str, Any],
                   related: dict[str, list[dict[str, Any]]] | None = None,
-                  neighborhoods: dict[str, dict[str, Any]] | None = None) -> None:
+                  neighborhoods: dict[str, dict[str, Any]] | None = None,
+                  adjacency: dict[str, Any] | None = None) -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
 
     (out_dir / "entities.json").write_text(_dump(entities), encoding="utf-8")
@@ -909,6 +1036,14 @@ def write_outputs(out_dir: Path, entities: list[dict[str, Any]],
                 "summary": e["summary"],
                 "text": strip.sub("", e.get("body_html", "")),
             }, ensure_ascii=False, default=_json_default) + "\n")
+
+    # Compact adjacency map for client-side path-finding. ~250KB; fetched
+    # by /path/ on demand and cached in the browser thereafter.
+    if adjacency is not None:
+        (out_dir / "adjacency.json").write_text(
+            json.dumps(adjacency, ensure_ascii=False, separators=(",", ":"), default=_json_default),
+            encoding="utf-8",
+        )
 
     # Per-entity neighborhood data: lazy-loaded by the graph widget on each
     # entity page. One small JSON per entity beats one 10MB monolith because
@@ -978,10 +1113,33 @@ def main() -> int:
     render_html(entities, slug_index)
     related, mention_count, page_density = compute_relationships(entities, edges)
 
-    # Attach mention_count to each entity so the frontend can rank hubs cheaply
+    # Adjacency + betweenness centrality. Adjacency feeds the client-side
+    # path finder; centrality identifies bridge nodes — entities that
+    # connect otherwise-separate clusters. Researchers care about bridges
+    # because they're usually the most non-obvious links in a network.
+    adjacency = build_adjacency(entities, edges)
+    print(f"[parse] computing betweenness centrality ({len(adjacency['adj'])} nodes)...")
+    t_bc = time.time()
+    bc = compute_betweenness(adjacency["adj"])
+    print(f"[parse] betweenness done in {round(time.time() - t_bc, 1)}s")
+
+    # Identify top-50 bridge entities. Below the cutoff, the score is noisy
+    # enough that adding a "Bridge" badge would devalue the signal.
+    BRIDGE_TOP_N = 50
+    ranked = sorted(enumerate(bc), key=lambda x: -x[1])[:BRIDGE_TOP_N]
+    bridge_rank: dict[str, int] = {}
+    for rank, (idx, score) in enumerate(ranked, start=1):
+        if score <= 0:
+            break
+        bridge_rank[adjacency["ids"][idx]] = rank
+
+    # Attach mention_count + bridge_rank to each entity so the frontend can
+    # rank hubs and badge bridges cheaply.
     for e in entities:
         e["mention_count"] = mention_count.get(e["id"], 0)
         e["page_density"] = page_density.get(e["id"], 0)
+        if e["id"] in bridge_rank:
+            e["bridge_rank"] = bridge_rank[e["id"]]
 
     type_counts = Counter(e["type"] for e in entities)
     untyped = [e["path"] for e in entities if e["type"] == "page"][:20]
@@ -1021,7 +1179,7 @@ def main() -> int:
     }
 
     neighborhoods = build_neighborhoods(entities, edges)
-    write_outputs(args.out, entities, slug_index, edges, stats, related, neighborhoods)
+    write_outputs(args.out, entities, slug_index, edges, stats, related, neighborhoods, adjacency)
 
     print(f"[done] {len(entities)} entities, {len(edges)} edges "
           f"({stats['resolved_edges']} resolved, {stats['unresolved_edges']} unresolved) "
