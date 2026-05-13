@@ -1,0 +1,27 @@
+# Build context is the vault clone root. Trim everything that doesn't
+# need to be in the image to keep build fast and small.
+
+# Vault assets we don't render
+IMAGES/
+TEMP/
+
+# Build outputs
+_web/data/
+_web/web/node_modules/
+_web/web/dist/
+_web/web/.astro/
+
+# Dev / VCS / OS
+.git/
+.gitignore
+.obsidian/
+.DS_Store
+Thumbs.db
+
+# Build scripts not needed inside the image (we run parse_vault.py directly)
+_web/build.sh
+_web/build.ps1
+
+# Other
+*.log
+*.tmp

@@ -1,0 +1,37 @@
+---
+import { implicitMentions, hrefFor, TYPE_LABELS } from '../lib/data.ts';
+
+interface Props {
+  id: string;
+  limit?: number;
+}
+const { id, limit = 30 } = Astro.props;
+const items = implicitMentions(id).slice(0, limit);
+const total = implicitMentions(id).length;
+---
+{items.length > 0 && (
+  <section class="hidden-connections">
+    <h2 class="section-heading">
+      Hidden connections
+      <span class="hc-count-badge">{total}</span>
+    </h2>
+    <p class="hc-blurb">
+      Entities named in this page's prose without an explicit wikilink — surfaced by scanning for known
+      titles and aliases.
+    </p>
+    <ul class="hc-list">
+      {items.map((m) => (
+        <li class={`hc-item type-${m.type}`}>
+          <a href={hrefFor({ id: m.id, type: m.type })}>
+            <span class="hc-eyebrow">{TYPE_LABELS[m.type]}</span>
+            <span class="hc-title">{m.title}</span>
+            {m.surface !== m.title && (
+              <span class="hc-surface">as &ldquo;{m.surface}&rdquo;</span>
+            )}
+            {m.count > 1 && <span class="hc-mult">&times;{m.count}</span>}
+          </a>
+        </li>
+      ))}
+    </ul>
+  </section>
+)}

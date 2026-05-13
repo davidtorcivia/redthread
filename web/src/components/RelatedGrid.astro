@@ -1,0 +1,21 @@
+---
+import { related, hrefFor, TYPE_LABELS } from '../lib/data.ts';
+interface Props { id: string; limit?: number }
+const { id, limit = 8 } = Astro.props;
+const items = related(id).slice(0, limit);
+---
+{items.length > 0 && (
+  <section class="related-section">
+    <h2 class="section-heading">Connected to</h2>
+    <div class="related-grid">
+      {items.map((r) => (
+        <a class={`related-card type-${r.type}`} href={hrefFor({ id: r.id, type: r.type })}>
+          <div class="rc-eyebrow">{TYPE_LABELS[r.type]}</div>
+          <div class="rc-title">{r.title}</div>
+          {r.summary && <div class="rc-summary">{r.summary}</div>}
+          <div class="rc-count">{r.count} shared page{r.count === 1 ? '' : 's'}</div>
+        </a>
+      ))}
+    </div>
+  </section>
+)}

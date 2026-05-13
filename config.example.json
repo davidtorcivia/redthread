@@ -1,0 +1,24 @@
+{
+  "vaultPath": "..",
+  "siteTitle": "The Info Web",
+  "siteUrl": "https://infoweb.local",
+  "skipPathPatterns": [
+    "DATAVIEW - *.md",
+    "MOC - *.md",
+    "KEY *.md",
+    "TEMP/**",
+    ".obsidian/**",
+    "IMAGES/**"
+  ],
+  "typeMap": {
+    "10 - PEOPLE": "person",
+    "20 - ORGANIZATIONS": "organization",
+    "30 - PROGRAMS & PROJECTS": "program",
+    "40 - EVENTS": "event",
+    "50 - CONCEPTS & TECHNOLOGY": "concept",
+    "60 - PLACES": "place",
+    "80 - SOURCES": "source",
+    "00 - META": "meta",
+    "90 - MISC": "misc"
+  }
+}

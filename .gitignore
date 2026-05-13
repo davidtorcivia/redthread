@@ -1,0 +1,28 @@
+# Local config (template lives at config.example.json)
+config.json
+
+# Generated data — recreated by `py build/parse_vault.py`
+data/*.json
+data/*.jsonl
+data/api/
+
+# Astro build artifacts
+web/node_modules/
+web/dist/
+web/.astro/
+web/src/content/generated/
+
+# Files copied into Astro public/ by the build scripts (regenerated)
+web/public/previews.json
+web/public/api/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

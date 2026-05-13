@@ -1,0 +1,236 @@
+---
+import '../styles/global.css';
+interface Props {
+  title: string;
+  description?: string;
+  bodyClass?: string;
+}
+const { title, description, bodyClass } = Astro.props;
+---
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{title}</title>
+    {description && <meta name="description" content={description} />}
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' fill='%23f7f2e7'/%3E%3Ctext y='.85em' x='8' font-family='Georgia,serif' font-size='86' font-weight='600' fill='%2394322a'%3EI%3C/text%3E%3C/svg%3E" />
+    <link href="/pagefind/pagefind-ui.css" rel="stylesheet" />
+    <script src="/pagefind/pagefind-ui.js" is:inline></script>
+    {/* Preload the graph stack. Browsers fetch these in parallel with HTML
+        render, so by the time the user scrolls to the graph section the
+        scripts are already cached and only need to execute. */}
+    <link rel="preload" as="script" href="https://unpkg.com/cytoscape@3.30.4/dist/cytoscape.min.js" crossorigin />
+    <link rel="preload" as="script" href="https://unpkg.com/layout-base@2.0.1/layout-base.js" crossorigin />
+    <link rel="preload" as="script" href="https://unpkg.com/cose-base@2.2.0/cose-base.js" crossorigin />
+    <link rel="preload" as="script" href="https://unpkg.com/cytoscape-fcose@2.2.0/cytoscape-fcose.js" crossorigin />
+  </head>
+  <body class={bodyClass}>
+    <header class="site">
+      <div class="bar">
+        <a href="/" class="brand">The Info Web</a>
+        <nav>
+          <a href="/people/">People</a>
+          <a href="/organizations/">Organizations</a>
+          <a href="/programs/">Programs</a>
+          <a href="/events/">Events</a>
+          <a href="/concepts/">Concepts</a>
+          <a href="/places/">Places</a>
+        </nav>
+        <span class="spacer"></span>
+        <button class="search-trigger" id="search-open" type="button" aria-label="Open search (Command-K)">
+          <span>Search</span>
+          <kbd>⌘ K</kbd>
+        </button>
+      </div>
+    </header>
+    <main>
+      <slot />
+    </main>
+    <footer class="site">
+      <div class="container">
+        <div class="colophon">
+          The Info Web · a research vault on intelligence operations, parapsychology, and the parapolitical record.
+        </div>
+        <a href="#top" class="to-top">↑ Top</a>
+      </div>
+    </footer>
+
+    <div id="pf-modal" role="dialog" aria-modal="true" aria-label="Search">
+      <div class="pf-shell">
+        <div id="pf-mount"></div>
+      </div>
+    </div>
+
+    <script is:inline>
+      // ---------- Hover previews on wikilinks ----------
+      (function () {
+        if (!window.matchMedia('(hover: hover)').matches) return;
+        const TYPE_DIRS = {
+          person: 'people', organization: 'organizations', program: 'programs',
+          event: 'events', concept: 'concepts', place: 'places', source: 'sources',
+          meta: 'meta', misc: 'misc', page: 'pages',
+        };
+        let previews = null;
+        let previewsPromise = null;
+        let pop = null;
+        let openTimer = null;
+        let hideTimer = null;
+        let currentLink = null;
+        function loadAll() {
+          if (previews) return Promise.resolve(previews);
+          if (previewsPromise) return previewsPromise;
+          previewsPromise = fetch('/previews.json')
+            .then((r) => (r.ok ? r.json() : null))
+            .then((d) => { previews = d || {}; return previews; })
+            .catch(() => { previews = {}; return previews; });
+          return previewsPromise;
+        }
+
+        function ensurePop() {
+          if (pop) return pop;
+          pop = document.createElement('div');
+          pop.className = 'hover-preview';
+          pop.addEventListener('mouseenter', () => clearTimeout(hideTimer));
+          pop.addEventListener('mouseleave', scheduleHide);
+          document.body.appendChild(pop);
+          return pop;
+        }
+        function slugFromHref(href) {
+          if (!href) return null;
+          const m = href.match(/^\/[^/]+\/([^/?#]+)\/?(#|\?|$)/);
+          return m ? m[1] : null;
+        }
+        function esc(s) {
+          return String(s == null ? '' : s).replace(/[&<>"']/g, (c) => (
+            { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
+          ));
+        }
+        async function load(slug) {
+          const data = await loadAll();
+          const hit = data && data[slug];
+          if (!hit) return null;
+          return { id: slug, ...hit };
+        }
+        function render(data, link) {
+          const el = ensurePop();
+          const rels = (data.related || []).slice(0, 4).map((r) => {
+            const dir = TYPE_DIRS[r.type] || 'pages';
+            return '<a href="/' + dir + '/' + r.id + '/">' + esc(r.title) + '</a>';
+          }).join(' · ');
+          const type = data.type ? data.type.charAt(0).toUpperCase() + data.type.slice(1) : '';
+          el.innerHTML =
+            '<div class="hp-eyebrow">' + esc(type) +
+            (data.category ? ' &middot; ' + esc(data.category) : '') + '</div>' +
+            '<div class="hp-title">' + esc(data.title) + '</div>' +
+            (data.summary ? '<p class="hp-summary">' + esc(data.summary) + '</p>' : '') +
+            (rels ? '<div class="hp-related"><span class="label">Connected</span> ' + rels + '</div>' : '');
+          position(el, link);
+          el.classList.add('visible');
+        }
+        function position(el, link) {
+          const r = link.getBoundingClientRect();
+          el.style.visibility = 'hidden';
+          el.classList.add('visible');
+          const w = el.offsetWidth || 352;
+          const h = el.offsetHeight || 180;
+          el.classList.remove('visible');
+          el.style.visibility = '';
+          let left = r.left + window.scrollX;
+          const maxLeft = window.scrollX + window.innerWidth - w - 12;
+          if (left > maxLeft) left = maxLeft;
+          if (left < window.scrollX + 8) left = window.scrollX + 8;
+          const below = r.bottom + h + 16 < window.scrollY + window.innerHeight ||
+                        r.top < window.innerHeight / 2;
+          const top = below ? r.bottom + window.scrollY + 6 : r.top + window.scrollY - h - 6;
+          el.style.left = left + 'px';
+          el.style.top = top + 'px';
+        }
+        function scheduleHide() {
+          clearTimeout(hideTimer);
+          hideTimer = setTimeout(() => { if (pop) pop.classList.remove('visible'); }, 180);
+        }
+        document.addEventListener('mouseover', (e) => {
+          const link = e.target.closest && e.target.closest('a.wikilink:not(.unresolved)');
+          if (!link || link === currentLink) return;
+          currentLink = link;
+          clearTimeout(openTimer);
+          clearTimeout(hideTimer);
+          openTimer = setTimeout(async () => {
+            const slug = slugFromHref(link.getAttribute('href'));
+            if (!slug) return;
+            const data = await load(slug);
+            if (data && link === currentLink) render(data, link);
+          }, 320);
+        });
+        document.addEventListener('mouseout', (e) => {
+          const link = e.target.closest && e.target.closest('a.wikilink');
+          if (!link) return;
+          if (e.relatedTarget && (
+              e.relatedTarget.closest && e.relatedTarget.closest('.hover-preview')
+          )) return;
+          clearTimeout(openTimer);
+          currentLink = null;
+          scheduleHide();
+        });
+      })();
+
+      // ---------- ⌘K search modal (Mac convention) ----------
+      window.addEventListener('DOMContentLoaded', () => {
+        const modal = document.getElementById('pf-modal');
+        const mount = document.getElementById('pf-mount');
+        const trigger = document.getElementById('search-open');
+        let pfReady = false;
+
+        function init() {
+          if (pfReady) return;
+          if (!window.PagefindUI) return;
+          new window.PagefindUI({
+            element: '#pf-mount',
+            showImages: false,
+            showSubResults: true,
+            resetStyles: false,
+            placeholder: 'Search the vault…',
+          });
+          pfReady = true;
+        }
+        // Eager init: Pagefind mounts its DOM at page-load so the input
+        // exists before the modal is opened (avoids the "can't type" race).
+        init();
+
+        function focusInput(retries) {
+          if (retries === undefined) retries = 12;
+          const input = mount.querySelector('input');
+          if (input) {
+            input.focus();
+            try { input.select(); } catch (_) { /* ok */ }
+          } else if (retries > 0) {
+            setTimeout(() => focusInput(retries - 1), 40);
+          }
+        }
+        function openModal() {
+          init();
+          modal.classList.add('open');
+          requestAnimationFrame(() => focusInput());
+        }
+        function closeModal() {
+          modal.classList.remove('open');
+          if (trigger) trigger.focus();
+        }
+        trigger && trigger.addEventListener('click', openModal);
+        modal && modal.addEventListener('mousedown', (e) => {
+          if (e.target === modal) closeModal();
+        });
+        document.addEventListener('keydown', (e) => {
+          if (e.metaKey && !e.ctrlKey && !e.altKey && e.key.toLowerCase() === 'k') {
+            e.preventDefault();
+            if (modal.classList.contains('open')) closeModal();
+            else openModal();
+          } else if (e.key === 'Escape' && modal.classList.contains('open')) {
+            closeModal();
+          }
+        });
+      });
+    </script>
+  </body>
+</html>

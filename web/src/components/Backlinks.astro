@@ -1,0 +1,24 @@
+---
+import { backlinks, hrefFor, TYPE_LABELS } from '../lib/data.ts';
+interface Props { id: string }
+const { id } = Astro.props;
+const links = backlinks(id).sort((a, b) => a.source_title.localeCompare(b.source_title));
+---
+{links.length > 0 && (
+  <section class="backlinks hc-list-section">
+    <h2 class="section-heading">
+      Mentioned in
+      <span class="hc-count-badge">{links.length}</span>
+    </h2>
+    <ul class="hc-list">
+      {links.map((b) => (
+        <li class={`hc-item type-${b.source_type}`}>
+          <a href={hrefFor({ id: b.source_id, type: b.source_type })}>
+            <span class="hc-eyebrow">{TYPE_LABELS[b.source_type]}</span>
+            <span class="hc-title">{b.source_title}</span>
+          </a>
+        </li>
+      ))}
+    </ul>
+  </section>
+)}

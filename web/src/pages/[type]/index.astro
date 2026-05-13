@@ -1,0 +1,100 @@
+---
+import Base from '../../layouts/Base.astro';
+import { entitiesByType, hrefFor, TYPE_DIRS, TYPE_PLURALS } from '../../lib/data.ts';
+import type { EntityType, Entity } from '../../lib/types.ts';
+
+export function getStaticPaths() {
+  const types: EntityType[] = ['person', 'organization', 'program', 'event', 'concept', 'place', 'source'];
+  return types.map((t) => ({ params: { type: TYPE_DIRS[t] }, props: { entityType: t } }));
+}
+
+const { entityType } = Astro.props as { entityType: EntityType };
+const items = entitiesByType(entityType).sort((a, b) => a.title.localeCompare(b.title));
+
+// Group by category
+const byCategory = new Map<string, Entity[]>();
+for (const e of items) {
+  const cat = e.category ?? 'Uncategorized';
+  if (!byCategory.has(cat)) byCategory.set(cat, []);
+  byCategory.get(cat)!.push(e);
+}
+
+// Categories: put "Key Figures" / "Key Events" etc. first, then alphabetical
+const featuredKeys = ['Key Figures', 'Key Events', 'Key Organizations', 'Key Programs', 'Key Places', 'Key Concepts'];
+const allCats = Array.from(byCategory.keys());
+const ordered = [
+  ...featuredKeys.filter((k) => byCategory.has(k)),
+  ...allCats.filter((c) => !featuredKeys.includes(c)).sort(),
+];
+
+// Alphabet index: letters present in any title
+const letters = Array.from(new Set(items.map((e) => e.title[0]?.toUpperCase()).filter((l) => /[A-Z]/.test(l ?? '')))).sort();
+const allAlpha = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('');
+
+const plural = TYPE_PLURALS[entityType];
+
+// For each category, mark whether it should be expanded by default.
+// Featured ones expanded; others collapsed if there are many.
+const expandedSet = new Set(featuredKeys);
+const manyCategories = ordered.length > 4;
+---
+<Base title={`${plural} — The Info Web`}>
+  <header class="browse-header">
+    <div class="kicker">Browse</div>
+    <h1>{plural}</h1>
+    <p class="lead">
+      {items.length.toLocaleString()} {plural.toLowerCase()} across {ordered.length} categories.
+      Categories of central interest are expanded; click any heading to expand or collapse.
+    </p>
+  </header>
+
+  {letters.length > 0 && (
+    <nav class="alphabet-nav" aria-label="Jump to letter">
+      {allAlpha.map((L) => letters.includes(L)
+        ? <a href={`#letter-${L}`}>{L}</a>
+        : <a class="disabled" aria-disabled="true">{L}</a>
+      )}
+    </nav>
+  )}
+
+  <div class="browse-body">
+    {ordered.map((cat) => {
+      const list = byCategory.get(cat)!;
+      const collapsed = manyCategories && !expandedSet.has(cat);
+      return (
+        <section class="cat-section" data-collapsed={String(collapsed)}>
+          <h2>
+            {cat}
+            <span class="count">{list.length.toLocaleString()}</span>
+            <button type="button" class="toggle" data-toggle>
+              {collapsed ? 'Expand' : 'Collapse'}
+            </button>
+          </h2>
+          <p class="cat-peek">
+            Peek: {list.slice(0, 3).map((e) => e.title).join(' · ')}…
+          </p>
+          <ul class="cat-list">
+            {list.map((e, i) => (
+              <li id={i === 0 ? `letter-${e.title[0]?.toUpperCase()}` : undefined}>
+                <a class="entry-title" href={hrefFor(e)}>{e.title}</a>
+                {e.summary && <span class="entry-summary">{e.summary}</span>}
+              </li>
+            ))}
+          </ul>
+        </section>
+      );
+    })}
+  </div>
+
+  <script is:inline>
+    document.querySelectorAll('[data-toggle]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const section = btn.closest('.cat-section');
+        if (!section) return;
+        const collapsed = section.getAttribute('data-collapsed') === 'true';
+        section.setAttribute('data-collapsed', String(!collapsed));
+        btn.textContent = collapsed ? 'Collapse' : 'Expand';
+      });
+    });
+  </script>
+</Base>

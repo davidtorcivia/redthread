@@ -1,0 +1,87 @@
+---
+import Base from '../layouts/Base.astro';
+import { entities, entitiesByType, hrefFor, topHubs, TYPE_DIRS, TYPE_LABELS, TYPE_PLURALS } from '../lib/data.ts';
+import type { EntityType } from '../lib/types.ts';
+
+const total = entities().length;
+const headlineTypes: EntityType[] = ['person', 'organization', 'program', 'event', 'concept', 'place'];
+
+// Featured: highest-mentioned program or event (more story-shaped than a person)
+const featuredPool = [...entitiesByType('program'), ...entitiesByType('event')]
+  .sort((a, b) => (b.mention_count ?? 0) - (a.mention_count ?? 0));
+const featured = featuredPool[0];
+
+// Hubs by type — top 8 most-mentioned in each
+const peopleHubs = topHubs(8, 'person');
+const orgHubs = topHubs(8, 'organization');
+
+const counts = headlineTypes.map((t) => ({
+  type: t,
+  label: TYPE_PLURALS[t],
+  dir: TYPE_DIRS[t],
+  count: entitiesByType(t).length,
+}));
+---
+<Base
+  title="The Info Web"
+  description="A research vault on intelligence operations, parapsychology, government programs, and the parapolitical record."
+>
+  <section class="home-hero">
+    <div class="masthead">An Index of the Parapolitical Record</div>
+    <h1>The Info Web</h1>
+    <p class="tagline">
+      {total.toLocaleString()} cross-linked entries on intelligence operations, parapsychology research,
+      government programs, scandals, and the people who moved through them.
+    </p>
+  </section>
+
+  {featured && (
+    <section class="home-section">
+      <h2 class="section-heading">In focus</h2>
+      <div class="featured-card">
+        <div class="fc-eyebrow">{TYPE_LABELS[featured.type]} · {featured.category ?? 'Featured'}</div>
+        <a href={hrefFor(featured)} class="fc-title">{featured.title}</a>
+        {featured.summary && <p class="fc-dek">{featured.summary}</p>}
+        <div class="fc-meta">Referenced on {featured.mention_count.toLocaleString()} pages</div>
+      </div>
+    </section>
+  )}
+
+  <section class="home-section">
+    <h2 class="section-heading">Network hubs · People</h2>
+    <ol class="hub-list">
+      {peopleHubs.map((e, i) => (
+        <li>
+          <span class="hub-rank">{(i + 1).toString().padStart(2, '0')}</span>
+          <a href={hrefFor(e)}>{e.title}</a>
+          <span class="hub-count">{e.mention_count}</span>
+        </li>
+      ))}
+    </ol>
+  </section>
+
+  <section class="home-section">
+    <h2 class="section-heading">Network hubs · Organizations</h2>
+    <ol class="hub-list">
+      {orgHubs.map((e, i) => (
+        <li>
+          <span class="hub-rank">{(i + 1).toString().padStart(2, '0')}</span>
+          <a href={hrefFor(e)}>{e.title}</a>
+          <span class="hub-count">{e.mention_count}</span>
+        </li>
+      ))}
+    </ol>
+  </section>
+
+  <section class="home-section">
+    <h2 class="section-heading">Browse</h2>
+    <div class="type-strip">
+      {counts.map((c) => (
+        <a href={`/${c.dir}/`}>
+          <span class="ts-label">{c.label}</span>
+          <span class="ts-count">{c.count.toLocaleString()} entries</span>
+        </a>
+      ))}
+    </div>
+  </section>
+</Base>

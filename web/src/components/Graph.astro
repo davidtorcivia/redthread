@@ -1,0 +1,763 @@
+---
+interface Props {
+  id: string;
+  title: string;
+}
+const { id, title } = Astro.props;
+---
+<section class="graph-section" data-graph-entity={id}>
+  <h2 class="section-heading">Local network</h2>
+  <p class="graph-blurb">
+    {title}'s one-hop neighbors, sized by total mentions and colored by type.
+    Drag nodes to rearrange; click to navigate.
+  </p>
+  <div class="graph-shell">
+    <div class="graph-canvas" aria-label={`Network graph for ${title}`}></div>
+    <div class="graph-status">Loading network&hellip;</div>
+    <div class="graph-controls">
+      <button class="graph-btn graph-layout" type="button" aria-label="Cycle graph layout">Layout: Force</button>
+      <button class="graph-btn graph-twohop" type="button" aria-pressed="false">+ 2&#8209;hop</button>
+      <button class="graph-btn graph-fit" type="button" aria-label="Refit graph to view">Refit</button>
+      <button class="graph-btn graph-fullscreen" type="button" aria-pressed="false" aria-label="Toggle fullscreen graph">Fullscreen</button>
+    </div>
+    <div class="graph-selection" hidden>
+      <div class="gs-row">
+        <span class="gs-eyebrow"></span>
+        <span class="gs-title"></span>
+      </div>
+      <div class="gs-meta"><span class="gs-count"></span> mentions across the vault</div>
+      <div class="gs-actions">
+        <a class="gs-go" href="#">Go to page &rarr;</a>
+        <button class="gs-deselect" type="button">Deselect</button>
+      </div>
+    </div>
+    <div class="graph-tooltip" hidden></div>
+  </div>
+  <div class="graph-legend" aria-hidden="true">
+    <span class="lg-item type-person"><i></i>Person</span>
+    <span class="lg-item type-organization"><i></i>Organization</span>
+    <span class="lg-item type-program"><i></i>Program</span>
+    <span class="lg-item type-event"><i></i>Event</span>
+    <span class="lg-item type-concept"><i></i>Concept</span>
+    <span class="lg-item type-place"><i></i>Place</span>
+    <span class="lg-divider">&middot;</span>
+    <span class="lg-edge lg-edge-explicit"><i></i>Wikilink</span>
+    <span class="lg-edge lg-edge-implicit"><i></i>Implicit (NER)</span>
+  </div>
+</section>
+
+<script is:inline define:vars={{ entityId: id }}>
+  (function () {
+    const section = document.querySelector(`[data-graph-entity="${entityId}"]`);
+    if (!section) return;
+    const canvas = section.querySelector('.graph-canvas');
+    const status = section.querySelector('.graph-status');
+    const fitBtn = section.querySelector('.graph-fit');
+    const twohopBtn = section.querySelector('.graph-twohop');
+    const fullscreenBtn = section.querySelector('.graph-fullscreen');
+    const layoutBtn = section.querySelector('.graph-layout');
+    const shell = section.querySelector('.graph-shell');
+    const selectionPanel = section.querySelector('.graph-selection');
+    const selEyebrow = section.querySelector('.gs-eyebrow');
+    const selTitle = section.querySelector('.gs-title');
+    const selCount = section.querySelector('.gs-count');
+    const selGo = section.querySelector('.gs-go');
+    const selDeselect = section.querySelector('.gs-deselect');
+    const tooltip = section.querySelector('.graph-tooltip');
+
+    const TYPE_LABELS = {
+      person: 'Person', organization: 'Organization', program: 'Program',
+      event: 'Event', concept: 'Concept', place: 'Place',
+      source: 'Source', meta: 'Meta', misc: 'Misc', page: 'Page',
+    };
+
+    const TYPE_DIRS = {
+      person: 'people', organization: 'organizations', program: 'programs',
+      event: 'events', concept: 'concepts', place: 'places',
+      source: 'sources', meta: 'meta', misc: 'misc', page: 'pages',
+    };
+
+    // Snapshot type colors from CSS variables so the graph respects the
+    // active theme (light vs dark). We don't react to live theme changes
+    // — there's no toggle and prefers-color-scheme rarely flips mid-session.
+    function readColors() {
+      const cs = getComputedStyle(document.documentElement);
+      const get = (v, fallback) => (cs.getPropertyValue(v).trim() || fallback);
+      return {
+        person:       get('--t-person',       '#8a5a1f'),
+        organization: get('--t-organization', '#2d6864'),
+        program:      get('--t-program',      '#3f3d8b'),
+        event:        get('--t-event',        '#94322a'),
+        concept:      get('--t-concept',      '#5e6b32'),
+        place:        get('--t-place',        '#735237'),
+        source:       get('--t-source',       '#6a6258'),
+        muted:        get('--muted',          '#6a6258'),
+        line:         get('--line-2',         '#c8bca0'),
+        accent:       get('--accent',         '#94322a'),
+        accentSoft:   get('--accent-soft',    '#c97a6a'),
+        ink:          get('--ink',            '#1a1814'),
+        paper:        get('--paper',          '#f7f2e7'),
+      };
+    }
+
+    function loadScript(src) {
+      return new Promise((resolve, reject) => {
+        const existing = document.querySelector(`script[data-graph-src="${src}"]`);
+        if (existing) {
+          if (existing.dataset.loaded === '1') return resolve();
+          existing.addEventListener('load', () => resolve());
+          existing.addEventListener('error', () => reject(new Error(src)));
+          return;
+        }
+        const s = document.createElement('script');
+        s.src = src;
+        s.async = false; // preserve order for dependency chains
+        s.dataset.graphSrc = src;
+        s.onload = () => { s.dataset.loaded = '1'; resolve(); };
+        s.onerror = () => reject(new Error(src));
+        document.head.appendChild(s);
+      });
+    }
+
+    // Cytoscape core + fcose extension. fcose needs layout-base + cose-base.
+    // Scripts are loaded in order (async=false above) so each extension
+    // finds its dependency global when its UMD wrapper executes.
+    async function loadCytoscape() {
+      if (window.cytoscape && window._graphExtsLoaded) return;
+      await loadScript('https://unpkg.com/cytoscape@3.30.4/dist/cytoscape.min.js');
+      try {
+        await loadScript('https://unpkg.com/layout-base@2.0.1/layout-base.js');
+        await loadScript('https://unpkg.com/cose-base@2.2.0/cose-base.js');
+        await loadScript('https://unpkg.com/cytoscape-fcose@2.2.0/cytoscape-fcose.js');
+        if (window.cytoscapeFcose) window.cytoscape.use(window.cytoscapeFcose);
+        window._graphExtsLoaded = true;
+      } catch (err) {
+        // fcose is optional — if it doesn't load we fall back to the
+        // built-in cose. Log so we notice.
+        console.warn('[graph] fcose load failed, falling back to cose:', err);
+        window._graphExtsLoaded = false;
+      }
+    }
+
+    let cy = null;
+    let initStarted = false;
+    let twohopLoaded = false;
+    let twohopLoading = false;
+
+    async function fetchNgh(id) {
+      const r = await fetch(`/api/neighborhood/${id}.json`);
+      if (!r.ok) return null;
+      return r.json();
+    }
+
+    async function init() {
+      if (initStarted) return;
+      initStarted = true;
+      try {
+        await loadCytoscape();
+        const data = await fetchNgh(entityId);
+        if (!data) {
+          status.textContent = 'No network data for this entity.';
+          return;
+        }
+        if (!data.nodes || data.nodes.length < 2) {
+          status.textContent = 'Not enough connections to draw a network.';
+          return;
+        }
+        render(data);
+        status.style.display = 'none';
+        twohopBtn.addEventListener('click', toggleTwoHop);
+      } catch (err) {
+        status.textContent = 'Graph failed to load.';
+        console.error('[graph]', err);
+      }
+    }
+
+    // Edge width: thin overall, modest scaling with weight. Kept low so a
+    // 25-node neighborhood stays legible instead of looking like a road map.
+    function edgeWidth(w) {
+      return Math.max(0.6, Math.min(2.0, 0.5 + Math.log2(1 + w) * 0.28));
+    }
+
+    // Node size: bump the focus node, modest scaling otherwise.
+    function nodeSize(n) {
+      const base = 14 + Math.sqrt(Math.max(0, n.mention_count)) * 3.2;
+      return n.id === entityId ? Math.max(46, base + 14) : Math.min(54, base);
+    }
+
+    function nodeElement(n, colors) {
+      return {
+        group: 'nodes',
+        data: {
+          id: n.id,
+          // Label is set initially to just the title; degree-in-graph
+          // gets appended in refreshLabels() once cytoscape can answer
+          // node.degree(). The vault-wide mention_count stays in data
+          // for the action panel and node-size formula.
+          label: n.title,
+          title: n.title,
+          type: n.type,
+          count: n.mention_count,
+          isFocus: n.id === entityId ? 1 : 0,
+          // 2-hop nodes (added later) carry hop=2 so we can dim them.
+          hop: n.hop || 1,
+          size: nodeSize(n),
+          color: colors[n.type] || colors.muted,
+        },
+      };
+    }
+
+    /** Refresh node labels to include current in-graph degree (the number
+     *  of edges connected to that node in what's currently displayed).
+     *  Must be called after every add/remove so 2-hop expansion updates
+     *  the counts. */
+    function refreshLabels() {
+      cy.batch(() => {
+        cy.nodes().forEach((n) => {
+          const deg = n.degree(false);
+          n.data('label', `${n.data('title')} · ${deg}`);
+        });
+      });
+    }
+
+    function edgeElement(e, idx) {
+      const total = (e.explicit || 0) + (e.implicit || 0);
+      const isFocusEdge = e.source === entityId || e.target === entityId;
+      return {
+        group: 'edges',
+        data: {
+          id: `e${idx}-${e.source}-${e.target}`,
+          source: e.source,
+          target: e.target,
+          explicit: e.explicit || 0,
+          implicit: e.implicit || 0,
+          kind: e.explicit > 0 ? 'explicit' : 'implicit',
+          focal: isFocusEdge ? 1 : 0,
+          width: edgeWidth(total),
+        },
+      };
+    }
+
+    function render(data) {
+      const colors = readColors();
+      const elements = [
+        ...data.nodes.map((n) => nodeElement(n, colors)),
+        ...data.edges.map((e, i) => edgeElement(e, i)),
+      ];
+
+      cy = window.cytoscape({
+        container: canvas,
+        elements,
+        wheelSensitivity: 0.25,
+        boxSelectionEnabled: false,
+        style: [
+          {
+            selector: 'node',
+            style: {
+              'background-color': 'data(color)',
+              // Slight transparency — overlapping nodes peek through and the
+              // canvas tone shows through enough to feel like ink-on-paper.
+              'background-opacity': 0.82,
+              'width': 'data(size)',
+              'height': 'data(size)',
+              'label': 'data(label)',
+              'color': colors.ink,
+              'font-size': 10,
+              'font-family': 'Inter Tight, sans-serif',
+              'font-weight': 500,
+              'text-valign': 'bottom',
+              'text-margin-y': 5,
+              'text-max-width': 130,
+              'text-wrap': 'ellipsis',
+              'text-background-color': colors.paper,
+              'text-background-opacity': 0.7,
+              'text-background-padding': 2,
+              'text-opacity': 0.9,
+              'border-width': 0,
+              'overlay-opacity': 0,
+              'transition-property': 'border-width, border-color, opacity, text-opacity, background-opacity',
+              'transition-duration': '120ms',
+            },
+          },
+          {
+            selector: 'node[isFocus = 1]',
+            style: {
+              'background-opacity': 1,
+              'border-width': 3,
+              'border-color': colors.accent,
+              'font-weight': 700,
+              'font-size': 13,
+              'text-opacity': 1,
+              'text-background-opacity': 0.92,
+              'z-index': 10,
+            },
+          },
+          {
+            selector: 'node[hop = 2]',
+            style: {
+              'opacity': 0.55,
+              'text-opacity': 0.65,
+              'font-size': 9,
+            },
+          },
+          {
+            selector: 'node.hovered',
+            style: {
+              'background-opacity': 1,
+              'border-width': 2,
+              'border-color': colors.accent,
+              'text-opacity': 1,
+              'opacity': 1,
+            },
+          },
+          {
+            // Clicked-and-held selection: thicker accent border + larger
+            // label so it's unmistakable while you read the action panel.
+            selector: 'node.selected',
+            style: {
+              'background-opacity': 1,
+              'border-width': 4,
+              'border-color': colors.accent,
+              'text-opacity': 1,
+              'font-weight': 700,
+              'z-index': 11,
+            },
+          },
+          {
+            selector: 'edge',
+            style: {
+              // Brighter base line (accent-soft) so connections don't melt
+              // into the paper. Still dimmed via opacity so density reads.
+              'line-color': colors.accentSoft,
+              'width': 'data(width)',
+              'curve-style': 'bezier',
+              'opacity': 0.55,
+              'transition-property': 'line-color, opacity, width',
+              'transition-duration': '120ms',
+            },
+          },
+          {
+            selector: 'edge[focal = 1]',
+            style: { 'opacity': 0.9 },
+          },
+          {
+            selector: 'edge[kind = "implicit"]',
+            style: {
+              'line-style': 'dashed',
+              'line-dash-pattern': [5, 4],
+            },
+          },
+          {
+            selector: 'edge.hovered',
+            style: {
+              'line-color': colors.accent,
+              'opacity': 1,
+              'width': 'mapData(width, 0, 5, 1.5, 3.5)',
+              'z-index': 9,
+            },
+          },
+          {
+            // Clicked edge: same accent treatment as hover, but persistent
+            // and thicker so it reads as "pinned".
+            selector: 'edge.selected',
+            style: {
+              'line-color': colors.accent,
+              'opacity': 1,
+              'width': 'mapData(width, 0, 5, 2, 4)',
+              'z-index': 9,
+            },
+          },
+          {
+            // When something is hovered/selected, fade unrelated ink so
+            // the connected subgraph reads cleanly.
+            selector: '.faded',
+            style: { 'opacity': 0.08, 'text-opacity': 0.05 },
+          },
+        ],
+        layout: layoutOpts(),
+      });
+
+      refreshLabels();
+
+      // --- Selection state. Either zero or one node OR one edge can be
+      // pinned at a time. Clicking a different element switches; clicking
+      // the same element or the background clears.
+      function hasSelection() {
+        return cy.nodes('.selected').nonempty() || cy.edges('.selected').nonempty();
+      }
+      function clearSelection() {
+        cy.elements().removeClass('selected faded');
+        selectionPanel.setAttribute('hidden', '');
+      }
+      function selectNode(node) {
+        cy.elements().removeClass('selected faded');
+        node.addClass('selected');
+        const keep = node.union(node.connectedEdges()).union(node.connectedEdges().connectedNodes());
+        cy.elements().not(keep).addClass('faded');
+        const d = node.data();
+        selEyebrow.textContent = TYPE_LABELS[d.type] || '';
+        selEyebrow.className = `gs-eyebrow type-${d.type}`;
+        selTitle.textContent = d.title;
+        // The popup shows the vault-wide total (mention_count), separate
+        // from the in-graph degree that's appended to the node label.
+        selCount.textContent = d.count.toLocaleString();
+        if (d.id === entityId) {
+          selGo.setAttribute('hidden', '');
+          selGo.removeAttribute('href');
+        } else {
+          const dir = TYPE_DIRS[d.type] || 'pages';
+          selGo.href = `/${dir}/${d.id}/`;
+          selGo.removeAttribute('hidden');
+        }
+        selectionPanel.removeAttribute('hidden');
+      }
+      function selectEdge(edge) {
+        // Edge selection: just highlight the line and the two endpoint
+        // circles. No action panel — edges don't lead anywhere by themselves.
+        cy.elements().removeClass('selected faded');
+        const ends = edge.connectedNodes();
+        const keep = edge.union(ends);
+        cy.elements().not(keep).addClass('faded');
+        edge.addClass('selected');
+        ends.addClass('selected');
+        selectionPanel.setAttribute('hidden', '');
+      }
+
+      cy.on('tap', 'node', (evt) => {
+        const n = evt.target;
+        if (n.hasClass('selected') && cy.nodes('.selected').length === 1) {
+          clearSelection();
+        } else {
+          selectNode(n);
+        }
+      });
+      cy.on('tap', 'edge', (evt) => {
+        const e = evt.target;
+        if (e.hasClass('selected')) clearSelection();
+        else selectEdge(e);
+      });
+      cy.on('tap', (evt) => {
+        // Tap on background (event target is the core, not a node/edge)
+        if (evt.target === cy) clearSelection();
+      });
+      selDeselect.addEventListener('click', clearSelection);
+
+      // --- Hover behavior — only acts when nothing is pinned.
+      cy.on('mouseover', 'node', (evt) => {
+        if (hasSelection()) return;
+        const n = evt.target;
+        const keep = n.union(n.connectedEdges()).union(n.connectedEdges().connectedNodes());
+        cy.elements().not(keep).addClass('faded');
+        n.addClass('hovered');
+        n.connectedEdges().addClass('hovered');
+      });
+      cy.on('mouseout', 'node', () => {
+        if (hasSelection()) return;
+        cy.elements().removeClass('hovered faded');
+      });
+
+      cy.on('mouseover', 'edge', (evt) => {
+        const e = evt.target;
+        if (!e.hasClass('selected')) e.addClass('hovered');
+        const sNode = e.source(); const tNode = e.target();
+        const ex = e.data('explicit') || 0;
+        const im = e.data('implicit') || 0;
+        const parts = [];
+        if (ex > 0) parts.push(`${ex} wikilink${ex === 1 ? '' : 's'}`);
+        if (im > 0) parts.push(`${im} implicit mention${im === 1 ? '' : 's'}`);
+        tooltip.innerHTML =
+          `<div class="gt-pair"><span>${escapeHtml(sNode.data('title'))}</span>` +
+          ` <span class="gt-link">${ex > 0 ? '&mdash;' : '&middot;&middot;'}</span> ` +
+          `<span>${escapeHtml(tNode.data('title'))}</span></div>` +
+          `<div class="gt-meta">${parts.join(' &middot; ') || 'connected'}</div>`;
+        tooltip.removeAttribute('hidden');
+        positionTooltip(evt);
+      });
+      cy.on('mousemove', 'edge', positionTooltip);
+      cy.on('mouseout', 'edge', (evt) => {
+        evt.target.removeClass('hovered');
+        tooltip.setAttribute('hidden', '');
+      });
+
+      fitBtn.addEventListener('click', () => cy && cy.fit(undefined, 24));
+      fullscreenBtn.addEventListener('click', toggleFullscreen);
+      layoutBtn.addEventListener('click', cycleLayout);
+    }
+
+    // --- Fullscreen: CSS-only (.fullscreen on .graph-section pins it to
+    // the viewport at z-index: 200). We toggle, resize cytoscape so it
+    // reflows to the new canvas dimensions, and re-fit.
+    function toggleFullscreen() {
+      const on = section.classList.toggle('fullscreen');
+      fullscreenBtn.setAttribute('aria-pressed', on ? 'true' : 'false');
+      fullscreenBtn.textContent = on ? 'Exit' : 'Fullscreen';
+      document.body.classList.toggle('graph-fullscreen-active', on);
+      if (cy) {
+        // Wait one frame so the new layout sizes settle before resize.
+        requestAnimationFrame(() => {
+          cy.resize();
+          cy.fit(undefined, 30);
+        });
+      }
+    }
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && section.classList.contains('fullscreen')) {
+        toggleFullscreen();
+      }
+    });
+
+    function escapeHtml(s) {
+      return String(s).replace(/[&<>"']/g, (c) => (
+        { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
+      ));
+    }
+
+    function positionTooltip(evt) {
+      // Cytoscape gives rendered coords relative to the canvas; map them
+      // to the .graph-shell so the tooltip's absolute positioning lines up.
+      const rect = canvas.getBoundingClientRect();
+      const shellRect = canvas.parentElement.getBoundingClientRect();
+      const offX = rect.left - shellRect.left;
+      const offY = rect.top - shellRect.top;
+      const x = offX + evt.renderedPosition.x;
+      const y = offY + evt.renderedPosition.y;
+      // Nudge above-right of cursor; pin inside the shell so it never
+      // escapes off the right edge of dense graphs.
+      const maxX = shellRect.width - tooltip.offsetWidth - 8;
+      tooltip.style.left = Math.min(Math.max(8, x + 14), maxX) + 'px';
+      tooltip.style.top = Math.max(8, y - tooltip.offsetHeight - 10) + 'px';
+    }
+
+    // Each layout exposes the same graph differently. Cycled via the
+    // Layout button; defaults to 'force' (cose) on first load.
+    const LAYOUTS = [
+      {
+        key: 'force',
+        label: 'Force',
+        opts: {
+          // fcose: improved cose, fewer edge crossings. randomize:true is
+          // critical — with false, every node starts at (0,0) and the
+          // force pass can't separate them, producing a thin horizontal
+          // streak. randomize seeds with jittered positions so forces
+          // can do their work from frame one.
+          name: 'fcose',
+          quality: 'default',
+          randomize: true,
+          animate: false,
+          fit: true,
+          padding: 30,
+          idealEdgeLength: 90,
+          nodeSeparation: 75,
+          nodeRepulsion: 4500,
+          edgeElasticity: 0.45,
+          gravity: 0.25,
+          numIter: 2500,
+          tile: true,
+        },
+      },
+      {
+        key: 'concentric',
+        label: 'Concentric',
+        opts: {
+          // Focal node dead center, 1-hop neighbors in an inner ring,
+          // 2-hop (when expanded) in an outer ring. Within each ring,
+          // higher-degree nodes are pulled inward. The hop-distance is
+          // dominant (×1000) so it always sorts the rings; degree just
+          // tie-breaks within a ring.
+          name: 'concentric',
+          animate: false,
+          padding: 30,
+          minNodeSpacing: 24,
+          fit: true,
+          concentric: (node) => {
+            if (node.data('isFocus') === 1) return Number.POSITIVE_INFINITY;
+            const hop = node.data('hop') || 1;
+            return (3 - hop) * 1000 + node.degree(false);
+          },
+          levelWidth: () => 1,
+        },
+      },
+      {
+        key: 'hierarchy',
+        label: 'Hierarchy',
+        opts: {
+          // Breadth-first tree rooted at the focal entity. Good for
+          // tracing chains of influence outward from the subject.
+          name: 'breadthfirst',
+          animate: false,
+          padding: 30,
+          spacingFactor: 1.15,
+          fit: true,
+          roots: `[isFocus = 1]`,
+          grid: false,
+          circle: false,
+          directed: false,
+        },
+      },
+      {
+        key: 'circle',
+        label: 'Circle',
+        opts: {
+          // Everyone on one ring as peers. No spatial hierarchy, useful
+          // when you want to scan the full neighbor set evenly.
+          name: 'circle',
+          animate: false,
+          padding: 30,
+          fit: true,
+          spacingFactor: 1.05,
+        },
+      },
+      {
+        key: 'grid',
+        label: 'Grid',
+        opts: {
+          // Orderly rows + columns. No spatial meaning but easy to scan
+          // — especially valuable with 2-hop on, where the force layout
+          // can put 50+ nodes into a hairball. Grid keeps labels readable.
+          name: 'grid',
+          animate: false,
+          padding: 30,
+          avoidOverlap: true,
+          spacingFactor: 1.2,
+          fit: true,
+          // Sort: focal first, then by hop (1-hop before 2-hop), then by
+          // degree descending — important nodes top-left, drift outward.
+          sort: (a, b) => {
+            const af = a.data('isFocus') === 1 ? 1 : 0;
+            const bf = b.data('isFocus') === 1 ? 1 : 0;
+            if (af !== bf) return bf - af;
+            const ah = a.data('hop') || 1;
+            const bh = b.data('hop') || 1;
+            if (ah !== bh) return ah - bh;
+            return b.degree(false) - a.degree(false);
+          },
+        },
+      },
+    ];
+    let layoutIdx = 0;
+
+    function layoutOpts() {
+      const cur = LAYOUTS[layoutIdx].opts;
+      // Graceful fallback: if fcose didn't load, swap to built-in cose.
+      if (cy && cur.name === 'fcose' && typeof window.cytoscapeFcose !== 'function') {
+        return { ...cur, name: 'cose', idealEdgeLength: 110, nodeRepulsion: 18000 };
+      }
+      return cur;
+    }
+    function applyLayout() {
+      if (!cy) return;
+      cy.layout(layoutOpts()).run();
+      layoutBtn.textContent = `Layout: ${LAYOUTS[layoutIdx].label}`;
+    }
+    function cycleLayout() {
+      layoutIdx = (layoutIdx + 1) % LAYOUTS.length;
+      applyLayout();
+    }
+
+    /**
+     * Expand to 2-hop: fetch each existing 1-hop neighbor's neighborhood,
+     * merge in any of THEIR neighbors that aren't already on the graph,
+     * and add the connecting edges. Capped so the graph stays drawable.
+     */
+    async function toggleTwoHop() {
+      if (!cy) return;
+      if (twohopLoading) return;
+      if (twohopLoaded) {
+        // Collapse: remove anything marked hop=2 plus any edges touching
+        // a removed node.
+        cy.batch(() => {
+          cy.nodes('[hop = 2]').remove();
+        });
+        refreshLabels();
+        cy.layout(layoutOpts()).run();
+        twohopBtn.textContent = '+ 2‑hop';
+        twohopBtn.setAttribute('aria-pressed', 'false');
+        twohopLoaded = false;
+        return;
+      }
+      twohopLoading = true;
+      twohopBtn.disabled = true;
+      twohopBtn.textContent = 'Loading…';
+
+      const colors = readColors();
+      const existingNodeIds = new Set(cy.nodes().map((n) => n.id()));
+      // Top 1-hop neighbors by combined edge weight, capped — fetching
+      // every 1-hop's full neighborhood for a dense entity would be
+      // dozens of requests, most of which would add noise.
+      const oneHopIds = cy.nodes()
+        .filter((n) => n.id() !== entityId)
+        .toArray()
+        .map((n) => {
+          const w = n.connectedEdges()
+            .map((e) => (e.data('explicit') || 0) + (e.data('implicit') || 0))
+            .reduce((a, b) => a + b, 0);
+          return { id: n.id(), w };
+        })
+        .sort((a, b) => b.w - a.w)
+        .slice(0, 10)
+        .map((x) => x.id);
+
+      const results = await Promise.all(oneHopIds.map(fetchNgh));
+      const addedNodes = new Map();
+      const addedEdges = [];
+      const MAX_NEW_NODES = 35; // hard cap to avoid hairball
+
+      for (const data of results) {
+        if (!data) continue;
+        // Add nodes that aren't already on the graph (skip the focus and
+        // any existing 1-hop neighbor).
+        for (const n of data.nodes) {
+          if (existingNodeIds.has(n.id) || addedNodes.has(n.id)) continue;
+          if (addedNodes.size >= MAX_NEW_NODES) break;
+          addedNodes.set(n.id, { ...n, hop: 2 });
+        }
+      }
+      // Add edges among the union of existing + new nodes.
+      const finalNodeIds = new Set([...existingNodeIds, ...addedNodes.keys()]);
+      const seenEdges = new Set(
+        cy.edges().map((e) => `${e.data('source')}|${e.data('target')}`),
+      );
+      let edgeIdx = cy.edges().length;
+      for (const data of results) {
+        if (!data) continue;
+        for (const e of data.edges) {
+          if (!finalNodeIds.has(e.source) || !finalNodeIds.has(e.target)) continue;
+          const k1 = `${e.source}|${e.target}`;
+          const k2 = `${e.target}|${e.source}`;
+          if (seenEdges.has(k1) || seenEdges.has(k2)) continue;
+          seenEdges.add(k1);
+          addedEdges.push(edgeElement(e, ++edgeIdx));
+        }
+      }
+
+      cy.batch(() => {
+        for (const n of addedNodes.values()) cy.add(nodeElement(n, colors));
+        for (const e of addedEdges) cy.add(e);
+      });
+      refreshLabels();
+      cy.layout(layoutOpts()).run();
+
+      twohopLoaded = true;
+      twohopLoading = false;
+      twohopBtn.disabled = false;
+      twohopBtn.textContent = '− 2‑hop';
+      twohopBtn.setAttribute('aria-pressed', 'true');
+    }
+
+    // Lazy-load on first viewport intersection. Wide rootMargin so the
+    // graph renders before the user scrolls all the way to it.
+    const io = new IntersectionObserver(
+      (entries) => {
+        for (const e of entries) {
+          if (e.isIntersecting) {
+            init();
+            io.disconnect();
+            break;
+          }
+        }
+      },
+      { rootMargin: '300px' },
+    );
+    io.observe(section);
+  })();
+</script>
