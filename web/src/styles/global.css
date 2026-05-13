@@ -1687,20 +1687,69 @@ body.graph-fullscreen-active { overflow: hidden; }
 .net-filters[hidden],
 .net-sliders[hidden] { display: none !important; }
 
-/* Inline sliders below the filter chips. Force slider is hidden when
-   any layout other than Force is active. */
+/* Sliders panel — collapsible drawer anchored to the LEFT edge.
+   The chevron tab is on the panel's right side. When the panel is
+   collapsed, the body slides off to the left (right-to-left motion)
+   and only the tab remains, sticking out at the left edge of the
+   canvas. Clicking again slides the body back left-to-right. */
 .net-sliders {
   position: absolute;
-  top: 3.4rem;
-  left: 0.6rem;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.35rem 0.6rem;
+  top: 3rem;
+  left: 0;
   z-index: 3;
+  display: flex;
+  align-items: stretch;
+  transition: transform 0.25s ease;
+  /* Default = expanded: panel nudged slightly off the left edge so
+     it doesn't kiss the canvas border. */
+  transform: translateX(0.6rem);
+}
+.net-sliders.collapsed {
+  /* Slide left until only the tab pokes back in from the left edge. */
+  transform: translateX(calc(-100% + 1.5rem));
+}
+.net-sliders-toggle {
+  flex: 0 0 auto;
+  width: 1.5rem;
   background: var(--card);
   border: 1px solid var(--line-2);
-  border-radius: 4px;
-  padding: 0.4rem 0.55rem;
+  border-left: none;
+  border-radius: 0 4px 4px 0;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--muted);
+  padding: 0;
+  font-family: var(--sans);
+  font-size: 0.65rem;
+  font-weight: 700;
+}
+.net-sliders-toggle:hover { color: var(--accent); }
+.net-sliders-carrot {
+  display: inline-block;
+  width: 0.5rem;
+  height: 0.5rem;
+  border-right: 1.5px solid currentColor;
+  border-bottom: 1.5px solid currentColor;
+  /* Default = expanded → carrot points LEFT (click will collapse leftward) */
+  transform: rotate(135deg);
+  transition: transform 0.2s ease;
+}
+.net-sliders.collapsed .net-sliders-carrot {
+  /* Collapsed → carrot points RIGHT (click will expand rightward) */
+  transform: rotate(-45deg);
+}
+.net-sliders-body {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem 0.7rem;
+  background: var(--card);
+  border: 1px solid var(--line-2);
+  border-right: none;
+  border-radius: 4px 0 0 4px;
+  padding: 0.4rem 0.65rem;
   box-shadow: 0 4px 12px -6px rgba(20, 16, 8, 0.3);
 }
 .net-slider {
@@ -1763,8 +1812,16 @@ body.graph-fullscreen-active { overflow: hidden; }
   top: 0.6rem;
   right: 0.6rem;
   display: flex;
+  align-items: stretch;
   gap: 0.4rem;
   z-index: 3;
+  height: 2rem;
+}
+.net-controls .graph-btn {
+  height: 100%;
+  display: inline-flex;
+  align-items: center;
+  padding: 0 0.7rem;
 }
 .net-filters {
   position: absolute;
@@ -1773,13 +1830,14 @@ body.graph-fullscreen-active { overflow: hidden; }
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 0.35rem;
+  gap: 0.3rem;
   background: var(--card);
   border: 1px solid var(--line-2);
   border-radius: 4px;
-  padding: 0.4rem 0.5rem;
+  padding: 0 0.5rem;
   z-index: 3;
   box-shadow: 0 4px 12px -6px rgba(20, 16, 8, 0.3);
+  height: 2rem;
 }
 .net-filters-label {
   font-family: var(--sans);

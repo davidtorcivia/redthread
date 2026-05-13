@@ -44,21 +44,26 @@ const total = entities().length;
       </div>
 
       <div class="net-sliders" hidden id="net-sliders">
-        <label class="net-slider" id="net-opacity-slider">
-          <span class="net-slider-label">Opacity</span>
-          <input type="range" class="net-slider-input" id="net-opacity" min="0" max="100" value="100" />
-          <span class="net-slider-val" id="net-opacity-val">100%</span>
-        </label>
-        <label class="net-slider" id="net-highlight-slider" title="How much non-related elements fade when something is selected. Lower = selection overlays the full network; higher = quick read.">
-          <span class="net-slider-label">Highlight</span>
-          <input type="range" class="net-slider-input" id="net-highlight" min="0" max="100" value="100" />
-          <span class="net-slider-val" id="net-highlight-val">100%</span>
-        </label>
-        <label class="net-slider" id="net-force-slider">
-          <span class="net-slider-label">Force</span>
-          <input type="range" class="net-slider-input" id="net-force" min="50" max="400" value="100" />
-          <span class="net-slider-val" id="net-force-val">100%</span>
-        </label>
+        <div class="net-sliders-body">
+          <label class="net-slider" id="net-opacity-slider">
+            <span class="net-slider-label">Opacity</span>
+            <input type="range" class="net-slider-input" id="net-opacity" min="0" max="100" value="100" />
+            <span class="net-slider-val" id="net-opacity-val">100%</span>
+          </label>
+          <label class="net-slider" id="net-highlight-slider" title="How much non-related elements fade when something is selected. Lower = selection overlays the full network; higher = quick read.">
+            <span class="net-slider-label">Highlight</span>
+            <input type="range" class="net-slider-input" id="net-highlight" min="0" max="100" value="100" />
+            <span class="net-slider-val" id="net-highlight-val">100%</span>
+          </label>
+          <label class="net-slider" id="net-force-slider">
+            <span class="net-slider-label">Force</span>
+            <input type="range" class="net-slider-input" id="net-force" min="50" max="400" value="100" />
+            <span class="net-slider-val" id="net-force-val">100%</span>
+          </label>
+        </div>
+        <button class="net-sliders-toggle" id="net-sliders-toggle" type="button" aria-label="Toggle sliders" aria-expanded="true">
+          <span class="net-sliders-carrot" aria-hidden="true"></span>
+        </button>
       </div>
 
       <div class="net-filters" hidden id="net-filters" aria-label="Filter by type">
@@ -1096,6 +1101,16 @@ const total = entities().length;
           highlightStrength = pct / 100;
           highlightVal.textContent = pct + '%';
           requestDraw();
+        });
+
+        // Slider-panel collapse toggle — the chevron tab on the panel's
+        // left edge. Clicking slides the body offscreen to the right,
+        // leaving just the tab clickable. Clicking again slides it back.
+        const slidersPanel = document.getElementById('net-sliders');
+        const slidersToggle = document.getElementById('net-sliders-toggle');
+        slidersToggle.addEventListener('click', () => {
+          const collapsed = slidersPanel.classList.toggle('collapsed');
+          slidersToggle.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
         });
 
         // Force slider — scales positions in real time around the current
