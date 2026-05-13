@@ -4,6 +4,9 @@ import { bridgeEntities, hrefFor, TYPE_LABELS } from '../lib/data.ts';
 
 const all = bridgeEntities();
 const top = all[0];
+// Used to scale the relative-strength bars on each row so the rank-1
+// entity's bar runs the full width and everyone else is in proportion.
+const topScore = all[0]?.bridge_score ?? 1;
 // Median rank-1 mention count is a useful frame for understanding what
 // "bridge" means in this vault. We hint at it inline rather than rely on
 // the reader to interpolate.
@@ -57,22 +60,33 @@ const medianTopMentions = mentionsTop.length
     <section class="br-list-section">
       <h2 class="br-heading">Ranked</h2>
       <ol class="br-list">
-        {all.map((e) => (
-          <li class={`br-row type-${e.type}`} id={`br-${e.id}`}>
-            <div class="br-rank-col">
-              <span class="br-rank-num">{e.bridge_rank!.toString().padStart(2, '0')}</span>
-            </div>
-            <div class="br-body">
-              <div class="br-head">
-                <span class="br-type">{TYPE_LABELS[e.type]}</span>
-                {e.category && <span class="br-cat">{e.category}</span>}
-                <span class="br-mentions">{e.mention_count.toLocaleString()} mentions</span>
+        {all.map((e) => {
+          const score = e.bridge_score ?? 0;
+          const barWidth = topScore > 0 ? Math.round((score / topScore) * 100) : 0;
+          return (
+            <li class={`br-row type-${e.type}`} id={`br-${e.id}`}>
+              <div class="br-rank-col">
+                <span class="br-rank-num">{e.bridge_rank!.toString().padStart(2, '0')}</span>
               </div>
-              <a class="br-title" href={hrefFor({ id: e.id, type: e.type })}>{e.title}</a>
-              {e.summary && <p class="br-summary">{e.summary}</p>}
-            </div>
-          </li>
-        ))}
+              <div class="br-body">
+                <div class="br-head">
+                  <span class="br-type">{TYPE_LABELS[e.type]}</span>
+                  {e.category && <span class="br-cat">{e.category}</span>}
+                  <span class="br-mentions">{e.mention_count.toLocaleString()} mentions</span>
+                </div>
+                <a class="br-title" href={hrefFor({ id: e.id, type: e.type })}>{e.title}</a>
+                {e.summary && <p class="br-summary">{e.summary}</p>}
+                <div class="br-score-row" title={`Betweenness centrality: ${score.toFixed(5)} — share of the vault's shortest-path traffic that routes through this entity.`}>
+                  <div class="br-score-bar" aria-hidden="true">
+                    <div class="br-score-fill" style={`width: ${barWidth}%`}></div>
+                  </div>
+                  <span class="br-score-val">{score.toFixed(4)}</span>
+                  <span class="br-score-rel">{barWidth}% of #1</span>
+                </div>
+              </div>
+            </li>
+          );
+        })}
       </ol>
     </section>
 

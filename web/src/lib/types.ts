@@ -46,6 +46,8 @@ export interface Entity {
   page_density: number;
   /** Top-50 bridge entity by betweenness centrality. Lower rank = stronger bridge. */
   bridge_rank?: number;
+  /** Normalized betweenness centrality score in [0, 1]. Pairs with bridge_rank. */
+  bridge_score?: number;
   /**
    * Date fields populated from frontmatter when present. All values are
    * normalized to strings ("YYYY" or "YYYY-MM-DD") regardless of how

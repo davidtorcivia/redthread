@@ -35,8 +35,9 @@ for (const e of entities()) byType[e.type] = (byType[e.type] ?? 0) + 1;
       </div>
 
       <div class="net-controls" hidden id="net-controls">
-        <button class="graph-btn net-layout" type="button">Layout: Grid</button>
+        <button class="graph-btn net-layout" type="button">Layout: Force</button>
         <button class="graph-btn net-fit" type="button">Refit</button>
+        <button class="graph-btn net-edges" type="button" aria-pressed="true">Edges: on</button>
         <button class="graph-btn net-fullscreen" type="button" aria-pressed="false">Fullscreen</button>
       </div>
 
@@ -146,6 +147,7 @@ for (const e of entities()) byType[e.type] = (byType[e.type] ?? 0) + 1;
 
       let cy = null;
       let activeTypes = new Set(['person', 'organization', 'program', 'event', 'concept', 'place', 'source', 'meta', 'misc', 'page']);
+      let edgesVisible = true;
 
       function escapeHtml(s) {
         return String(s).replace(/[&<>"']/g, (c) => (
@@ -184,13 +186,24 @@ for (const e of entities()) byType[e.type] = (byType[e.type] ?? 0) + 1;
       function render(data) {
         const colors = readColors();
 
-        // Build node and edge elements. Edges are deduped — adjacency is
-        // undirected so each pair appears twice in adj[]; we keep the
-        // (low, high) ordering only.
-        const elements = [];
+        // bridges arrived as { idx: {rank, score} } from the parser; the
+        // entity-page graph still ships nodes with the old shape. Normalise
+        // either form here.
+        function bridgeOf(idx) {
+          const b = data.bridges?.[String(idx)];
+          if (b == null) return null;
+          return typeof b === 'object' ? b : { rank: b, score: 0 };
+        }
+
+        // Build node elements with PRE-COMPUTED positions from the parser's
+        // spring_layout pass. Rendering with `layout: preset` skips the
+        // expensive in-browser layout step entirely — initial paint is
+        // limited only by DOM/canvas work, not physics simulation.
+        const nodeElements = [];
         for (let i = 0; i < data.ids.length; i++) {
-          const br = data.bridges[String(i)] || 0;
-          elements.push({
+          const br = bridgeOf(i);
+          const p = data.positions?.[i];
+          nodeElements.push({
             group: 'nodes',
             data: {
               id: data.ids[i],
@@ -201,37 +214,42 @@ for (const e of entities()) byType[e.type] = (byType[e.type] ?? 0) + 1;
               size: nodeSize(data.mentions[i], !!br),
               color: colors[data.types[i]] || colors.muted,
               isBridge: br ? 1 : 0,
-              bridgeRank: br,
+              bridgeRank: br ? br.rank : 0,
+              bridgeScore: br ? br.score : 0,
             },
+            position: p ? { x: p[0], y: p[1] } : undefined,
           });
         }
+
+        // Edges are deduped — adjacency is undirected so each pair appears
+        // twice in adj[]; we keep the (low, high) ordering only.
+        const edgeElements = [];
         let edgeIdx = 0;
         for (let i = 0; i < data.adj.length; i++) {
           const neigh = data.adj[i];
           const a = data.ids[i];
           for (let k = 0; k < neigh.length; k++) {
             const j = neigh[k];
-            if (j <= i) continue; // dedupe undirected pair
-            elements.push({
+            if (j <= i) continue;
+            edgeElements.push({
               group: 'edges',
-              data: {
-                id: 'e' + (edgeIdx++),
-                source: a,
-                target: data.ids[j],
-              },
+              data: { id: 'e' + (edgeIdx++), source: a, target: data.ids[j] },
             });
           }
         }
 
         cy = window.cytoscape({
           container: canvas,
-          elements,
+          // Add nodes FIRST so something is visible immediately; edges
+          // come in a second batch via requestAnimationFrame below.
+          elements: nodeElements,
           wheelSensitivity: 0.25,
           minZoom: 0.05,
           maxZoom: 4,
-          textureOnViewport: true,    // hold static texture while panning — perf win at scale
+          textureOnViewport: true,
+          hideEdgesOnViewport: true,  // huge win when panning/zooming a dense graph
           motionBlur: false,
-          pixelRatio: 1,              // capping pixel ratio halves draw cost on hi-DPI
+          pixelRatio: 1,
           boxSelectionEnabled: false,
           style: [
             {
@@ -299,21 +317,35 @@ for (const e of entities()) byType[e.type] = (byType[e.type] ?? 0) + 1;
               style: { 'display': 'none' },
             },
           ],
-          layout: { name: 'grid', fit: true, padding: 40, avoidOverlap: true, spacingFactor: 1.1 },
+          // preset = use the (x, y) positions we baked in at build time.
+          layout: { name: 'preset', fit: true, padding: 40 },
         });
+
+        // Chunk the edge insertion. 12k edges in one batch jams the main
+        // thread; splitting into rAF-paced chunks keeps the page interactive
+        // while the network fills in. Looks like a slight "fade-in" effect.
+        const EDGE_CHUNK = 2000;
+        function addEdgesChunked(idx) {
+          if (idx >= edgeElements.length) return;
+          const slice = edgeElements.slice(idx, idx + EDGE_CHUNK);
+          cy.add(slice);
+          requestAnimationFrame(() => addEdgesChunked(idx + EDGE_CHUNK));
+        }
+        // Defer one frame so the nodes-only render lands before we start
+        // pumping edges.
+        requestAnimationFrame(() => addEdgesChunked(0));
 
         wireInteractions();
       }
 
       function wireInteractions() {
-        // --- Layout cycle. Force is expensive on this graph; warn user.
+        // Layout cycle. "Force" is preset — using the spring_layout
+        // positions baked in at build time, so it's instant. Concentric/
+        // Circle/Grid are cheap built-ins. We deliberately do NOT include
+        // in-browser fcose here: at 1.8k nodes / 12k edges it would freeze
+        // the tab for ~30 seconds.
         const LAYOUTS = [
-          { key: 'grid', label: 'Grid',
-            opts: { name: 'grid', fit: true, padding: 40, avoidOverlap: true, spacingFactor: 1.1 } },
-          { key: 'force', label: 'Force',
-            opts: { name: 'fcose', quality: 'default', randomize: true, animate: false, fit: true,
-                    padding: 40, idealEdgeLength: 50, nodeSeparation: 35, nodeRepulsion: 4000,
-                    edgeElasticity: 0.45, gravity: 0.5, numIter: 800, tile: true } },
+          { key: 'force', label: 'Force', opts: { name: 'preset', fit: true, padding: 40 } },
           { key: 'concentric', label: 'Concentric',
             opts: { name: 'concentric', fit: true, padding: 40, animate: false,
                     minNodeSpacing: 4,
@@ -321,12 +353,13 @@ for (const e of entities()) byType[e.type] = (byType[e.type] ?? 0) + 1;
                     levelWidth: () => 1 } },
           { key: 'circle', label: 'Circle',
             opts: { name: 'circle', fit: true, padding: 40, animate: false, spacingFactor: 1 } },
+          { key: 'grid', label: 'Grid',
+            opts: { name: 'grid', fit: true, padding: 40, avoidOverlap: true, spacingFactor: 1.1 } },
         ];
         let li = 0;
         function applyLayout() {
           layoutBtn.disabled = true;
-          layoutBtn.textContent = 'Computing…';
-          // Defer to give the disabled paint a chance to land
+          layoutBtn.textContent = 'Laying out…';
           setTimeout(() => {
             cy.layout(LAYOUTS[li].opts).run();
             layoutBtn.disabled = false;
@@ -339,6 +372,18 @@ for (const e of entities()) byType[e.type] = (byType[e.type] ?? 0) + 1;
         });
 
         fitBtn.addEventListener('click', () => cy.fit(undefined, 40));
+
+        // Edges toggle — major perf escape hatch. Hides every edge at
+        // once via a class so users on slower machines can still pan and
+        // navigate even when 12k lines slow things down.
+        const edgesBtn = document.querySelector('.net-edges');
+        function setEdges(on) {
+          edgesVisible = on;
+          cy.batch(() => cy.edges().toggleClass('hidden', !on));
+          edgesBtn.setAttribute('aria-pressed', on ? 'true' : 'false');
+          edgesBtn.textContent = on ? 'Edges: on' : 'Edges: off';
+        }
+        edgesBtn.addEventListener('click', () => setEdges(!edgesVisible));
 
         // --- Type filter chips
         for (const chip of filters.querySelectorAll('.net-chip')) {

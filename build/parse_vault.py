@@ -899,6 +899,68 @@ def compute_betweenness(adj: list[list[int]]) -> list[float]:
     return [c * scale for c in cb]
 
 
+def compute_layout_positions(adjacency: dict[str, Any]) -> list[list[float]]:
+    """Pre-compute a force-directed layout for the full network so the
+    browser renders instantly with positions baked in. Running fcose on
+    1.8k nodes / 12k edges in the browser takes 20+ seconds and pegs a
+    core; doing it once at build time is essentially free for the user.
+
+    Uses networkx's spring_layout (Fruchterman-Reingold). Falls back to
+    a deterministic grid if networkx isn't available so the build still
+    succeeds.
+
+    Returns a list parallel to adjacency['ids'] of [x, y] pairs in
+    normalized [0, 1000]^2 space — the client scales to the canvas.
+    """
+    n = len(adjacency["ids"])
+
+    def _grid_fallback() -> list[list[float]]:
+        cols = max(1, int(n ** 0.5))
+        return [[(i % cols) * 30.0, (i // cols) * 30.0] for i in range(n)]
+
+    try:
+        import networkx as nx  # noqa: WPS433 — local import is intentional
+    except ImportError:
+        sys.stderr.write("[layout] networkx not installed; falling back to grid\n")
+        return _grid_fallback()
+
+    g = nx.Graph()
+    g.add_nodes_from(range(n))
+    for i, neigh in enumerate(adjacency["adj"]):
+        for j in neigh:
+            if j > i:  # undirected — add each pair once
+                g.add_edge(i, j)
+
+    # Spring layout uses numpy + scipy under the hood for the sparse-matrix
+    # solver. They're installed locally (where the canonical positions are
+    # baked into web/public/adjacency.json) but skipped in the Docker
+    # builder to keep the image lean. We fall back to a grid in that case;
+    # the local positions ship with the image either way since the COPY
+    # picks up web/public from the host.
+    try:
+        pos = nx.spring_layout(
+            g,
+            k=1.0 / (n ** 0.5),
+            iterations=50,
+            seed=42,         # stable so a returning visit lands on the same map
+        )
+    except (ImportError, ModuleNotFoundError) as e:
+        sys.stderr.write(f"[layout] spring_layout unavailable ({e}); falling back to grid\n")
+        return _grid_fallback()
+    # Normalize to [0, 1000] in both axes so the client doesn't have to.
+    xs = [pos[i][0] for i in range(n)]
+    ys = [pos[i][1] for i in range(n)]
+    xmin, xmax = min(xs), max(xs)
+    ymin, ymax = min(ys), max(ys)
+    dx = xmax - xmin or 1.0
+    dy = ymax - ymin or 1.0
+    return [
+        [round((pos[i][0] - xmin) / dx * 1000, 2),
+         round((pos[i][1] - ymin) / dy * 1000, 2)]
+        for i in range(n)
+    ]
+
+
 def build_neighborhoods(
     entities: list[dict[str, Any]],
     edges: list[dict[str, Any]],
@@ -1145,18 +1207,39 @@ def main() -> int:
     BRIDGE_TOP_N = 50
     ranked = sorted(enumerate(bc), key=lambda x: -x[1])[:BRIDGE_TOP_N]
     bridge_rank: dict[str, int] = {}
+    bridge_score: dict[str, float] = {}
     for rank, (idx, score) in enumerate(ranked, start=1):
         if score <= 0:
             break
-        bridge_rank[adjacency["ids"][idx]] = rank
+        eid = adjacency["ids"][idx]
+        bridge_rank[eid] = rank
+        bridge_score[eid] = score
 
-    # Attach mention_count + bridge_rank to each entity so the frontend can
-    # rank hubs and badge bridges cheaply.
+    # Attach mention_count + bridge_rank + bridge_score to each entity so
+    # the frontend can rank hubs and badge bridges cheaply.
     for e in entities:
         e["mention_count"] = mention_count.get(e["id"], 0)
         e["page_density"] = page_density.get(e["id"], 0)
         if e["id"] in bridge_rank:
             e["bridge_rank"] = bridge_rank[e["id"]]
+            e["bridge_score"] = bridge_score[e["id"]]
+
+    # Pre-compute a force-directed layout so the /network/ view renders
+    # instantly with a meaningful spatial arrangement. Running spring_layout
+    # at build time is far cheaper than asking the browser to converge
+    # fcose on 1.8k nodes every visit.
+    print(f"[parse] pre-computing network layout positions...")
+    t_layout = time.time()
+    adjacency["positions"] = compute_layout_positions(adjacency)
+    print(f"[parse] layout done in {round(time.time() - t_layout, 1)}s")
+
+    # Re-emit bridges with score alongside rank so the /bridges/ page and
+    # the network selection panel can show both.
+    adjacency["bridges"] = {
+        str(i): {"rank": bridge_rank[adjacency["ids"][i]], "score": bridge_score[adjacency["ids"][i]]}
+        for i in range(len(adjacency["ids"]))
+        if adjacency["ids"][i] in bridge_rank
+    }
 
     type_counts = Counter(e["type"] for e in entities)
     untyped = [e["path"] for e in entities if e["type"] == "page"][:20]
