@@ -213,6 +213,12 @@ def parse_file(path: Path, vault_root: Path, type_map: dict[str, str]) -> dict[s
     if isinstance(tags, str):
         tags = [tags]
 
+    # File modification time — drives the vault-activity feed on /changelog/.
+    try:
+        mtime = _dt.datetime.fromtimestamp(path.stat().st_mtime).isoformat()
+    except OSError:
+        mtime = None
+
     return {
         "id": slugify(title),
         "title": title,
@@ -225,6 +231,7 @@ def parse_file(path: Path, vault_root: Path, type_map: dict[str, str]) -> dict[s
         "body_md": body_no_fn,
         "footnotes": footnotes,
         "wikilinks": wikilinks,
+        "mtime": mtime,
     }
 
 
@@ -587,6 +594,10 @@ FN_REF = re.compile(r"\[\^([^\]]+?)\]")
 WIKILINK_HTML = re.compile(r"\[\[([^\]|]+?)(?:\|([^\]]+?))?\]\]")
 # Don't rewrite inside <code> or <pre> spans (rare here, but cheap to guard against)
 CODE_SPAN = re.compile(r"<(code|pre)[^>]*>.*?</\1>", re.DOTALL)
+# Capture h2/h3/h4 headings AFTER markdown-it has rendered them, so we can
+# inject IDs and harvest entries for the table of contents.
+HEADING_RE = re.compile(r"<h([234])(?![^>]*\bid=)([^>]*)>(.*?)</h\1>", re.DOTALL)
+TAG_STRIP = re.compile(r"<[^>]+>")
 
 
 def render_html(entities: list[dict[str, Any]], slug_index: dict[str, str]) -> None:
@@ -647,10 +658,35 @@ def render_html(entities: list[dict[str, Any]], slug_index: dict[str, str]) -> N
     for e in entities:
         # Strip embeds (we don't render media in Phase 0)
         pre = EMBED.sub("", e["body_md"])
-        e["body_html"] = rewrite(md.render(pre))
+        rendered = rewrite(md.render(pre))
+        e["body_html"], e["toc"] = _process_headings(rendered)
         # Render footnote text as inline markdown too — italics, links, etc.
         for fn in e["footnotes"]:
             fn["html"] = rewrite(md.renderInline(fn["text"]))
+
+
+def _process_headings(html: str) -> tuple[str, list[dict[str, Any]]]:
+    """Inject id="..." onto every h2/h3/h4 in body_html and return the
+    HTML plus a flat TOC list. Handles duplicate slugs by appending a
+    counter; strips inner tags for the TOC text label."""
+    entries: list[dict[str, Any]] = []
+    seen: Counter = Counter()
+
+    def repl(m: re.Match) -> str:
+        level = int(m.group(1))
+        existing_attrs = m.group(2) or ""
+        inner_html = m.group(3)
+        text = TAG_STRIP.sub("", inner_html).strip()
+        if not text:
+            return m.group(0)
+        base = slugify(text) or f"section-{len(entries) + 1}"
+        seen[base] += 1
+        slug = base if seen[base] == 1 else f"{base}-{seen[base]}"
+        entries.append({"level": level, "text": text, "id": slug})
+        return f'<h{level} id="{slug}"{existing_attrs}>{inner_html}</h{level}>'
+
+    new_html = HEADING_RE.sub(repl, html)
+    return new_html, entries
 
 
 def _rewrite_outside_code(text: str, wl_repl, fn_repl) -> str:
@@ -765,6 +801,24 @@ def write_outputs(out_dir: Path, entities: list[dict[str, Any]],
     (out_dir / "stats.json").write_text(_dump(stats), encoding="utf-8")
     if related is not None:
         (out_dir / "related.json").write_text(_dump(related), encoding="utf-8")
+
+    # Recent vault activity — derived from file mtimes. Drives /changelog/.
+    activity = [
+        {
+            "id": e["id"],
+            "title": e["title"],
+            "type": e["type"],
+            "category": e.get("category"),
+            "summary": e.get("summary"),
+            "mtime": e.get("mtime"),
+        }
+        for e in entities if e.get("mtime")
+    ]
+    activity.sort(key=lambda x: x["mtime"], reverse=True)
+    (out_dir / "activity.json").write_text(
+        json.dumps(activity, ensure_ascii=False, separators=(",", ":"), default=_json_default),
+        encoding="utf-8",
+    )
 
     # Single slim-record map for hover previews. Loaded once by the browser
     # on first hover, then cached in memory. ~100KB gzipped at this scale.

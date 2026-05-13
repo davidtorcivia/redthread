@@ -22,6 +22,12 @@ export interface Footnote {
   html?: string;
 }
 
+export interface TocEntry {
+  level: number; // 2, 3, or 4
+  text: string;
+  id: string;
+}
+
 export interface Entity {
   id: string;
   title: string;
@@ -33,6 +39,7 @@ export interface Entity {
   frontmatter: Record<string, unknown>;
   body_md: string;
   body_html: string;
+  toc: TocEntry[];
   footnotes: Footnote[];
   wikilinks: Wikilink[];
   mention_count: number;

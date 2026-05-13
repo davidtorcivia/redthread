@@ -1,0 +1,133 @@
+---
+import type { TocEntry } from '../lib/types.ts';
+
+interface Props {
+  entries: TocEntry[];
+}
+const { entries } = Astro.props;
+// Don't render a TOC for stubs — single-entry TOCs are visual noise.
+const show = entries.length >= 2;
+---
+{show && (
+  <aside class="entity-toc" aria-label="Table of contents">
+    <div class="toc-label">Contents</div>
+    <ol class="toc-list">
+      {entries.map((e) => (
+        <li class={`toc-item toc-l${e.level}`} data-toc-id={e.id}>
+          <a href={`#${e.id}`}>{e.text}</a>
+        </li>
+      ))}
+    </ol>
+  </aside>
+
+  <script is:inline>
+    // Defer until the page has parsed — the .prose div (and the heading
+    // IDs inside it) renders AFTER this script tag in document order,
+    // so getElementById would otherwise return null at script-execute.
+    document.addEventListener('DOMContentLoaded', () => {
+      const toc = document.querySelector('.entity-toc');
+      if (!toc) return;
+      const items = Array.from(toc.querySelectorAll('.toc-item'));
+      const byId = new Map(items.map((el) => [el.dataset.tocId, el]));
+      const headings = items
+        .map((el) => document.getElementById(el.dataset.tocId))
+        .filter((h) => h);
+      if (!headings.length) return;
+
+      // IntersectionObserver tells us which headings are currently within
+      // a thin band near the top of the viewport. The most recent one to
+      // enter that band (or the last one we passed) is "active".
+      const visible = new Set();
+      function setActive(id) {
+        items.forEach((el) => el.classList.remove('active'));
+        const el = byId.get(id);
+        if (el) el.classList.add('active');
+      }
+      function pickActive() {
+        if (visible.size > 0) {
+          // Pick the topmost visible heading
+          let top = null;
+          let topY = Infinity;
+          for (const h of headings) {
+            if (!visible.has(h.id)) continue;
+            const y = h.getBoundingClientRect().top;
+            if (y < topY) { topY = y; top = h; }
+          }
+          if (top) { setActive(top.id); return; }
+        }
+        // Nothing visible right now — pick the last heading whose top has
+        // scrolled past the activation line.
+        let last = headings[0];
+        for (const h of headings) {
+          if (h.getBoundingClientRect().top <= 120) last = h;
+          else break;
+        }
+        setActive(last.id);
+      }
+
+      const io = new IntersectionObserver(
+        (entries) => {
+          for (const e of entries) {
+            if (e.isIntersecting) visible.add(e.target.id);
+            else visible.delete(e.target.id);
+          }
+          pickActive();
+        },
+        // A 200px band starting just below the sticky header — anything
+        // inside is "currently being read".
+        { rootMargin: '-80px 0px -70% 0px', threshold: 0 },
+      );
+      headings.forEach((h) => io.observe(h));
+      pickActive();
+
+      // Smooth scroll, offsetting for the sticky site header so the
+      // landed heading doesn't tuck under it.
+      toc.addEventListener('click', (e) => {
+        const link = e.target.closest('a[href^="#"]');
+        if (!link) return;
+        const id = decodeURIComponent(link.getAttribute('href').slice(1));
+        const target = document.getElementById(id);
+        if (!target) return;
+        e.preventDefault();
+        const y = target.getBoundingClientRect().top + window.scrollY - 80;
+        window.scrollTo({ top: y, behavior: 'smooth' });
+        history.replaceState(null, '', `#${id}`);
+      });
+
+      // Hide the TOC once the reader scrolls into the Sources block,
+      // reveal it again on the way back up. Only meaningful in sidebar
+      // mode (>=1360px) — inline TOCs scroll out of view naturally.
+      // We watch the footnotes block if present, falling back to the
+      // first post-prose section, so pages without Sources still hide
+      // the TOC when the reader leaves the main content.
+      const postProse =
+        document.querySelector('.footnotes-block') ||
+        document.querySelector('.hidden-connections') ||
+        document.querySelector('.related-section');
+
+      if (postProse) {
+        let rafTok = null;
+        const sidebarMQ = window.matchMedia('(min-width: 1360px)');
+        function updateHidden() {
+          rafTok = null;
+          if (!sidebarMQ.matches) {
+            toc.classList.remove('toc-hidden');
+            return;
+          }
+          // Once the post-prose section's top crosses the middle of the
+          // viewport on its way up, treat the reader as "out of prose".
+          const trigger = window.innerHeight * 0.45;
+          const passed = postProse.getBoundingClientRect().top < trigger;
+          toc.classList.toggle('toc-hidden', passed);
+        }
+        window.addEventListener('scroll', () => {
+          if (rafTok) return;
+          rafTok = requestAnimationFrame(updateHidden);
+        }, { passive: true });
+        window.addEventListener('resize', updateHidden);
+        // Initial state — could already be scrolled past on reload.
+        updateHidden();
+      }
+    });
+  </script>
+)}

@@ -28,8 +28,18 @@ const { title, description, bodyClass } = Astro.props;
   <body class={bodyClass}>
     <header class="site">
       <div class="bar">
+        <button
+          class="nav-toggle"
+          id="nav-toggle"
+          type="button"
+          aria-expanded="false"
+          aria-controls="site-nav"
+          aria-label="Open menu"
+        >
+          <span class="nav-icon" aria-hidden="true"></span>
+        </button>
         <a href="/" class="brand">The Info Web</a>
-        <nav>
+        <nav id="site-nav">
           <a href="/people/">People</a>
           <a href="/organizations/">Organizations</a>
           <a href="/programs/">Programs</a>
@@ -52,7 +62,10 @@ const { title, description, bodyClass } = Astro.props;
         <div class="colophon">
           The Info Web · a research vault on intelligence operations, parapsychology, and the parapolitical record.
         </div>
-        <a href="#top" class="to-top">↑ Top</a>
+        <nav class="foot-nav">
+          <a href="/changelog/">Changelog</a>
+          <a href="#top" class="to-top">↑ Top</a>
+        </nav>
       </div>
     </footer>
 
@@ -174,6 +187,29 @@ const { title, description, bodyClass } = Astro.props;
           scheduleHide();
         });
       })();
+
+      // ---------- Mobile hamburger menu ----------
+      window.addEventListener('DOMContentLoaded', () => {
+        const toggle = document.getElementById('nav-toggle');
+        const nav = document.getElementById('site-nav');
+        if (!toggle || !nav) return;
+        function setOpen(open) {
+          nav.classList.toggle('open', open);
+          toggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+          toggle.setAttribute('aria-label', open ? 'Close menu' : 'Open menu');
+          document.body.classList.toggle('nav-open', open);
+        }
+        toggle.addEventListener('click', () => {
+          setOpen(!nav.classList.contains('open'));
+        });
+        // Close on link tap and on Escape.
+        nav.addEventListener('click', (e) => {
+          if (e.target.closest('a')) setOpen(false);
+        });
+        document.addEventListener('keydown', (e) => {
+          if (e.key === 'Escape' && nav.classList.contains('open')) setOpen(false);
+        });
+      });
 
       // ---------- ⌘K search modal (Mac convention) ----------
       window.addEventListener('DOMContentLoaded', () => {

@@ -187,6 +187,48 @@ header.site nav a {
 }
 header.site nav a:hover { color: var(--ink); background: none; }
 header.site .spacer { flex: 1; }
+
+/* Hamburger button — hidden on desktop, visible on mobile. Three-line
+   icon drawn with currentColor pseudo-elements so it respects dark mode. */
+header.site .nav-toggle {
+  display: none;
+  background: none;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  width: 2rem;
+  height: 2rem;
+  padding: 0;
+  cursor: pointer;
+  color: var(--muted);
+  align-items: center;
+  justify-content: center;
+}
+header.site .nav-toggle:hover { color: var(--ink); border-color: var(--line-2); }
+header.site .nav-toggle .nav-icon,
+header.site .nav-toggle .nav-icon::before,
+header.site .nav-toggle .nav-icon::after {
+  display: block;
+  width: 1.05rem;
+  height: 2px;
+  background: currentColor;
+  transition: transform 0.15s, opacity 0.15s;
+}
+header.site .nav-toggle .nav-icon { position: relative; }
+header.site .nav-toggle .nav-icon::before,
+header.site .nav-toggle .nav-icon::after {
+  content: '';
+  position: absolute;
+  left: 0;
+}
+header.site .nav-toggle .nav-icon::before { top: -0.42rem; }
+header.site .nav-toggle .nav-icon::after  { top:  0.42rem; }
+header.site .nav-toggle[aria-expanded='true'] .nav-icon { background: transparent; }
+header.site .nav-toggle[aria-expanded='true'] .nav-icon::before {
+  top: 0; transform: rotate(45deg);
+}
+header.site .nav-toggle[aria-expanded='true'] .nav-icon::after  {
+  top: 0; transform: rotate(-45deg);
+}
 header.site .search-trigger {
   font-family: var(--sans);
   font-size: 0.85rem;
@@ -229,8 +271,13 @@ footer.site .container {
   flex-wrap: wrap;
 }
 footer.site .colophon { max-width: 32rem; }
-footer.site .to-top {
+footer.site .foot-nav {
+  display: flex;
+  align-items: baseline;
+  gap: 1.4rem;
   font-family: var(--sans);
+}
+footer.site .foot-nav a {
   font-size: 0.75rem;
   text-transform: uppercase;
   letter-spacing: 0.12em;
@@ -239,7 +286,8 @@ footer.site .to-top {
   background: none;
   background-image: none;
 }
-footer.site .to-top:hover { color: var(--accent); }
+footer.site .foot-nav a:hover { color: var(--accent); }
+footer.site .to-top { font-size: 0.75rem; }
 
 /* Entity page */
 .entity-article {
@@ -346,6 +394,185 @@ footer.site .to-top:hover { color: var(--accent); }
 .type-concept    .entity-eyebrow a { color: var(--t-concept); }
 .type-place      .entity-eyebrow { color: var(--t-place); }
 .type-place      .entity-eyebrow a { color: var(--t-place); }
+
+/* Table of contents.
+   Default: inline card at the top of the article (below meta, above
+   prose). Renders on mobile, tablet, and any desktop narrower than
+   1360px — where there isn't safe gutter space outside the article
+   max-width of 52rem.
+   Wide desktop (>=1360px): converts to a fixed sidebar in the right
+   gutter so it follows the reader as they scroll. */
+.entity-toc {
+  display: block;
+  margin: 0 0 2rem;
+  padding: 0.9rem 1.1rem 1rem;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  font-family: var(--sans);
+  font-size: 0.82rem;
+  line-height: 1.45;
+}
+.entity-toc .toc-label {
+  font-size: 0.68rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  color: var(--muted-2);
+  margin: 0 0 0.5rem;
+  padding-bottom: 0.4rem;
+  border-bottom: 1px solid var(--line);
+}
+.entity-toc .toc-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+}
+.entity-toc .toc-item a {
+  display: block;
+  padding: 0.22rem 0 0.22rem 0.7rem;
+  color: var(--muted);
+  background: none;
+  border-left: 2px solid transparent;
+  transition: color 0.12s, border-color 0.12s;
+  font-weight: 500;
+}
+.entity-toc .toc-item.toc-l3 a { padding-left: 1.4rem; font-size: 0.78rem; }
+.entity-toc .toc-item.toc-l4 a { padding-left: 2.1rem; font-size: 0.74rem; color: var(--muted-2); }
+.entity-toc .toc-item a:hover {
+  color: var(--accent);
+  border-left-color: var(--accent-soft);
+}
+.entity-toc .toc-item.active a {
+  color: var(--accent);
+  border-left-color: var(--accent);
+  font-weight: 600;
+}
+/* Anchor offset so clicking a TOC entry lands the heading below the
+   sticky site header rather than tucked behind it. */
+.prose h2, .prose h3, .prose h4 { scroll-margin-top: 5rem; }
+
+/* Wide desktop: float TOC into the right gutter beside the article.
+   Math: article max-width 52rem centered, so its right edge is at
+   50% + 26rem. We need 1rem gap + 14rem TOC = 15rem more, so the
+   minimum viewport for a non-overlapping gutter TOC is
+   (26rem + 15rem) * 2 = 82rem ≈ 1310px. Round up to 1360px for safety. */
+@media (min-width: 1360px) {
+  .entity-toc {
+    position: fixed;
+    top: 6rem;
+    left: calc(50% + 27rem);
+    width: 14rem;
+    max-height: calc(100vh - 8rem);
+    overflow-y: auto;
+    margin: 0;
+    padding: 0;
+    background: none;
+    border: none;
+    border-radius: 0;
+    z-index: 5;
+    scrollbar-width: thin;
+    scrollbar-color: var(--line-2) transparent;
+    /* Animate the hide/show — JS adds .toc-hidden when reader scrolls
+       into Sources, removes it on the way back up. */
+    transition: opacity 0.25s ease, transform 0.25s ease;
+  }
+  .entity-toc.toc-hidden {
+    opacity: 0;
+    transform: translateY(-0.8rem);
+    pointer-events: none;
+  }
+  .entity-toc .toc-label {
+    margin: 0 0 0.6rem;
+    padding-bottom: 0.4rem;
+  }
+}
+
+/* Changelog page — reuse the entity-article frame, then a tidy list. */
+.changelog-article {
+  max-width: var(--measure-wide);
+  margin: 0 auto;
+  padding: 3rem 1.5rem 2rem;
+}
+@media (min-width: 800px) {
+  .changelog-article { padding: 4rem 2rem 3rem; }
+}
+.changelog-empty {
+  font-family: var(--serif);
+  font-style: italic;
+  color: var(--muted);
+}
+.cl-group { margin: 2.5rem 0; }
+.cl-month {
+  font-family: var(--sans);
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  color: var(--accent);
+  margin: 0 0 1rem;
+  padding-bottom: 0.5rem;
+  border-bottom: 1px solid var(--line);
+}
+.cl-list { list-style: none; padding: 0; margin: 0; }
+.cl-entry {
+  padding: 0.8rem 0 0.9rem;
+  border-bottom: 1px dotted var(--line);
+}
+.cl-entry:last-child { border-bottom: none; }
+.cl-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.7rem;
+  font-family: var(--sans);
+  font-size: 0.7rem;
+  letter-spacing: 0.06em;
+  margin-bottom: 0.2rem;
+}
+.cl-day {
+  font-weight: 600;
+  text-transform: uppercase;
+  color: var(--ink-2);
+  font-variant-numeric: tabular-nums;
+}
+.cl-type {
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--muted);
+}
+.cl-entry.type-person      .cl-type { color: var(--t-person); }
+.cl-entry.type-organization .cl-type { color: var(--t-organization); }
+.cl-entry.type-program     .cl-type { color: var(--t-program); }
+.cl-entry.type-event       .cl-type { color: var(--t-event); }
+.cl-entry.type-concept     .cl-type { color: var(--t-concept); }
+.cl-entry.type-place       .cl-type { color: var(--t-place); }
+.cl-cat {
+  color: var(--muted-2);
+  font-style: italic;
+}
+.cl-title {
+  display: inline-block;
+  font-family: var(--serif);
+  font-size: 1.05rem;
+  font-weight: 600;
+  color: var(--ink);
+  background: none;
+  line-height: 1.3;
+}
+.cl-title:hover { color: var(--accent); }
+.cl-summary {
+  font-family: var(--serif);
+  font-size: 0.88rem;
+  color: var(--muted);
+  line-height: 1.5;
+  margin: 0.3rem 0 0;
+  max-width: 42rem;
+}
 
 /* Body prose — longform journal feel */
 .prose {
@@ -1664,26 +1891,50 @@ body.graph-fullscreen-active { overflow: hidden; }
     flex-wrap: nowrap;
     align-items: center;
   }
-  header.site .brand { font-size: 0.82rem; }
+  header.site .brand { font-size: 0.85rem; }
+  header.site .nav-toggle { display: inline-flex; }
+  /* Nav collapses to a dropdown anchored to the header. The whole sheet
+     slides down when the hamburger is :aria-expanded — visibility +
+     transform combo keeps the menu in the layout for screen readers
+     while invisible. */
   header.site nav {
-    flex: 1;
-    overflow-x: auto;
-    overflow-y: hidden;
-    -webkit-overflow-scrolling: touch;
-    scrollbar-width: none;
-    white-space: nowrap;
-    gap: 0.9rem;
-    font-size: 0.75rem;
-    padding-bottom: 0.1rem;
+    position: absolute;
+    top: 100%;
+    left: 0;
+    right: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+    padding: 0.5rem 1rem 1rem;
+    background: var(--paper);
+    border-bottom: 1px solid var(--line);
+    transform: translateY(-8px);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.15s, transform 0.15s;
+    font-size: 0.9rem;
   }
-  header.site nav::-webkit-scrollbar { display: none; }
+  header.site nav.open {
+    opacity: 1;
+    transform: translateY(0);
+    pointer-events: auto;
+  }
+  header.site nav a {
+    padding: 0.6rem 0.2rem;
+    border-bottom: 1px solid var(--line);
+    font-size: 0.85rem;
+    letter-spacing: 0.06em;
+  }
+  header.site nav a:last-child { border-bottom: none; }
   header.site .spacer { display: none; }
   header.site .search-trigger {
     padding: 0.25rem 0.55rem;
     font-size: 0.78rem;
     flex-shrink: 0;
+    margin-left: auto;
   }
   header.site .search-trigger kbd { display: none; }
+  body.nav-open { overflow: hidden; }
   .prose p:first-of-type::first-letter { font-size: 2.4em; }
   .related-grid { grid-template-columns: 1fr; }
   .alphabet-nav { padding: 0 1rem; }

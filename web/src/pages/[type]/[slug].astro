@@ -4,6 +4,7 @@ import Backlinks from '../../components/Backlinks.astro';
 import Graph from '../../components/Graph.astro';
 import HiddenConnections from '../../components/HiddenConnections.astro';
 import RelatedGrid from '../../components/RelatedGrid.astro';
+import TableOfContents from '../../components/TableOfContents.astro';
 import { entities, TYPE_DIRS, TYPE_LABELS, TYPE_PLURALS } from '../../lib/data.ts';
 import type { Entity } from '../../lib/types.ts';
 
@@ -62,6 +63,8 @@ const typeHref = `/${TYPE_DIRS[entity.type]}/`;
         </span>
       )}
     </div>
+
+    <TableOfContents entries={entity.toc ?? []} />
 
     <div class="prose" set:html={entity.body_html} />
 

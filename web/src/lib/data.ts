@@ -10,6 +10,27 @@ function loadJson<T>(name: string): T {
   return JSON.parse(readFileSync(resolve(DATA_DIR, name), 'utf-8')) as T;
 }
 
+export interface ActivityEntry {
+  id: string;
+  title: string;
+  type: EntityType;
+  category: string | null;
+  summary: string | null;
+  mtime: string;
+}
+
+let _activity: ActivityEntry[] | null = null;
+export function activity(): ActivityEntry[] {
+  if (!_activity) {
+    try {
+      _activity = loadJson<ActivityEntry[]>('activity.json');
+    } catch {
+      _activity = [];
+    }
+  }
+  return _activity;
+}
+
 let _entities: Entity[] | null = null;
 let _edges: Edge[] | null = null;
 let _byId: Map<string, Entity> | null = null;

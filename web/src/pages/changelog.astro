@@ -1,0 +1,70 @@
+---
+import Base from '../layouts/Base.astro';
+import { activity, hrefFor, TYPE_LABELS } from '../lib/data.ts';
+import type { EntityType } from '../lib/types.ts';
+
+const CHANGELOG_LIMIT = 25;
+const all = activity();
+const entries = all.slice(0, CHANGELOG_LIMIT);
+const hiddenCount = Math.max(0, all.length - entries.length);
+
+function monthLabel(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return 'Unknown';
+  return d.toLocaleString('en-US', { month: 'long', year: 'numeric' });
+}
+function dayLabel(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  return d.toLocaleString('en-US', { month: 'short', day: 'numeric' });
+}
+
+// Group by month so a long history stays scannable.
+const grouped: { label: string; items: typeof entries }[] = [];
+for (const e of entries) {
+  const label = monthLabel(e.mtime);
+  const last = grouped[grouped.length - 1];
+  if (last && last.label === label) last.items.push(e);
+  else grouped.push({ label, items: [e] });
+}
+---
+<Base
+  title="Changelog — The Info Web"
+  description="Recent additions and revisions to entries in the vault."
+>
+  <article class="changelog-article">
+    <div class="entity-eyebrow">
+      <span>Meta</span>
+    </div>
+    <h1 class="entity-title">Changelog</h1>
+    <p class="entity-dek">
+      The {entries.length} most recent additions and revisions to entries in the vault, sorted by last-modified date.
+      {hiddenCount > 0 && (<span class="cl-overflow"> Older entries ({hiddenCount.toLocaleString()}) are still searchable.</span>)}
+    </p>
+
+    {entries.length === 0 && (
+      <p class="changelog-empty">No activity recorded.</p>
+    )}
+
+    {grouped.map((group) => (
+      <section class="cl-group">
+        <h2 class="cl-month">{group.label}</h2>
+        <ol class="cl-list">
+          {group.items.map((e) => (
+            <li class={`cl-entry type-${e.type}`}>
+              <div class="cl-head">
+                <span class="cl-day">{dayLabel(e.mtime)}</span>
+                <span class="cl-type">{TYPE_LABELS[e.type as EntityType]}</span>
+                {e.category && <span class="cl-cat">{e.category}</span>}
+              </div>
+              <a class="cl-title" href={hrefFor({ id: e.id, type: e.type })}>
+                {e.title}
+              </a>
+              {e.summary && <p class="cl-summary">{e.summary}</p>}
+            </li>
+          ))}
+        </ol>
+      </section>
+    ))}
+  </article>
+</Base>
