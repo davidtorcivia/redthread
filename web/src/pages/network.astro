@@ -49,6 +49,11 @@ const total = entities().length;
           <input type="range" class="net-slider-input" id="net-opacity" min="0" max="100" value="100" />
           <span class="net-slider-val" id="net-opacity-val">100%</span>
         </label>
+        <label class="net-slider" id="net-highlight-slider" title="How much non-related elements fade when something is selected. Lower = selection overlays the full network; higher = quick read.">
+          <span class="net-slider-label">Highlight</span>
+          <input type="range" class="net-slider-input" id="net-highlight" min="0" max="100" value="100" />
+          <span class="net-slider-val" id="net-highlight-val">100%</span>
+        </label>
         <label class="net-slider" id="net-force-slider">
           <span class="net-slider-label">Force</span>
           <input type="range" class="net-slider-input" id="net-force" min="50" max="400" value="100" />
@@ -113,6 +118,8 @@ const total = entities().length;
       const forceSlider = document.getElementById('net-force-slider');
       const forceInput = document.getElementById('net-force');
       const forceVal = document.getElementById('net-force-val');
+      const highlightInput = document.getElementById('net-highlight');
+      const highlightVal = document.getElementById('net-highlight-val');
       const panel = document.getElementById('net-selection');
       const tooltip = document.getElementById('net-tooltip');
 
@@ -185,8 +192,14 @@ const total = entities().length;
       /** Active layout key — controls visibility of the Force slider. */
       let currentLayout = 'force';
       /** Tunable multipliers driven by the slider controls. */
-      let opacityMult = 1.0;   // 0.2 .. 1.0, dims nodes + labels
-      let forceMult = 1.0;     // 0.5 .. 4.0, scales Force layout spread
+      let opacityMult = 1.0;       // 0.0 .. 1.0, dims nodes + labels
+      let forceMult = 1.0;         // 0.5 .. 4.0, scales Force layout spread
+      /** How aggressively the selection fades non-related elements.
+       *  1.0 = strong fade (out-of-focus at ~0.08), 0.0 = no fade
+       *  (out-of-focus stays at its normal opacity, only the rings
+       *  mark the selection). Lets the user trade between instant
+       *  read and seeing the selection in full network context. */
+      let highlightStrength = 1.0;
       /** Raw spring_layout positions in their parser-normalized 0-1000
        *  range. Force layout multiplies these by a baseline scale * the
        *  Force slider so the user can spread the graph apart on demand. */
@@ -282,7 +295,11 @@ const total = entities().length;
 
         // --- Edges (only if toggled on) -----------------------------------
         if (edgesVisible) {
-          const bgAlpha = hasSelection ? 0.06 : 0.32;
+          // When something is selected, non-focus edges fade according
+          // to the Highlight slider. 1.0 → strong fade (0.06), 0.0 →
+          // no fade (stay at the normal 0.32 background opacity).
+          const fadedAlpha = 0.32 - (0.32 - 0.06) * highlightStrength;
+          const bgAlpha = hasSelection ? fadedAlpha : 0.32;
           ctx.lineWidth = 0.7;
 
           // Helper: draw the subset of edges that match a kind predicate
@@ -415,9 +432,12 @@ const total = entities().length;
           const isSelected = selectedNodes.has(i);
           const isMain = isSelected || i === hoveredIdx;
           const inFocus = !focusNodes || focusNodes.has(i);
-          // Selected/hovered always show at full opacity so the user's
-          // pick stays legible no matter where the dim slider is.
-          const base = isMain ? 1 : (inFocus ? 0.55 : 0.08);
+          // Out-of-focus alpha lerps between the in-focus value (0.55,
+          // i.e. no fade) and the strong-fade value (0.08) based on
+          // the Highlight slider. At 0 the selection makes nothing
+          // dim; at 1 (default) it fully fades the rest back.
+          const fadeAlpha = 0.55 - (0.55 - 0.08) * highlightStrength;
+          const base = isMain ? 1 : (inFocus ? 0.55 : fadeAlpha);
           ctx.globalAlpha = isMain ? base : base * opacityMult;
           ctx.fillStyle = n.color;
           ctx.beginPath();
@@ -466,12 +486,15 @@ const total = entities().length;
         const W = canvas.width / dpr;
         const H = canvas.height / dpr;
         const candidates = [];
+        // Non-focus labels are only hidden when the Highlight slider is
+        // strong enough that they'd be barely visible anyway. At low
+        // values the user wants to see the selection in network context,
+        // so leave the landmark/zoom-driven labels alone.
+        const suppressOuterLabels = hasSelection && highlightStrength > 0.4;
         for (let i = 0; i < nodes.length; i++) {
           const n = nodes[i];
           if (!n.visible) continue;
-          // When a selection is active, hide every label outside the
-          // focus set so the user's chosen subgraph dominates.
-          if (hasSelection && focusNodes && !focusNodes.has(i)) {
+          if (suppressOuterLabels && focusNodes && !focusNodes.has(i)) {
             if (i !== hoveredIdx) continue;
           }
           const sx = modelToScreenX(n.x);
@@ -1062,6 +1085,16 @@ const total = entities().length;
           const pct = parseInt(opacityInput.value, 10);
           opacityMult = pct / 100;
           opacityVal.textContent = pct + '%';
+          requestDraw();
+        });
+
+        // Highlight slider — how much the rest of the graph fades when
+        // something is selected. 100 = strong fade (default), 0 = no
+        // fade, just rings mark the selection.
+        highlightInput.addEventListener('input', () => {
+          const pct = parseInt(highlightInput.value, 10);
+          highlightStrength = pct / 100;
+          highlightVal.textContent = pct + '%';
           requestDraw();
         });
 
