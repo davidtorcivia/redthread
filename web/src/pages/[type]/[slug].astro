@@ -133,10 +133,13 @@ const ogType = entity.type === 'person' ? 'profile' : 'article';
       )}
       {entity.bridge_rank && (
         <span class="meta-item">
-          <span class="bridge-badge" title={`Bridges otherwise-disconnected clusters in the network (network rank #${entity.bridge_rank}).`}>
-            <span class="bridge-icon" aria-hidden="true">⤬</span>
+          <a
+            class="bridge-badge"
+            href={`/bridges/#br-${entity.id}`}
+            title={`This entry sits on more shortest-paths through the vault than most. Network rank #${entity.bridge_rank}. Click for the full list and explanation.`}
+          >
             Bridge <span class="bridge-rank">#{entity.bridge_rank}</span>
-          </span>
+          </a>
         </span>
       )}
       {entity.tags.length > 0 && (

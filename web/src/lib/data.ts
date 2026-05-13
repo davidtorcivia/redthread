@@ -271,3 +271,11 @@ export function primaryYear(e: Entity): number | null {
 export function entitiesWithDates(): Entity[] {
   return entities().filter((e) => primaryYear(e) != null);
 }
+
+/** Entities ranked as network bridges (top ~50 by betweenness centrality).
+ *  Returned in rank order — strongest bridges first. */
+export function bridgeEntities(): Entity[] {
+  return entities()
+    .filter((e) => e.bridge_rank != null)
+    .sort((a, b) => (a.bridge_rank! - b.bridge_rank!));
+}

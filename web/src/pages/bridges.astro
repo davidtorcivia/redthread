@@ -1,0 +1,86 @@
+---
+import Base from '../layouts/Base.astro';
+import { bridgeEntities, hrefFor, TYPE_LABELS } from '../lib/data.ts';
+
+const all = bridgeEntities();
+const top = all[0];
+// Median rank-1 mention count is a useful frame for understanding what
+// "bridge" means in this vault. We hint at it inline rather than rely on
+// the reader to interpolate.
+const mentionsTop = all.slice(0, 10).map((e) => e.mention_count).sort((a, b) => a - b);
+const medianTopMentions = mentionsTop.length
+  ? mentionsTop[Math.floor(mentionsTop.length / 2)]
+  : 0;
+---
+<Base
+  title="Bridge entities — The Info Web"
+  description="Entities that hold otherwise-separate parts of the network together, ranked by betweenness centrality."
+>
+  <article class="bridges-article">
+    <div class="entity-eyebrow">
+      <span>Tools</span>
+    </div>
+    <h1 class="entity-title">Bridge entities</h1>
+    <p class="entity-dek">
+      The {all.length} entries that hold the network together. If you removed any of these,
+      the rest of the vault would fall into more disconnected pieces.
+    </p>
+
+    <section class="br-explain">
+      <h2 class="br-heading">What's a bridge?</h2>
+      <p>
+        Most entries connect tightly within their own neighborhood — a Cold-War politician
+        mostly co-occurs with other Cold-War politicians; a parapsychology researcher mostly
+        co-occurs with other parapsychology researchers. A <strong>bridge</strong> is an
+        entry that sits between those neighborhoods, mentioned by people on both sides who
+        otherwise wouldn't share a page.
+      </p>
+      <p>
+        These are ranked by <em>betweenness centrality</em>: for every pair of entries in
+        the vault, we compute the shortest chain of connections between them, then count
+        how often each entry shows up <em>inside</em> those chains. An entry on a lot of
+        chains is a bridge.
+      </p>
+      <p>
+        Why care? Bridges are often the most interesting nodes for a researcher to investigate.
+        A high-mention entity (CIA, Reagan) is famous and obvious. A high-bridge entity with
+        modest mention count — <a href="/organizations/bank-of-credit-and-commerce-international/">BCCI</a>,
+        <a href="/people/ari-ben-menashe/">Ari Ben-Menashe</a> — is the connective tissue
+        you'd otherwise miss. The median top-10 bridge in this vault has just {medianTopMentions} mentions.
+      </p>
+      <p class="br-footer-note">
+        Computed with Brandes' algorithm against the full link graph (explicit wikilinks
+        plus NER-inferred mentions). Recomputed on every build.
+      </p>
+    </section>
+
+    <section class="br-list-section">
+      <h2 class="br-heading">Ranked</h2>
+      <ol class="br-list">
+        {all.map((e) => (
+          <li class={`br-row type-${e.type}`} id={`br-${e.id}`}>
+            <div class="br-rank-col">
+              <span class="br-rank-num">{e.bridge_rank!.toString().padStart(2, '0')}</span>
+            </div>
+            <div class="br-body">
+              <div class="br-head">
+                <span class="br-type">{TYPE_LABELS[e.type]}</span>
+                {e.category && <span class="br-cat">{e.category}</span>}
+                <span class="br-mentions">{e.mention_count.toLocaleString()} mentions</span>
+              </div>
+              <a class="br-title" href={hrefFor({ id: e.id, type: e.type })}>{e.title}</a>
+              {e.summary && <p class="br-summary">{e.summary}</p>}
+            </div>
+          </li>
+        ))}
+      </ol>
+    </section>
+
+    {top && (
+      <p class="br-cta">
+        See how any two entities chain together — try the <a href="/path/">path finder</a>,
+        or explore the <a href="/network/">full network</a>.
+      </p>
+    )}
+  </article>
+</Base>

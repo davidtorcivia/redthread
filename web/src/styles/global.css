@@ -365,33 +365,34 @@ footer.site .to-top { font-size: 0.75rem; }
   margin-right: 0.1rem;
 }
 /* Bridge badge — only shown on entities that rank in the network's top 50
-   for betweenness centrality. The icon ⤬ reads as "crossing point". */
-.entity-meta .bridge-badge {
+   for betweenness centrality. Gold to match the gold ring on bridge nodes
+   in the graph viz. Links to /bridges/ for the full ranking + explanation. */
+.entity-meta a.bridge-badge {
   display: inline-flex;
   align-items: center;
-  gap: 0.3em;
+  gap: 0.35em;
   font-family: var(--sans);
-  font-size: 0.72rem;
+  font-size: 0.7rem;
   font-weight: 700;
-  letter-spacing: 0.06em;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: var(--accent);
-  background: linear-gradient(var(--accent), var(--accent)) no-repeat;
-  background-color: var(--paper-2);
-  background-size: 0;
-  border: 1px solid var(--accent-soft);
-  padding: 0.15em 0.65em;
+  color: var(--gold);
+  background: var(--paper-2);
+  background-image: none;
+  border: 1px solid var(--gold);
+  padding: 0.18em 0.7em;
   border-radius: 999px;
   cursor: help;
+  transition: background-color 0.12s, color 0.12s;
 }
-.entity-meta .bridge-icon {
-  font-size: 0.9em;
-  line-height: 1;
+.entity-meta a.bridge-badge:hover {
+  background: var(--gold);
+  color: var(--paper);
 }
-.entity-meta .bridge-rank {
+.entity-meta a.bridge-badge .bridge-rank {
   font-weight: 600;
-  color: var(--muted);
   letter-spacing: 0;
+  opacity: 0.85;
 }
 
 .entity-meta a.tag,
@@ -1630,6 +1631,294 @@ body.graph-fullscreen-active { overflow: hidden; }
   color: var(--muted-2);
   font-size: 1.1rem;
   flex: 0 0 auto;
+}
+
+/* Full-network page — Cytoscape canvas with a load button, layout cycle,
+   type filter chips. Layout fills most of the viewport on this page. */
+.network-article {
+  max-width: 78rem;
+  margin: 0 auto;
+  padding: 2.5rem 1.5rem 2rem;
+}
+@media (min-width: 800px) {
+  .network-article { padding: 3rem 2rem 3rem; }
+}
+.network-header { margin-bottom: 1.5rem; }
+.network-header .entity-title { font-size: clamp(2.2rem, 4vw, 3rem); }
+.network-header .entity-dek { font-size: var(--fs-body); }
+.net-shell {
+  position: relative;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  height: 75vh;
+  min-height: 32rem;
+  overflow: hidden;
+}
+.net-canvas { width: 100%; height: 100%; cursor: grab; }
+.net-canvas:active { cursor: grabbing; }
+.net-status {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.8rem;
+  text-align: center;
+  padding: 1rem;
+}
+.net-load {
+  font-family: var(--sans);
+  font-size: 0.9rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: var(--paper);
+  background: var(--accent);
+  border: 1px solid var(--accent);
+  padding: 0.65rem 1.4rem;
+  border-radius: 4px;
+  cursor: pointer;
+}
+.net-load:hover { background: var(--link-hover); }
+.net-load:disabled { background: var(--muted); border-color: var(--muted); cursor: wait; }
+.net-load-hint {
+  font-size: 0.75rem;
+  font-weight: 400;
+  opacity: 0.85;
+  margin-left: 0.3em;
+}
+.net-load-warn {
+  font-family: var(--serif);
+  font-style: italic;
+  color: var(--muted);
+  font-size: 0.92rem;
+  max-width: 24rem;
+  margin: 0;
+}
+.net-controls {
+  position: absolute;
+  top: 0.6rem;
+  right: 0.6rem;
+  display: flex;
+  gap: 0.4rem;
+  z-index: 3;
+}
+.net-filters {
+  position: absolute;
+  top: 0.6rem;
+  left: 0.6rem;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem;
+  background: var(--card);
+  border: 1px solid var(--line-2);
+  border-radius: 4px;
+  padding: 0.4rem 0.5rem;
+  z-index: 3;
+  box-shadow: 0 4px 12px -6px rgba(20, 16, 8, 0.3);
+}
+.net-filters-label {
+  font-family: var(--sans);
+  font-size: 0.65rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--muted-2);
+  margin-right: 0.3rem;
+}
+.net-chip {
+  font-family: var(--sans);
+  font-size: 0.72rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 0.18rem 0.55rem;
+  border-radius: 999px;
+  cursor: pointer;
+  background: var(--paper-2);
+  border: 1px solid var(--line);
+  color: var(--muted);
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  transition: opacity 0.12s, background-color 0.12s;
+}
+.net-chip::before {
+  content: '';
+  width: 0.55rem;
+  height: 0.55rem;
+  border-radius: 50%;
+  background: var(--muted-2);
+  display: inline-block;
+}
+.net-chip.type-person::before      { background: var(--t-person); }
+.net-chip.type-organization::before { background: var(--t-organization); }
+.net-chip.type-program::before     { background: var(--t-program); }
+.net-chip.type-event::before       { background: var(--t-event); }
+.net-chip.type-concept::before     { background: var(--t-concept); }
+.net-chip.type-place::before       { background: var(--t-place); }
+.net-chip:not(.active) { opacity: 0.4; }
+.net-chip:hover { background: var(--card); color: var(--ink); }
+/* Selection panel reuses .graph-selection styles via the shared class. */
+.network-article .net-selection { left: 0.6rem; bottom: 0.6rem; }
+/* Fullscreen for the network shell — same pattern as graph-section. */
+.network-article.fullscreen {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  margin: 0;
+  padding: 0;
+  background: var(--paper);
+  max-width: none;
+  display: flex;
+  flex-direction: column;
+}
+.network-article.fullscreen .network-header {
+  padding: 0.8rem 1.5rem 0.5rem;
+  margin: 0;
+}
+.network-article.fullscreen .network-header .entity-title { font-size: 1.6rem; margin: 0; }
+.network-article.fullscreen .network-header .entity-dek { display: none; }
+.network-article.fullscreen .net-shell {
+  flex: 1;
+  height: auto;
+  border-radius: 0;
+  border-left: 0;
+  border-right: 0;
+  border-bottom: 0;
+  border-top: 1px solid var(--line);
+}
+body.net-fullscreen-active { overflow: hidden; }
+
+/* Bridges page — explainer + ranked list. */
+.bridges-article {
+  max-width: var(--measure-wide);
+  margin: 0 auto;
+  padding: 3rem 1.5rem 2rem;
+}
+@media (min-width: 800px) {
+  .bridges-article { padding: 4rem 2rem 3rem; }
+}
+.br-explain {
+  margin: 2rem 0;
+  max-width: var(--measure);
+  font-family: var(--serif);
+  font-size: var(--fs-body);
+  line-height: var(--rhythm);
+  color: var(--ink-2);
+}
+.br-explain p { margin: 0 0 1.1em; }
+.br-explain .br-footer-note {
+  font-size: 0.88rem;
+  color: var(--muted);
+  font-style: italic;
+  margin-bottom: 0;
+}
+.br-heading {
+  font-family: var(--sans);
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  font-weight: 600;
+  color: var(--gold);
+  margin: 0 0 1rem;
+}
+.br-list-section {
+  margin-top: 2.5rem;
+  padding-top: 1.5rem;
+  border-top: 1px solid var(--line);
+}
+.br-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+.br-row {
+  display: grid;
+  grid-template-columns: 3.2rem 1fr;
+  gap: 1rem;
+  padding: 1rem 0.75rem 1.1rem;
+  border-bottom: 1px solid var(--line);
+  scroll-margin-top: 5rem;
+  position: relative;
+}
+.br-row:last-child { border-bottom: none; }
+/* Subtle hover state so an anchored row reads as "you're here" */
+.br-row:target {
+  background: var(--paper-2);
+  border-left: 3px solid var(--gold);
+  padding-left: 0.5rem;
+}
+.br-rank-col {
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+}
+.br-rank-num {
+  font-family: var(--sans);
+  font-size: 1.5rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--gold);
+  line-height: 1;
+}
+.br-body { min-width: 0; }
+.br-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.7rem;
+  font-family: var(--sans);
+  font-size: 0.7rem;
+  letter-spacing: 0.05em;
+  margin-bottom: 0.25rem;
+}
+.br-type {
+  text-transform: uppercase;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  color: var(--muted);
+}
+.br-row.type-person      .br-type { color: var(--t-person); }
+.br-row.type-organization .br-type { color: var(--t-organization); }
+.br-row.type-program     .br-type { color: var(--t-program); }
+.br-row.type-event       .br-type { color: var(--t-event); }
+.br-row.type-concept     .br-type { color: var(--t-concept); }
+.br-row.type-place       .br-type { color: var(--t-place); }
+.br-cat { color: var(--muted-2); font-style: italic; }
+.br-mentions {
+  margin-left: auto;
+  color: var(--muted-2);
+  font-variant-numeric: tabular-nums;
+}
+.br-title {
+  display: inline-block;
+  font-family: var(--serif);
+  font-size: 1.2rem;
+  font-weight: 600;
+  color: var(--ink);
+  background: none;
+  background-image: none;
+  line-height: 1.2;
+}
+.br-title:hover { color: var(--accent); }
+.br-summary {
+  font-family: var(--serif);
+  font-size: 0.92rem;
+  color: var(--muted);
+  line-height: 1.5;
+  margin: 0.35rem 0 0;
+  max-width: 44rem;
+}
+.br-cta {
+  margin-top: 2.5rem;
+  padding-top: 1.5rem;
+  border-top: 1px solid var(--line);
+  font-family: var(--serif);
+  font-style: italic;
+  color: var(--muted);
 }
 
 /* Path widget — small "Find a path from X to …" block on entity pages.

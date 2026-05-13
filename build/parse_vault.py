@@ -786,28 +786,29 @@ def build_adjacency(
     entities: list[dict[str, Any]],
     edges: list[dict[str, Any]],
 ) -> dict[str, Any]:
-    """Compact undirected adjacency map for client-side path-finding.
-
-    Uses parallel arrays with numeric indices instead of a {slug: [slug...]}
-    object — same data in roughly a third the bytes, since slug strings
-    only appear once each. Includes both explicit and implicit edges,
-    because researchers care about any documented connection.
+    """Compact undirected adjacency map for client-side path-finding +
+    the full-network view. Parallel arrays with numeric indices; slug
+    strings only appear once each. Includes both explicit and implicit
+    edges, because researchers care about any documented connection.
 
     Shape:
-      { ids: [slug, slug, ...],
-        titles: [title, title, ...],
-        types: [type, type, ...],
-        adj: [[neighbor_idx, ...], ...] }   parallel to ids[].
+      { ids: [slug...], titles: [title...], types: [type...],
+        adj: [[neighbor_idx, ...], ...],
+        mentions: [int...],     # vault-wide mention_count per node
+        bridges: {idx: rank}    # sparse map; only top-50 bridges present
+      }
     """
     eid_to_idx: dict[str, int] = {}
     ids: list[str] = []
     titles: list[str] = []
     types: list[str] = []
+    mentions: list[int] = []
     for i, e in enumerate(entities):
         eid_to_idx[e["id"]] = i
         ids.append(e["id"])
         titles.append(e["title"])
         types.append(e["type"])
+        mentions.append(e.get("mention_count", 0))
 
     adj_sets: list[set[int]] = [set() for _ in entities]
     for edge in edges:
@@ -822,7 +823,23 @@ def build_adjacency(
         adj_sets[ti].add(si)
 
     adj = [sorted(s) for s in adj_sets]
-    return {"ids": ids, "titles": titles, "types": types, "adj": adj}
+
+    # Bridge ranks are sparse (only top 50 set) — emit as a dict keyed by
+    # node index. Keeps the JSON small even when bridges grow.
+    bridges = {
+        str(i): e["bridge_rank"]
+        for i, e in enumerate(entities)
+        if e.get("bridge_rank")
+    }
+
+    return {
+        "ids": ids,
+        "titles": titles,
+        "types": types,
+        "adj": adj,
+        "mentions": mentions,
+        "bridges": bridges,
+    }
 
 
 def compute_betweenness(adj: list[list[int]]) -> list[float]:

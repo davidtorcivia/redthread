@@ -1,0 +1,450 @@
+---
+import Base from '../layouts/Base.astro';
+import { entities } from '../lib/data.ts';
+
+// Stats for the page hero
+const total = entities().length;
+const byType: Record<string, number> = {};
+for (const e of entities()) byType[e.type] = (byType[e.type] ?? 0) + 1;
+---
+<Base
+  title="Full network — The Info Web"
+  description="Every entry in the vault rendered as a single navigable graph."
+>
+  <article class="network-article">
+    <header class="network-header">
+      <div class="entity-eyebrow"><span>Tools</span></div>
+      <h1 class="entity-title">The full network</h1>
+      <p class="entity-dek">
+        Every {total.toLocaleString()} entries in the vault, plotted as a single graph.
+        Click a node to navigate; drag to pan; scroll to zoom.
+        Bridge entities are ringed in gold.
+      </p>
+    </header>
+
+    <section class="net-shell" id="net-shell">
+      <div class="net-canvas" aria-label="Full network graph"></div>
+
+      <div class="net-status" id="net-status">
+        <button type="button" class="net-load" id="net-load">
+          Load network <span class="net-load-hint">({total.toLocaleString()} nodes)</span>
+        </button>
+        <p class="net-load-warn">
+          This renders the entire vault in your browser. First-load takes a moment.
+        </p>
+      </div>
+
+      <div class="net-controls" hidden id="net-controls">
+        <button class="graph-btn net-layout" type="button">Layout: Grid</button>
+        <button class="graph-btn net-fit" type="button">Refit</button>
+        <button class="graph-btn net-fullscreen" type="button" aria-pressed="false">Fullscreen</button>
+      </div>
+
+      <div class="net-filters" hidden id="net-filters" aria-label="Filter by type">
+        <span class="net-filters-label">Show</span>
+        <button class="net-chip active type-person" data-type="person" aria-pressed="true">People</button>
+        <button class="net-chip active type-organization" data-type="organization" aria-pressed="true">Orgs</button>
+        <button class="net-chip active type-program" data-type="program" aria-pressed="true">Programs</button>
+        <button class="net-chip active type-event" data-type="event" aria-pressed="true">Events</button>
+        <button class="net-chip active type-concept" data-type="concept" aria-pressed="true">Concepts</button>
+        <button class="net-chip active type-place" data-type="place" aria-pressed="true">Places</button>
+      </div>
+
+      <div class="graph-selection net-selection" hidden id="net-selection">
+        <div class="gs-row">
+          <span class="gs-eyebrow"></span>
+          <span class="gs-title"></span>
+        </div>
+        <div class="gs-meta"><span class="gs-count"></span> mentions across the vault</div>
+        <div class="gs-bridge" hidden>Bridge entity (rank <span class="gs-bridge-rank"></span>)</div>
+        <div class="gs-actions">
+          <a class="gs-go" href="#">Go to page &rarr;</a>
+          <button class="gs-deselect" type="button">Deselect</button>
+        </div>
+      </div>
+
+      <div class="graph-tooltip net-tooltip" hidden id="net-tooltip"></div>
+    </section>
+  </article>
+
+  <script is:inline>
+    (function () {
+      const shell = document.getElementById('net-shell');
+      const canvas = shell.querySelector('.net-canvas');
+      const status = document.getElementById('net-status');
+      const loadBtn = document.getElementById('net-load');
+      const controls = document.getElementById('net-controls');
+      const filters = document.getElementById('net-filters');
+      const layoutBtn = controls.querySelector('.net-layout');
+      const fitBtn = controls.querySelector('.net-fit');
+      const fullscreenBtn = controls.querySelector('.net-fullscreen');
+      const panel = document.getElementById('net-selection');
+      const tooltip = document.getElementById('net-tooltip');
+      const article = shell.closest('.network-article');
+
+      const TYPE_DIRS = {
+        person: 'people', organization: 'organizations', program: 'programs',
+        event: 'events', concept: 'concepts', place: 'places',
+        source: 'sources', meta: 'meta', misc: 'misc', page: 'pages',
+      };
+      const TYPE_LABELS = {
+        person: 'Person', organization: 'Organization', program: 'Program',
+        event: 'Event', concept: 'Concept', place: 'Place',
+        source: 'Source', meta: 'Meta', misc: 'Misc', page: 'Page',
+      };
+
+      function readColors() {
+        const cs = getComputedStyle(document.documentElement);
+        const get = (v, f) => (cs.getPropertyValue(v).trim() || f);
+        return {
+          person: get('--t-person', '#8a5a1f'),
+          organization: get('--t-organization', '#2d6864'),
+          program: get('--t-program', '#3f3d8b'),
+          event: get('--t-event', '#94322a'),
+          concept: get('--t-concept', '#5e6b32'),
+          place: get('--t-place', '#735237'),
+          source: get('--t-source', '#6a6258'),
+          muted: get('--muted', '#6a6258'),
+          line: get('--line-2', '#c8bca0'),
+          accentSoft: get('--accent-soft', '#c97a6a'),
+          accent: get('--accent', '#94322a'),
+          ink: get('--ink', '#1a1814'),
+          paper: get('--paper', '#f7f2e7'),
+          gold: get('--gold', '#8a6e25'),
+        };
+      }
+
+      function loadScript(src) {
+        return new Promise((resolve, reject) => {
+          const existing = document.querySelector(`script[data-graph-src="${src}"]`);
+          if (existing) {
+            if (existing.dataset.loaded === '1') return resolve();
+            existing.addEventListener('load', () => resolve());
+            existing.addEventListener('error', () => reject(new Error(src)));
+            return;
+          }
+          const s = document.createElement('script');
+          s.src = src;
+          s.async = false;
+          s.dataset.graphSrc = src;
+          s.onload = () => { s.dataset.loaded = '1'; resolve(); };
+          s.onerror = () => reject(new Error(src));
+          document.head.appendChild(s);
+        });
+      }
+      async function loadCytoscape() {
+        if (window.cytoscape && window._graphExtsLoaded) return;
+        await loadScript('https://unpkg.com/cytoscape@3.30.4/dist/cytoscape.min.js');
+        try {
+          await loadScript('https://unpkg.com/layout-base@2.0.1/layout-base.js');
+          await loadScript('https://unpkg.com/cose-base@2.2.0/cose-base.js');
+          await loadScript('https://unpkg.com/cytoscape-fcose@2.2.0/cytoscape-fcose.js');
+          if (window.cytoscapeFcose) window.cytoscape.use(window.cytoscapeFcose);
+          window._graphExtsLoaded = true;
+        } catch (err) { console.warn('[net] fcose failed', err); }
+      }
+
+      let cy = null;
+      let activeTypes = new Set(['person', 'organization', 'program', 'event', 'concept', 'place', 'source', 'meta', 'misc', 'page']);
+
+      function escapeHtml(s) {
+        return String(s).replace(/[&<>"']/g, (c) => (
+          { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
+        ));
+      }
+
+      async function init() {
+        loadBtn.disabled = true;
+        loadBtn.textContent = 'Loading…';
+        try {
+          const [_, data] = await Promise.all([
+            loadCytoscape(),
+            fetch('/adjacency.json').then((r) => (r.ok ? r.json() : Promise.reject())),
+          ]);
+          status.setAttribute('hidden', '');
+          controls.removeAttribute('hidden');
+          filters.removeAttribute('hidden');
+          render(data);
+        } catch (err) {
+          loadBtn.disabled = false;
+          loadBtn.textContent = 'Load network';
+          status.querySelector('.net-load-warn').textContent =
+            'Failed to load network data. Try again or check your connection.';
+          console.error('[net]', err);
+        }
+      }
+
+      function nodeSize(mentions, isBridge) {
+        // Big graph wants modest sizes — log-scale keeps the hubs visible
+        // without burying the long tail. Bridges nudge up slightly.
+        const base = 6 + Math.log2(1 + (mentions || 0)) * 2.2;
+        return Math.min(28, isBridge ? base + 3 : base);
+      }
+
+      function render(data) {
+        const colors = readColors();
+
+        // Build node and edge elements. Edges are deduped — adjacency is
+        // undirected so each pair appears twice in adj[]; we keep the
+        // (low, high) ordering only.
+        const elements = [];
+        for (let i = 0; i < data.ids.length; i++) {
+          const br = data.bridges[String(i)] || 0;
+          elements.push({
+            group: 'nodes',
+            data: {
+              id: data.ids[i],
+              title: data.titles[i],
+              type: data.types[i],
+              label: data.titles[i],
+              count: data.mentions[i] || 0,
+              size: nodeSize(data.mentions[i], !!br),
+              color: colors[data.types[i]] || colors.muted,
+              isBridge: br ? 1 : 0,
+              bridgeRank: br,
+            },
+          });
+        }
+        let edgeIdx = 0;
+        for (let i = 0; i < data.adj.length; i++) {
+          const neigh = data.adj[i];
+          const a = data.ids[i];
+          for (let k = 0; k < neigh.length; k++) {
+            const j = neigh[k];
+            if (j <= i) continue; // dedupe undirected pair
+            elements.push({
+              group: 'edges',
+              data: {
+                id: 'e' + (edgeIdx++),
+                source: a,
+                target: data.ids[j],
+              },
+            });
+          }
+        }
+
+        cy = window.cytoscape({
+          container: canvas,
+          elements,
+          wheelSensitivity: 0.25,
+          minZoom: 0.05,
+          maxZoom: 4,
+          textureOnViewport: true,    // hold static texture while panning — perf win at scale
+          motionBlur: false,
+          pixelRatio: 1,              // capping pixel ratio halves draw cost on hi-DPI
+          boxSelectionEnabled: false,
+          style: [
+            {
+              selector: 'node',
+              style: {
+                'background-color': 'data(color)',
+                'background-opacity': 0.82,
+                'width': 'data(size)',
+                'height': 'data(size)',
+                'label': '',           // hide labels by default — at 1,811 nodes they're noise
+                'border-width': 0,
+                'overlay-opacity': 0,
+              },
+            },
+            {
+              selector: 'node[isBridge = 1]',
+              style: {
+                'border-width': 2,
+                'border-color': colors.gold,
+                'border-opacity': 0.9,
+              },
+            },
+            {
+              selector: 'node.selected, node.hovered',
+              style: {
+                'background-opacity': 1,
+                'border-width': 2,
+                'border-color': colors.accent,
+                'label': 'data(label)',
+                'font-family': 'Inter Tight, sans-serif',
+                'font-size': 11,
+                'color': colors.ink,
+                'text-valign': 'bottom',
+                'text-margin-y': 4,
+                'text-background-color': colors.paper,
+                'text-background-opacity': 0.92,
+                'text-background-padding': 3,
+                'z-index': 10,
+              },
+            },
+            {
+              selector: '.faded',
+              style: { 'opacity': 0.05 },
+            },
+            {
+              selector: 'edge',
+              style: {
+                'line-color': colors.line,
+                'width': 0.6,
+                'curve-style': 'haystack',  // straight-line edges are cheap to render
+                'opacity': 0.25,
+              },
+            },
+            {
+              selector: 'edge.hovered, edge.selected',
+              style: {
+                'line-color': colors.accent,
+                'opacity': 1,
+                'width': 1.6,
+                'z-index': 9,
+              },
+            },
+            {
+              selector: '.hidden',
+              style: { 'display': 'none' },
+            },
+          ],
+          layout: { name: 'grid', fit: true, padding: 40, avoidOverlap: true, spacingFactor: 1.1 },
+        });
+
+        wireInteractions();
+      }
+
+      function wireInteractions() {
+        // --- Layout cycle. Force is expensive on this graph; warn user.
+        const LAYOUTS = [
+          { key: 'grid', label: 'Grid',
+            opts: { name: 'grid', fit: true, padding: 40, avoidOverlap: true, spacingFactor: 1.1 } },
+          { key: 'force', label: 'Force',
+            opts: { name: 'fcose', quality: 'default', randomize: true, animate: false, fit: true,
+                    padding: 40, idealEdgeLength: 50, nodeSeparation: 35, nodeRepulsion: 4000,
+                    edgeElasticity: 0.45, gravity: 0.5, numIter: 800, tile: true } },
+          { key: 'concentric', label: 'Concentric',
+            opts: { name: 'concentric', fit: true, padding: 40, animate: false,
+                    minNodeSpacing: 4,
+                    concentric: (n) => n.degree(false),
+                    levelWidth: () => 1 } },
+          { key: 'circle', label: 'Circle',
+            opts: { name: 'circle', fit: true, padding: 40, animate: false, spacingFactor: 1 } },
+        ];
+        let li = 0;
+        function applyLayout() {
+          layoutBtn.disabled = true;
+          layoutBtn.textContent = 'Computing…';
+          // Defer to give the disabled paint a chance to land
+          setTimeout(() => {
+            cy.layout(LAYOUTS[li].opts).run();
+            layoutBtn.disabled = false;
+            layoutBtn.textContent = `Layout: ${LAYOUTS[li].label}`;
+          }, 16);
+        }
+        layoutBtn.addEventListener('click', () => {
+          li = (li + 1) % LAYOUTS.length;
+          applyLayout();
+        });
+
+        fitBtn.addEventListener('click', () => cy.fit(undefined, 40));
+
+        // --- Type filter chips
+        for (const chip of filters.querySelectorAll('.net-chip')) {
+          chip.addEventListener('click', () => {
+            const t = chip.dataset.type;
+            const on = !chip.classList.contains('active');
+            chip.classList.toggle('active', on);
+            chip.setAttribute('aria-pressed', on ? 'true' : 'false');
+            if (on) activeTypes.add(t); else activeTypes.delete(t);
+            applyFilter();
+          });
+        }
+        function applyFilter() {
+          cy.batch(() => {
+            cy.nodes().forEach((n) => {
+              const show = activeTypes.has(n.data('type'));
+              n.toggleClass('hidden', !show);
+            });
+            cy.edges().forEach((e) => {
+              const src = e.source().hasClass('hidden');
+              const tgt = e.target().hasClass('hidden');
+              e.toggleClass('hidden', src || tgt);
+            });
+          });
+        }
+
+        // --- Selection
+        const selEyebrow = panel.querySelector('.gs-eyebrow');
+        const selTitle = panel.querySelector('.gs-title');
+        const selCount = panel.querySelector('.gs-count');
+        const selGo = panel.querySelector('.gs-go');
+        const selDeselect = panel.querySelector('.gs-deselect');
+        const selBridge = panel.querySelector('.gs-bridge');
+        const selBridgeRank = panel.querySelector('.gs-bridge-rank');
+
+        function clearSelection() {
+          cy.elements().removeClass('selected faded');
+          panel.setAttribute('hidden', '');
+        }
+        function selectNode(node) {
+          cy.elements().removeClass('selected faded');
+          node.addClass('selected');
+          const keep = node.union(node.connectedEdges()).union(node.connectedEdges().connectedNodes());
+          cy.elements().not(keep).addClass('faded');
+          const d = node.data();
+          selEyebrow.textContent = TYPE_LABELS[d.type] || '';
+          selEyebrow.className = `gs-eyebrow type-${d.type}`;
+          selTitle.textContent = d.title;
+          selCount.textContent = (d.count || 0).toLocaleString();
+          if (d.bridgeRank) {
+            selBridgeRank.textContent = '#' + d.bridgeRank;
+            selBridge.removeAttribute('hidden');
+          } else {
+            selBridge.setAttribute('hidden', '');
+          }
+          const dir = TYPE_DIRS[d.type] || 'pages';
+          selGo.href = `/${dir}/${d.id}/`;
+          panel.removeAttribute('hidden');
+        }
+        cy.on('tap', 'node', (evt) => {
+          const n = evt.target;
+          if (n.hasClass('selected') && cy.nodes('.selected').length === 1) clearSelection();
+          else selectNode(n);
+        });
+        cy.on('tap', (evt) => { if (evt.target === cy) clearSelection(); });
+        selDeselect.addEventListener('click', clearSelection);
+
+        // --- Edge hover tooltip (lightweight — just the two endpoints)
+        cy.on('mouseover', 'edge', (evt) => {
+          const e = evt.target;
+          const s = e.source().data('title');
+          const t = e.target().data('title');
+          tooltip.innerHTML =
+            '<div class="gt-pair"><span>' + escapeHtml(s) + '</span> ' +
+            '<span class="gt-link">&mdash;</span> <span>' + escapeHtml(t) + '</span></div>';
+          tooltip.removeAttribute('hidden');
+          positionTooltip(evt);
+        });
+        cy.on('mousemove', 'edge', positionTooltip);
+        cy.on('mouseout', 'edge', () => tooltip.setAttribute('hidden', ''));
+
+        function positionTooltip(evt) {
+          const cr = canvas.getBoundingClientRect();
+          const sr = shell.getBoundingClientRect();
+          const x = (cr.left - sr.left) + evt.renderedPosition.x;
+          const y = (cr.top - sr.top) + evt.renderedPosition.y;
+          const maxX = sr.width - tooltip.offsetWidth - 8;
+          tooltip.style.left = Math.min(Math.max(8, x + 14), maxX) + 'px';
+          tooltip.style.top = Math.max(8, y - tooltip.offsetHeight - 10) + 'px';
+        }
+
+        // --- Fullscreen
+        function toggleFullscreen() {
+          const on = article.classList.toggle('fullscreen');
+          fullscreenBtn.setAttribute('aria-pressed', on ? 'true' : 'false');
+          fullscreenBtn.textContent = on ? 'Exit' : 'Fullscreen';
+          document.body.classList.toggle('net-fullscreen-active', on);
+          requestAnimationFrame(() => { cy.resize(); cy.fit(undefined, 40); });
+        }
+        fullscreenBtn.addEventListener('click', toggleFullscreen);
+        document.addEventListener('keydown', (e) => {
+          if (e.key === 'Escape' && article.classList.contains('fullscreen')) toggleFullscreen();
+        });
+      }
+
+      loadBtn.addEventListener('click', init);
+    })();
+  </script>
+</Base>
