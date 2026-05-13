@@ -1,0 +1,83 @@
+---
+import Base from '../../layouts/Base.astro';
+import {
+  allTags,
+  entitiesByTag,
+  tagDisplayFor,
+  hrefFor,
+  TYPE_LABELS,
+  TYPE_PLURALS,
+} from '../../lib/data.ts';
+import type { Entity, EntityType } from '../../lib/types.ts';
+
+export function getStaticPaths() {
+  return allTags().map((t) => ({
+    params: { slug: t.slug },
+    props: { tag: t.tag, count: t.count },
+  }));
+}
+
+const { slug } = Astro.params as { slug: string };
+const { tag, count } = Astro.props as { tag: string; count: number };
+
+// Group entities by type so a tag like "Cold_War" splits neatly into
+// People / Organizations / Events / Programs sections.
+const ents = entitiesByTag(slug);
+const TYPE_ORDER: EntityType[] = ['person', 'organization', 'program', 'event', 'concept', 'place'];
+const byType: Record<string, Entity[]> = {};
+for (const e of ents) {
+  (byType[e.type] ||= []).push(e);
+}
+const groups = TYPE_ORDER
+  .filter((t) => byType[t]?.length)
+  .map((t) => ({
+    type: t,
+    label: TYPE_PLURALS[t],
+    items: byType[t].slice().sort((a, b) => a.title.localeCompare(b.title)),
+  }));
+// Catch-all for any type not in TYPE_ORDER (source/meta/misc/page)
+for (const [t, items] of Object.entries(byType)) {
+  if (!TYPE_ORDER.includes(t as EntityType)) {
+    groups.push({
+      type: t as EntityType,
+      label: TYPE_PLURALS[t as EntityType] ?? t,
+      items: items.slice().sort((a, b) => a.title.localeCompare(b.title)),
+    });
+  }
+}
+---
+<Base
+  title={`#${tag} — The Info Web`}
+  description={`Entries tagged ${tag}.`}
+>
+  <header class="browse-header">
+    <div class="kicker">
+      <a href="/tags/">Tags</a>
+    </div>
+    <h1>#{tag}</h1>
+    <p class="lead">
+      {count.toLocaleString()} entr{count === 1 ? 'y' : 'ies'} tagged <em>{tag}</em>.
+    </p>
+  </header>
+
+  <section class="browse-body">
+    {groups.map((g) => (
+      <section class="cat-section" data-collapsed="false">
+        <h2>
+          {g.label}
+          <span class="count">({g.items.length})</span>
+        </h2>
+        <ul class="cat-list">
+          {g.items.map((e) => (
+            <li>
+              <a class="entry-title" href={hrefFor({ id: e.id, type: e.type })}>
+                {e.title}
+              </a>
+              {e.summary && <span class="entry-summary">{e.summary}</span>}
+            </li>
+          ))}
+        </ul>
+      </section>
+    ))}
+  </section>
+</Base>

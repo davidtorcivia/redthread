@@ -364,8 +364,10 @@ footer.site .to-top { font-size: 0.75rem; }
   font-size: 0.7rem;
   margin-right: 0.1rem;
 }
+.entity-meta a.tag,
 .entity-meta .tag {
   background: var(--paper-2);
+  background-image: none;
   border: 1px solid var(--line);
   padding: 0.1em 0.6em;
   border-radius: 999px;
@@ -373,6 +375,12 @@ footer.site .to-top { font-size: 0.75rem; }
   font-size: 0.76rem;
   letter-spacing: 0;
   font-weight: 500;
+  transition: background-color 0.12s, border-color 0.12s, color 0.12s;
+}
+.entity-meta a.tag:hover {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--paper);
 }
 .entity-meta .meta-value {
   font-family: var(--serif);
@@ -1335,6 +1343,111 @@ body.graph-fullscreen-active { overflow: hidden; }
   margin-top: 0.15rem;
 }
 
+/* Timeline — chronological grouped list. Sparse until the date backfill
+   lands; the empty-state copy on the page handles that gracefully. */
+.tl-decade { margin: 2.2rem 0; }
+.tl-decade-label {
+  font-family: var(--sans);
+  font-size: 0.78rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  color: var(--accent);
+  margin: 0 0 0.8rem;
+  padding-bottom: 0.4rem;
+  border-bottom: 1px solid var(--line);
+}
+.tl-list { list-style: none; padding: 0; margin: 0; }
+.tl-item {
+  display: grid;
+  grid-template-columns: 4rem auto 1fr;
+  grid-template-areas:
+    "year type    title"
+    "year .       summary";
+  align-items: baseline;
+  column-gap: 0.9rem;
+  row-gap: 0.15rem;
+  padding: 0.55rem 0;
+  border-bottom: 1px dotted var(--line);
+}
+.tl-item:last-child { border-bottom: none; }
+.tl-year {
+  grid-area: year;
+  font-family: var(--sans);
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+  font-size: 0.95rem;
+  color: var(--ink-2);
+}
+.tl-type {
+  grid-area: type;
+  font-family: var(--sans);
+  font-size: 0.65rem;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  font-weight: 600;
+  color: var(--muted);
+}
+.tl-item.type-person      .tl-type { color: var(--t-person); }
+.tl-item.type-organization .tl-type { color: var(--t-organization); }
+.tl-item.type-program     .tl-type { color: var(--t-program); }
+.tl-item.type-event       .tl-type { color: var(--t-event); }
+.tl-item.type-concept     .tl-type { color: var(--t-concept); }
+.tl-item.type-place       .tl-type { color: var(--t-place); }
+.tl-title {
+  grid-area: title;
+  font-family: var(--serif);
+  font-size: 1.02rem;
+  font-weight: 600;
+  color: var(--ink);
+  background: none;
+}
+.tl-title:hover { color: var(--accent); }
+.tl-summary {
+  grid-area: summary;
+  font-family: var(--serif);
+  font-size: 0.85rem;
+  color: var(--muted);
+  line-height: 1.4;
+  max-width: 42rem;
+}
+
+/* Tag cloud — flat grid of tag chips on /tags/, count baked in. */
+.tag-cloud {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem 0.5rem;
+}
+.tag-chip {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.4rem;
+  padding: 0.3rem 0.7rem;
+  background: var(--paper-2);
+  background-image: none;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  font-family: var(--sans);
+  font-size: 0.82rem;
+  font-weight: 500;
+  color: var(--ink-2);
+  transition: background-color 0.12s, border-color 0.12s, color 0.12s;
+}
+.tag-chip:hover {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--paper);
+}
+.tag-chip .tag-count {
+  font-size: 0.72rem;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.tag-chip:hover .tag-count { color: var(--paper); opacity: 0.85; }
+
 /* Homepage editorial */
 .home-hero {
   max-width: var(--measure-wide);
@@ -1881,6 +1994,82 @@ body.graph-fullscreen-active { overflow: hidden; }
   font-family: var(--sans);
   font-size: 0.85rem;
   padding: 0.5rem 0;
+}
+
+/* Print — turn an entity page into a clean reading sheet. Hide all the
+   browse chrome (nav, footer, search, graph, TOC, related, etc.) and let
+   the prose breathe full-width with black text on white paper. */
+@media print {
+  :root { color-scheme: light; }
+  body {
+    background: #fff;
+    color: #000;
+    font-size: 11pt;
+    line-height: 1.5;
+  }
+  header.site,
+  footer.site,
+  .entity-toc,
+  .graph-section,
+  .hidden-connections,
+  .related-section,
+  .backlinks,
+  #pf-modal,
+  .hover-preview,
+  .alphabet-nav,
+  .type-strip,
+  .nav-toggle,
+  .search-trigger,
+  button {
+    display: none !important;
+  }
+  .entity-article,
+  .changelog-article,
+  .browse-header,
+  .browse-body {
+    max-width: none;
+    padding: 0;
+    margin: 0;
+  }
+  .prose, .footnotes-block { max-width: none; }
+  .entity-title { font-size: 22pt; margin: 0 0 0.6em; }
+  .entity-dek { font-size: 12pt; color: #333; }
+  .entity-eyebrow { color: #555; }
+  .entity-meta {
+    border-bottom: 1px solid #999;
+    border-top: 1px solid #999;
+    color: #333;
+    margin-bottom: 1em;
+  }
+  .entity-meta .tag {
+    background: none;
+    border: 1px solid #999;
+    color: #333;
+  }
+  /* Show wikilink targets inline so a printed page is self-referential.
+     Skip footnote refs and external https links — those would clutter. */
+  .prose a.wikilink::after {
+    content: " [→ " attr(href) "]";
+    font-size: 0.78em;
+    color: #666;
+    font-family: var(--mono);
+  }
+  .prose a.wikilink {
+    color: #000;
+    background: none;
+    text-decoration: underline;
+    text-decoration-color: #888;
+  }
+  /* Footnotes always print, with a divider. */
+  .footnotes-block {
+    display: block !important;
+    margin-top: 1.5em;
+    padding-top: 0.8em;
+    border-top: 1px solid #000;
+    page-break-inside: avoid;
+  }
+  .prose h2, .prose h3 { break-after: avoid; }
+  .prose p, .prose li { orphans: 3; widows: 3; }
 }
 
 /* Mobile */

@@ -1,0 +1,63 @@
+---
+import Base from '../layouts/Base.astro';
+import {
+  entitiesWithDates,
+  primaryYear,
+  hrefFor,
+  TYPE_LABELS,
+} from '../lib/data.ts';
+import type { Entity } from '../lib/types.ts';
+
+// Bucket by decade. Sparse data renders as wide gaps; that's honest.
+const dated = entitiesWithDates();
+const grouped: { decade: number; items: { entity: Entity; year: number }[] }[] = [];
+const byDecade = new Map<number, { entity: Entity; year: number }[]>();
+for (const e of dated) {
+  const y = primaryYear(e)!;
+  const dec = Math.floor(y / 10) * 10;
+  const arr = byDecade.get(dec) ?? [];
+  arr.push({ entity: e, year: y });
+  byDecade.set(dec, arr);
+}
+const decades = Array.from(byDecade.keys()).sort((a, b) => a - b);
+for (const d of decades) {
+  const items = byDecade.get(d)!.sort((a, b) => a.year - b.year || a.entity.title.localeCompare(b.entity.title));
+  grouped.push({ decade: d, items });
+}
+const total = dated.length;
+const totalAll = entitiesWithDates().length; // same; reserve for future swaps
+---
+<Base
+  title="Timeline — The Info Web"
+  description="Entries plotted by their primary date."
+>
+  <header class="browse-header">
+    <div class="kicker">Browse · Timeline</div>
+    <h1>Timeline</h1>
+    <p class="lead">
+      {total === 0
+        ? 'No entries currently carry frontmatter date fields. Once a backfill pass populates born / died / start / end / date, they appear here automatically.'
+        : `${total.toLocaleString()} entr${total === 1 ? 'y' : 'ies'} with a known date, grouped by decade.`}
+    </p>
+  </header>
+
+  <section class="browse-body">
+    {grouped.map((g) => (
+      <section class="tl-decade">
+        <h2 class="tl-decade-label">{g.decade}s</h2>
+        <ol class="tl-list">
+          {g.items.map((x) => (
+            <li class={`tl-item type-${x.entity.type}`}>
+              <span class="tl-year">{x.year}</span>
+              <span class="tl-type">{TYPE_LABELS[x.entity.type]}</span>
+              <a class="tl-title" href={hrefFor({ id: x.entity.id, type: x.entity.type })}>
+                {x.entity.title}
+              </a>
+              {x.entity.summary && <span class="tl-summary">{x.entity.summary}</span>}
+            </li>
+          ))}
+        </ol>
+      </section>
+    ))}
+  </section>
+</Base>

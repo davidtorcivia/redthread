@@ -1,0 +1,32 @@
+---
+import Base from '../layouts/Base.astro';
+import { allTags } from '../lib/data.ts';
+
+const tags = allTags();
+const total = tags.length;
+---
+<Base
+  title="Tags — The Info Web"
+  description="All tags across the vault, with counts."
+>
+  <header class="browse-header">
+    <div class="kicker">Browse · Tags</div>
+    <h1>Tags</h1>
+    <p class="lead">
+      {total.toLocaleString()} tags applied across the vault, ranked by frequency.
+    </p>
+  </header>
+
+  <section class="browse-body">
+    <ul class="tag-cloud">
+      {tags.map((t) => (
+        <li>
+          <a href={`/tag/${t.slug}/`} class="tag-chip">
+            <span class="tag-name">{t.tag}</span>
+            <span class="tag-count">{t.count}</span>
+          </a>
+        </li>
+      ))}
+    </ul>
+  </section>
+</Base>

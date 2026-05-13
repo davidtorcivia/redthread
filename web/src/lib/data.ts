@@ -196,3 +196,78 @@ export const TYPE_PLURALS: Record<EntityType, string> = {
 export function hrefFor(e: Pick<Entity, 'id' | 'type'>): string {
   return `/${TYPE_DIRS[e.type]}/${e.id}/`;
 }
+
+/** URL slug for a tag — lowercase, replace underscores + whitespace with
+ *  hyphens. Matches the entity slugify convention so tags in URLs stay
+ *  predictable. Coerces to string defensively because YAML parses
+ *  bare-numeric tags like `1980` as integers. */
+export function tagSlug(tag: unknown): string {
+  return String(tag ?? '')
+    .toLowerCase()
+    .replace(/[^\w\s-]/g, '')
+    .replace(/[\s_]+/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-|-$/g, '');
+}
+
+export function tagHref(tag: unknown): string {
+  return `/tag/${tagSlug(tag)}/`;
+}
+
+let _tagIndex: Map<string, { tag: string; entities: Entity[] }> | null = null;
+
+/** All tags across the vault, indexed by slug. Each entry keeps the
+ *  original (un-slugified) display form along with the entities. */
+export function tagIndex(): Map<string, { tag: string; entities: Entity[] }> {
+  if (!_tagIndex) {
+    const m = new Map<string, { tag: string; entities: Entity[] }>();
+    for (const e of entities()) {
+      for (const t of e.tags ?? []) {
+        if (t == null) continue;
+        const display = String(t);
+        const slug = tagSlug(display);
+        if (!slug) continue;
+        let entry = m.get(slug);
+        if (!entry) {
+          entry = { tag: display, entities: [] };
+          m.set(slug, entry);
+        }
+        entry.entities.push(e);
+      }
+    }
+    _tagIndex = m;
+  }
+  return _tagIndex;
+}
+
+export function allTags(): { slug: string; tag: string; count: number }[] {
+  return Array.from(tagIndex().entries())
+    .map(([slug, { tag, entities: es }]) => ({ slug, tag, count: es.length }))
+    .sort((a, b) => b.count - a.count || a.tag.localeCompare(b.tag));
+}
+
+export function entitiesByTag(slug: string): Entity[] {
+  return tagIndex().get(slug)?.entities ?? [];
+}
+
+export function tagDisplayFor(slug: string): string {
+  return tagIndex().get(slug)?.tag ?? slug;
+}
+
+/** Earliest known year for an entity (extracted from frontmatter dates).
+ *  Used to plot entities on the timeline view. Returns null if no date
+ *  fields are present. */
+export function primaryYear(e: Entity): number | null {
+  const d = e.dates ?? {};
+  const candidates = [d.born, d.start, d.date, d.died, d.end];
+  for (const s of candidates) {
+    if (!s) continue;
+    const m = s.match(/^(\d{4})/);
+    if (m) return parseInt(m[1], 10);
+  }
+  return null;
+}
+
+export function entitiesWithDates(): Entity[] {
+  return entities().filter((e) => primaryYear(e) != null);
+}

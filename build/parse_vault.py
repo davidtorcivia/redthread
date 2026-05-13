@@ -185,6 +185,58 @@ _MOJIBAKE_FIXES: dict[str, Any] = {}
 
 # ---------- core parse ----------
 
+# --------------------------------------------------------------------------
+# Date / location schema (read from frontmatter when present).
+#
+# The site is set up to consume the following optional fields on any entity:
+#
+#   born:     YYYY or YYYY-MM-DD            (person life-span)
+#   died:     YYYY or YYYY-MM-DD            (person life-span)
+#   start:    YYYY or YYYY-MM-DD            (events / programs / orgs)
+#   end:      YYYY or YYYY-MM-DD            (events / programs / orgs)
+#   date:     YYYY or YYYY-MM-DD            (single-day events)
+#   location: free text, or [text, text]    (e.g. "Moscow", "U.S. Embassy")
+#   coords:   { lat: <float>, lng: <float> }  (future map geocoding)
+#
+# This vault doesn't carry most of these yet — a future LLM-assisted
+# backfill will populate them in batches. The parser, entity meta strip,
+# and /timeline/ page all already handle them, so whatever lands becomes
+# immediately useful with no code changes.
+# --------------------------------------------------------------------------
+
+
+def _date_str(val: Any) -> str | None:
+    """Normalize a frontmatter date-ish value to a string. PyYAML parses
+    `born: 1904` as int and `born: 1904-08-30` as a date object — both
+    need to come out as plain strings the renderer can compare."""
+    if val is None:
+        return None
+    if isinstance(val, (_dt.date, _dt.datetime)):
+        return val.isoformat()
+    s = str(val).strip()
+    return s or None
+
+
+def _extract_dates(fm: dict[str, Any]) -> dict[str, str]:
+    out: dict[str, str] = {}
+    for key in ("born", "died", "start", "end", "date"):
+        s = _date_str(fm.get(key))
+        if s:
+            out[key] = s
+    return out
+
+
+def _extract_location(fm: dict[str, Any]) -> list[str]:
+    raw = fm.get("location")
+    if raw is None:
+        return []
+    if isinstance(raw, str):
+        return [raw.strip()] if raw.strip() else []
+    if isinstance(raw, list):
+        return [str(x).strip() for x in raw if str(x).strip()]
+    return []
+
+
 def parse_file(path: Path, vault_root: Path, type_map: dict[str, str]) -> dict[str, Any] | None:
     """Return an entity record, or None if the file is unparseable."""
     try:
@@ -232,6 +284,8 @@ def parse_file(path: Path, vault_root: Path, type_map: dict[str, str]) -> dict[s
         "footnotes": footnotes,
         "wikilinks": wikilinks,
         "mtime": mtime,
+        "dates": _extract_dates(fm),
+        "locations": _extract_location(fm),
     }
 
 

@@ -1,0 +1,41 @@
+---
+import Base from '../layouts/Base.astro';
+import { entities, hrefFor } from '../lib/data.ts';
+
+// Inline the URL pool at build time. ~45KB on this page only — never
+// touches any other page in the site.
+const pool = entities().map((e) => hrefFor({ id: e.id, type: e.type }));
+---
+<Base
+  title="Random entry — The Info Web"
+  description="Jump to a random entry in the vault."
+>
+  <article class="random-article">
+    <p class="random-msg">Loading a random entry&hellip;</p>
+    <noscript>
+      <p>JavaScript is required to pick a random entry. <a href="/">Return home</a>.</p>
+    </noscript>
+  </article>
+
+  <script is:inline define:vars={{ pool }}>
+    // window.location.replace so the random page itself doesn't pollute
+    // the back stack — Back from the destination returns to wherever
+    // the user came from, not the random landing.
+    if (pool.length > 0) {
+      const pick = pool[Math.floor(Math.random() * pool.length)];
+      window.location.replace(pick);
+    }
+  </script>
+
+  <style is:inline>
+    .random-article {
+      max-width: 36rem;
+      margin: 0 auto;
+      padding: 8rem 1.5rem 4rem;
+      font-family: var(--serif);
+      font-style: italic;
+      color: var(--muted);
+      text-align: center;
+    }
+  </style>
+</Base>

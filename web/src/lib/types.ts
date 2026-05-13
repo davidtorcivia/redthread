@@ -44,6 +44,23 @@ export interface Entity {
   wikilinks: Wikilink[];
   mention_count: number;
   page_density: number;
+  /**
+   * Date fields populated from frontmatter when present. All values are
+   * normalized to strings ("YYYY" or "YYYY-MM-DD") regardless of how
+   * YAML parsed the input.
+   */
+  dates: {
+    born?: string;
+    died?: string;
+    start?: string;
+    end?: string;
+    date?: string;
+  };
+  /**
+   * Free-text location names from frontmatter. Future backfill will also
+   * geocode these into a coords field on `frontmatter` for the map view.
+   */
+  locations: string[];
 }
 
 export interface Related {
