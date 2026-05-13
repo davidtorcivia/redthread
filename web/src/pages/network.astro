@@ -2,38 +2,34 @@
 import Base from '../layouts/Base.astro';
 import { entities } from '../lib/data.ts';
 
-// Stats for the page hero
 const total = entities().length;
-const byType: Record<string, number> = {};
-for (const e of entities()) byType[e.type] = (byType[e.type] ?? 0) + 1;
 ---
 <Base
   title="Full network — The Info Web"
   description="Every entry in the vault rendered as a single navigable graph."
 >
-  <article class="network-article">
+  <article class="network-article" id="net-article">
     <header class="network-header">
       <div class="entity-eyebrow"><span>Tools</span></div>
       <h1 class="entity-title">The full network</h1>
       <p class="entity-dek">
         Every {total.toLocaleString()} entries in the vault on one map.
         <strong>Scroll</strong> to zoom, <strong>drag</strong> to pan,
-        <strong>click</strong> a node to navigate. Bridge entities are ringed in gold;
-        clusters by type are spatial.
-        Edges are off by default — there are ~12,000 of them and rendering all at once
-        slows older machines down. Click <em>Show edges</em> when you want them.
+        <strong>click</strong> a node to select, <strong>double-click</strong> to navigate.
+        Bridge entities are ringed in gold; spatial position reflects shared connections.
+        Edges are off by default — toggle them when you want to see specific links.
       </p>
     </header>
 
     <section class="net-shell" id="net-shell">
-      <div class="net-canvas" aria-label="Full network graph"></div>
+      <canvas class="net-canvas" id="net-canvas" aria-label="Full network graph"></canvas>
 
       <div class="net-status" id="net-status">
         <button type="button" class="net-load" id="net-load">
           Load network <span class="net-load-hint">({total.toLocaleString()} nodes)</span>
         </button>
         <p class="net-load-warn">
-          This renders the entire vault in your browser. First-load takes a moment.
+          Renders the entire vault as a single canvas. Should be near-instant on modern browsers.
         </p>
       </div>
 
@@ -72,19 +68,30 @@ for (const e of entities()) byType[e.type] = (byType[e.type] ?? 0) + 1;
   </article>
 
   <script is:inline>
+    /**
+     * Pure-canvas network renderer. Cytoscape (used elsewhere in this site
+     * for the per-entity graph) pays a per-element abstraction cost that
+     * adds up to ~10 seconds of frozen tab at 1,811 nodes + 12,000 edges.
+     * Drawing the same data into a canvas takes ~10 ms.
+     *
+     * State lives in plain arrays + a transform; redraws are triggered
+     * by mouse handlers and run on rAF so input never blocks paint.
+     */
     (function () {
+      const article = document.getElementById('net-article');
       const shell = document.getElementById('net-shell');
-      const canvas = shell.querySelector('.net-canvas');
+      const canvas = document.getElementById('net-canvas');
+      const ctx = canvas.getContext('2d');
       const status = document.getElementById('net-status');
       const loadBtn = document.getElementById('net-load');
       const controls = document.getElementById('net-controls');
       const filters = document.getElementById('net-filters');
       const layoutBtn = controls.querySelector('.net-layout');
       const fitBtn = controls.querySelector('.net-fit');
+      const edgesBtn = controls.querySelector('.net-edges');
       const fullscreenBtn = controls.querySelector('.net-fullscreen');
       const panel = document.getElementById('net-selection');
       const tooltip = document.getElementById('net-tooltip');
-      const article = shell.closest('.network-article');
 
       const TYPE_DIRS = {
         person: 'people', organization: 'organizations', program: 'programs',
@@ -110,7 +117,6 @@ for (const e of entities()) byType[e.type] = (byType[e.type] ?? 0) + 1;
           source: get('--t-source', '#6a6258'),
           muted: get('--muted', '#6a6258'),
           line: get('--line-2', '#c8bca0'),
-          accentSoft: get('--accent-soft', '#c97a6a'),
           accent: get('--accent', '#94322a'),
           ink: get('--ink', '#1a1814'),
           paper: get('--paper', '#f7f2e7'),
@@ -118,313 +124,506 @@ for (const e of entities()) byType[e.type] = (byType[e.type] ?? 0) + 1;
         };
       }
 
-      function loadScript(src) {
-        return new Promise((resolve, reject) => {
-          const existing = document.querySelector(`script[data-graph-src="${src}"]`);
-          if (existing) {
-            if (existing.dataset.loaded === '1') return resolve();
-            existing.addEventListener('load', () => resolve());
-            existing.addEventListener('error', () => reject(new Error(src)));
-            return;
+      // --- Renderer state -------------------------------------------------
+      const COLORS = readColors();
+      /** @type {{id:string,title:string,type:string,x:number,y:number,size:number,
+                  color:string,bridgeRank:number,bridgeScore:number,count:number,
+                  visible:boolean}[]} */
+      let nodes = [];
+      /** @type {[number,number][]} pairs of node indices */
+      let edges = [];
+      let edgesVisible = false;
+      const activeTypes = new Set([
+        'person','organization','program','event','concept','place',
+        'source','meta','misc','page',
+      ]);
+      let hoveredIdx = -1;
+      let selectedIdx = -1;
+      /** transform: model (x,y) maps to screen (x*scale + tx, y*scale + ty) */
+      const view = { tx: 0, ty: 0, scale: 1 };
+
+      // --- Canvas + DPR ---------------------------------------------------
+      let dpr = Math.max(1, window.devicePixelRatio || 1);
+      function resizeCanvas() {
+        const rect = shell.getBoundingClientRect();
+        dpr = Math.max(1, window.devicePixelRatio || 1);
+        canvas.width = Math.round(rect.width * dpr);
+        canvas.height = Math.round(rect.height * dpr);
+        canvas.style.width = rect.width + 'px';
+        canvas.style.height = rect.height + 'px';
+        requestDraw();
+      }
+      window.addEventListener('resize', () => { resizeCanvas(); });
+
+      // --- Drawing --------------------------------------------------------
+      let drawScheduled = false;
+      function requestDraw() {
+        if (drawScheduled) return;
+        drawScheduled = true;
+        requestAnimationFrame(() => { drawScheduled = false; draw(); });
+      }
+      function modelToScreenX(x) { return x * view.scale + view.tx; }
+      function modelToScreenY(y) { return y * view.scale + view.ty; }
+      function screenToModelX(x) { return (x - view.tx) / view.scale; }
+      function screenToModelY(y) { return (y - view.ty) / view.scale; }
+
+      function draw() {
+        if (!nodes.length) return;
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        ctx.fillStyle = COLORS.paper;
+        ctx.fillRect(0, 0, canvas.width / dpr, canvas.height / dpr);
+
+        // Visible viewport in model coordinates — for culling. Culling is
+        // a big win at high zoom where the user is looking at a small slice
+        // of the graph.
+        const viewport = {
+          x0: screenToModelX(-50),
+          y0: screenToModelY(-50),
+          x1: screenToModelX(canvas.width / dpr + 50),
+          y1: screenToModelY(canvas.height / dpr + 50),
+        };
+
+        // Connection-emphasis pre-pass: when something is selected, the
+        // edges touching the selected node draw thicker + accent-colored
+        // on top of the regular edge layer. Compute that set once.
+        const focusEdges = new Set();
+        if (selectedIdx >= 0 && edgesVisible) {
+          for (let i = 0; i < edges.length; i++) {
+            const e = edges[i];
+            if (e[0] === selectedIdx || e[1] === selectedIdx) focusEdges.add(i);
           }
-          const s = document.createElement('script');
-          s.src = src;
-          s.async = false;
-          s.dataset.graphSrc = src;
-          s.onload = () => { s.dataset.loaded = '1'; resolve(); };
-          s.onerror = () => reject(new Error(src));
-          document.head.appendChild(s);
+        }
+        const hoverEdges = new Set();
+        if (hoveredIdx >= 0 && hoveredIdx !== selectedIdx && edgesVisible) {
+          for (let i = 0; i < edges.length; i++) {
+            const e = edges[i];
+            if (e[0] === hoveredIdx || e[1] === hoveredIdx) hoverEdges.add(i);
+          }
+        }
+
+        // --- Edges (only if toggled on) -----------------------------------
+        if (edgesVisible) {
+          ctx.lineWidth = 0.6;
+          ctx.strokeStyle = hexToRgba(COLORS.line, 0.22);
+          ctx.beginPath();
+          for (let i = 0; i < edges.length; i++) {
+            const e = edges[i];
+            if (focusEdges.has(i) || hoverEdges.has(i)) continue;
+            const a = nodes[e[0]];
+            const b = nodes[e[1]];
+            if (!a.visible || !b.visible) continue;
+            // Cheap culling: both endpoints outside viewport bounding box.
+            if ((a.x < viewport.x0 && b.x < viewport.x0) ||
+                (a.x > viewport.x1 && b.x > viewport.x1) ||
+                (a.y < viewport.y0 && b.y < viewport.y0) ||
+                (a.y > viewport.y1 && b.y > viewport.y1)) continue;
+            ctx.moveTo(modelToScreenX(a.x), modelToScreenY(a.y));
+            ctx.lineTo(modelToScreenX(b.x), modelToScreenY(b.y));
+          }
+          ctx.stroke();
+          // Emphasized edges layer
+          if (focusEdges.size) {
+            ctx.lineWidth = 1.5;
+            ctx.strokeStyle = COLORS.accent;
+            ctx.beginPath();
+            focusEdges.forEach((i) => {
+              const e = edges[i];
+              const a = nodes[e[0]], b = nodes[e[1]];
+              if (!a.visible || !b.visible) return;
+              ctx.moveTo(modelToScreenX(a.x), modelToScreenY(a.y));
+              ctx.lineTo(modelToScreenX(b.x), modelToScreenY(b.y));
+            });
+            ctx.stroke();
+          }
+          if (hoverEdges.size) {
+            ctx.lineWidth = 1.2;
+            ctx.strokeStyle = hexToRgba(COLORS.accent, 0.7);
+            ctx.beginPath();
+            hoverEdges.forEach((i) => {
+              const e = edges[i];
+              const a = nodes[e[0]], b = nodes[e[1]];
+              if (!a.visible || !b.visible) return;
+              ctx.moveTo(modelToScreenX(a.x), modelToScreenY(a.y));
+              ctx.lineTo(modelToScreenX(b.x), modelToScreenY(b.y));
+            });
+            ctx.stroke();
+          }
+        }
+
+        // --- Nodes --------------------------------------------------------
+        for (let i = 0; i < nodes.length; i++) {
+          const n = nodes[i];
+          if (!n.visible) continue;
+          // Cull off-screen
+          const sx = modelToScreenX(n.x);
+          const sy = modelToScreenY(n.y);
+          const sr = n.size * view.scale;
+          if (sx + sr < 0 || sx - sr > canvas.width / dpr ||
+              sy + sr < 0 || sy - sr > canvas.height / dpr) continue;
+
+          ctx.globalAlpha = 0.85;
+          ctx.fillStyle = n.color;
+          ctx.beginPath();
+          ctx.arc(sx, sy, sr, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.globalAlpha = 1;
+
+          // Bridge ring
+          if (n.bridgeRank) {
+            ctx.strokeStyle = COLORS.gold;
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.arc(sx, sy, sr + 1.2, 0, Math.PI * 2);
+            ctx.stroke();
+          }
+
+          // Selection / hover ring
+          if (i === selectedIdx) {
+            ctx.strokeStyle = COLORS.accent;
+            ctx.lineWidth = 3;
+            ctx.beginPath();
+            ctx.arc(sx, sy, sr + 3, 0, Math.PI * 2);
+            ctx.stroke();
+          } else if (i === hoveredIdx) {
+            ctx.strokeStyle = COLORS.accent;
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.arc(sx, sy, sr + 2, 0, Math.PI * 2);
+            ctx.stroke();
+          }
+        }
+
+        // --- Labels: only the prominent ones, or hovered/selected --------
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'top';
+        const labelThreshold = 14;  // screen-pixel radius above which we label
+        for (let i = 0; i < nodes.length; i++) {
+          const n = nodes[i];
+          if (!n.visible) continue;
+          const sr = n.size * view.scale;
+          const isImportant = i === hoveredIdx || i === selectedIdx;
+          if (!isImportant && sr < labelThreshold) continue;
+          const sx = modelToScreenX(n.x);
+          const sy = modelToScreenY(n.y);
+          if (sx < -200 || sx > canvas.width / dpr + 200) continue;
+
+          const fontSize = isImportant ? 13 : 10;
+          ctx.font = `${isImportant ? 600 : 500} ${fontSize}px "Inter Tight", sans-serif`;
+          const text = n.title;
+          const metrics = ctx.measureText(text);
+          const padX = 4, padY = 2;
+          const labelY = sy + sr + 4;
+          // Background plaque so the label reads over edges + nodes
+          ctx.fillStyle = hexToRgba(COLORS.paper, 0.92);
+          ctx.fillRect(
+            sx - metrics.width / 2 - padX,
+            labelY - 1,
+            metrics.width + 2 * padX,
+            fontSize + 2 * padY,
+          );
+          ctx.fillStyle = COLORS.ink;
+          ctx.fillText(text, sx, labelY + padY - 1);
+        }
+      }
+
+      function hexToRgba(hex, a) {
+        // Accepts #rgb, #rrggbb, or rgb()/rgba(). Returns rgba string.
+        if (hex.startsWith('rgb')) return hex;
+        let h = hex.replace('#', '');
+        if (h.length === 3) h = h.split('').map((c) => c + c).join('');
+        const r = parseInt(h.substring(0, 2), 16);
+        const g = parseInt(h.substring(2, 4), 16);
+        const b = parseInt(h.substring(4, 6), 16);
+        return `rgba(${r},${g},${b},${a})`;
+      }
+
+      // --- Hit-testing ----------------------------------------------------
+      function hitTest(sx, sy) {
+        // Returns the index of the topmost node under (sx, sy) in screen
+        // coordinates, or -1. Naive O(n) scan — at 1,811 nodes this runs
+        // in well under a millisecond per mousemove.
+        let best = -1;
+        let bestRadius = -1;
+        for (let i = 0; i < nodes.length; i++) {
+          const n = nodes[i];
+          if (!n.visible) continue;
+          const nx = modelToScreenX(n.x);
+          const ny = modelToScreenY(n.y);
+          const r = Math.max(3, n.size * view.scale);
+          const dx = nx - sx;
+          const dy = ny - sy;
+          if (dx * dx + dy * dy <= r * r && r > bestRadius) {
+            best = i; bestRadius = r;
+          }
+        }
+        return best;
+      }
+
+      // --- Fit / centring -------------------------------------------------
+      function fitToCanvas(padding) {
+        if (!nodes.length) return;
+        padding = padding ?? 40;
+        let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+        for (const n of nodes) {
+          if (!n.visible) continue;
+          minX = Math.min(minX, n.x - n.size);
+          maxX = Math.max(maxX, n.x + n.size);
+          minY = Math.min(minY, n.y - n.size);
+          maxY = Math.max(maxY, n.y + n.size);
+        }
+        const W = canvas.width / dpr, H = canvas.height / dpr;
+        const w = Math.max(1, maxX - minX), h = Math.max(1, maxY - minY);
+        view.scale = Math.min((W - 2 * padding) / w, (H - 2 * padding) / h);
+        view.tx = (W - w * view.scale) / 2 - minX * view.scale;
+        view.ty = (H - h * view.scale) / 2 - minY * view.scale;
+        requestDraw();
+      }
+
+      // --- Layouts --------------------------------------------------------
+      function nodeSize(mentions, isBridge) {
+        const base = 14 + Math.log2(1 + (mentions || 0)) * 3.2;
+        return Math.min(56, isBridge ? base + 6 : base);
+      }
+
+      const LAYOUTS = [
+        { key: 'force', label: 'Force', apply: () => applyForceLayout() },
+        { key: 'grid',  label: 'Grid',  apply: () => applyGridLayout() },
+        { key: 'circle', label: 'Circle', apply: () => applyCircleLayout() },
+        { key: 'concentric', label: 'Concentric', apply: () => applyConcentricLayout() },
+      ];
+      let layoutIdx = 0;
+
+      let forcePositions = null;  // cached from build-time spring_layout
+      function applyForceLayout() {
+        if (!forcePositions) return;
+        for (let i = 0; i < nodes.length; i++) {
+          nodes[i].x = forcePositions[i][0];
+          nodes[i].y = forcePositions[i][1];
+        }
+        fitToCanvas();
+      }
+      function applyGridLayout() {
+        const visible = nodes.filter((n) => n.visible);
+        const cols = Math.max(1, Math.ceil(Math.sqrt(visible.length)));
+        const step = 90;
+        // Sort by mention count desc so important nodes are top-left.
+        const order = visible.map((_, i) => i).sort((a, b) => visible[b].count - visible[a].count);
+        for (let k = 0; k < order.length; k++) {
+          const idx = order[k];
+          // Find the original node index for this visible[idx]
+          const target = nodes.indexOf(visible[idx]);
+          nodes[target].x = (k % cols) * step;
+          nodes[target].y = Math.floor(k / cols) * step;
+        }
+        fitToCanvas();
+      }
+      function applyCircleLayout() {
+        const visible = nodes.filter((n) => n.visible);
+        const n = visible.length;
+        const radius = Math.max(400, n * 6);
+        for (let k = 0; k < n; k++) {
+          const angle = (k / n) * 2 * Math.PI;
+          const target = nodes.indexOf(visible[k]);
+          nodes[target].x = Math.cos(angle) * radius;
+          nodes[target].y = Math.sin(angle) * radius;
+        }
+        fitToCanvas();
+      }
+      function applyConcentricLayout() {
+        // Bucket by degree-ish proxy: bridges in middle, high-mention next,
+        // tail on outer ring.
+        const visible = nodes.filter((n) => n.visible);
+        const sorted = visible.slice().sort((a, b) => {
+          if (a.bridgeRank && !b.bridgeRank) return -1;
+          if (b.bridgeRank && !a.bridgeRank) return 1;
+          if (a.bridgeRank && b.bridgeRank) return a.bridgeRank - b.bridgeRank;
+          return b.count - a.count;
         });
-      }
-      async function loadCytoscape() {
-        if (window.cytoscape && window._graphExtsLoaded) return;
-        await loadScript('https://unpkg.com/cytoscape@3.30.4/dist/cytoscape.min.js');
-        try {
-          await loadScript('https://unpkg.com/layout-base@2.0.1/layout-base.js');
-          await loadScript('https://unpkg.com/cose-base@2.2.0/cose-base.js');
-          await loadScript('https://unpkg.com/cytoscape-fcose@2.2.0/cytoscape-fcose.js');
-          if (window.cytoscapeFcose) window.cytoscape.use(window.cytoscapeFcose);
-          window._graphExtsLoaded = true;
-        } catch (err) { console.warn('[net] fcose failed', err); }
-      }
-
-      let cy = null;
-      let activeTypes = new Set(['person', 'organization', 'program', 'event', 'concept', 'place', 'source', 'meta', 'misc', 'page']);
-      let edgesState = 'none';       // 'none' | 'loaded'
-      let pendingEdgeElements = null; // edges-to-add when user opts in
-
-      function escapeHtml(s) {
-        return String(s).replace(/[&<>"']/g, (c) => (
-          { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
-        ));
+        const rings = 8;
+        const perRing = Math.ceil(sorted.length / rings);
+        for (let i = 0; i < sorted.length; i++) {
+          const r = Math.floor(i / perRing);
+          const idxInRing = i % perRing;
+          const radius = 80 + r * 90;
+          const angleStep = (2 * Math.PI) / Math.max(1, perRing);
+          const angle = idxInRing * angleStep;
+          const target = nodes.indexOf(sorted[i]);
+          nodes[target].x = Math.cos(angle) * radius;
+          nodes[target].y = Math.sin(angle) * radius;
+        }
+        fitToCanvas();
       }
 
-      // Yield to the browser long enough for a real paint between
-      // synchronous chunks of work. Without this the user sees a stuck
-      // status message even though the JS has moved on, because the
-      // browser couldn't repaint between setText and the next big task.
-      function yieldPaint() {
-        return new Promise((resolve) =>
-          requestAnimationFrame(() => requestAnimationFrame(resolve)),
-        );
-      }
-
+      // --- Init -----------------------------------------------------------
       async function init() {
         loadBtn.disabled = true;
         loadBtn.textContent = 'Loading data…';
+        let data;
         try {
-          const [_, data] = await Promise.all([
-            loadCytoscape(),
-            fetch('/adjacency.json').then((r) => (r.ok ? r.json() : Promise.reject())),
-          ]);
-
-          // Reveal the controls right away so the user has something to
-          // engage with while the canvas warms up.
-          controls.removeAttribute('hidden');
-          filters.removeAttribute('hidden');
-
-          // Nodes-only render — fast, never freezes. Edges are stashed
-          // for the "Show edges" button to load on demand.
-          loadBtn.textContent = `Rendering ${data.ids.length.toLocaleString()} nodes…`;
-          await yieldPaint();
-          pendingEdgeElements = renderNodes(data);
-          cy.fit(undefined, 40);
-
-          status.setAttribute('hidden', '');
-          wireInteractions();
+          const r = await fetch('/adjacency.json');
+          if (!r.ok) throw new Error('fetch failed');
+          data = await r.json();
         } catch (err) {
           loadBtn.disabled = false;
           loadBtn.textContent = 'Load network';
           status.querySelector('.net-load-warn').textContent =
             'Failed to load network data. Try again or check your connection.';
           console.error('[net]', err);
-        }
-      }
-
-      function nodeSize(mentions, isBridge) {
-        // Sized to stay legible at the fit-zoom you get with a 1,811-node
-        // canvas — roughly 30-40% scale. Smaller and the long tail vanishes
-        // into the background.
-        const base = 14 + Math.log2(1 + (mentions || 0)) * 3.2;
-        return Math.min(56, isBridge ? base + 6 : base);
-      }
-
-      function renderNodes(data) {
-        const colors = readColors();
-
-        // bridges arrived as { idx: {rank, score} } from the parser; the
-        // entity-page graph still ships nodes with the old shape. Normalise
-        // either form here.
-        function bridgeOf(idx) {
-          const b = data.bridges?.[String(idx)];
-          if (b == null) return null;
-          return typeof b === 'object' ? b : { rank: b, score: 0 };
+          return;
         }
 
-        // Build node elements with PRE-COMPUTED positions from the parser's
-        // spring_layout pass. Rendering with `layout: preset` skips the
-        // expensive in-browser layout step entirely — initial paint is
-        // limited only by DOM/canvas work, not physics simulation.
-        const nodeElements = [];
+        // Build node array
+        forcePositions = data.positions || null;
         for (let i = 0; i < data.ids.length; i++) {
-          const br = bridgeOf(i);
-          const p = data.positions?.[i];
-          nodeElements.push({
-            group: 'nodes',
-            data: {
-              id: data.ids[i],
-              title: data.titles[i],
-              type: data.types[i],
-              label: data.titles[i],
-              count: data.mentions[i] || 0,
-              size: nodeSize(data.mentions[i], !!br),
-              color: colors[data.types[i]] || colors.muted,
-              isBridge: br ? 1 : 0,
-              bridgeRank: br ? br.rank : 0,
-              bridgeScore: br ? br.score : 0,
-            },
-            position: p ? { x: p[0], y: p[1] } : undefined,
+          const br = data.bridges?.[String(i)];
+          const isBridge = br != null;
+          const bridgeRank = isBridge ? (typeof br === 'object' ? br.rank : br) : 0;
+          const bridgeScore = isBridge && typeof br === 'object' ? br.score : 0;
+          const p = forcePositions ? forcePositions[i] : [Math.random() * 1000, Math.random() * 1000];
+          nodes.push({
+            id: data.ids[i],
+            title: data.titles[i],
+            type: data.types[i],
+            x: p[0],
+            y: p[1],
+            size: nodeSize(data.mentions[i], isBridge),
+            color: COLORS[data.types[i]] || COLORS.muted,
+            bridgeRank,
+            bridgeScore,
+            count: data.mentions[i] || 0,
+            visible: true,
           });
         }
 
-        // Edges are deduped — adjacency is undirected so each pair appears
-        // twice in adj[]; we keep the (low, high) ordering only.
-        const edgeElements = [];
-        let edgeIdx = 0;
+        // Build edge array (deduped — adjacency is symmetric)
         for (let i = 0; i < data.adj.length; i++) {
           const neigh = data.adj[i];
-          const a = data.ids[i];
           for (let k = 0; k < neigh.length; k++) {
             const j = neigh[k];
             if (j <= i) continue;
-            edgeElements.push({
-              group: 'edges',
-              data: { id: 'e' + (edgeIdx++), source: a, target: data.ids[j] },
-            });
+            edges.push([i, j]);
           }
         }
 
-        cy = window.cytoscape({
-          container: canvas,
-          // Add nodes FIRST so something is visible immediately; edges
-          // come in a second batch via requestAnimationFrame below.
-          elements: nodeElements,
-          wheelSensitivity: 0.25,
-          minZoom: 0.05,
-          maxZoom: 4,
-          textureOnViewport: true,
-          hideEdgesOnViewport: true,  // huge win when panning/zooming a dense graph
-          motionBlur: false,
-          pixelRatio: 1,
-          boxSelectionEnabled: false,
-          style: [
-            {
-              selector: 'node',
-              style: {
-                'background-color': 'data(color)',
-                'background-opacity': 0.82,
-                'width': 'data(size)',
-                'height': 'data(size)',
-                'label': '',           // hide labels by default — at 1,811 nodes they're noise
-                'border-width': 0,
-                'overlay-opacity': 0,
-              },
-            },
-            {
-              selector: 'node[isBridge = 1]',
-              style: {
-                'border-width': 2,
-                'border-color': colors.gold,
-                'border-opacity': 0.9,
-              },
-            },
-            {
-              selector: 'node.selected, node.hovered',
-              style: {
-                'background-opacity': 1,
-                'border-width': 2,
-                'border-color': colors.accent,
-                'label': 'data(label)',
-                'font-family': 'Inter Tight, sans-serif',
-                'font-size': 11,
-                'color': colors.ink,
-                'text-valign': 'bottom',
-                'text-margin-y': 4,
-                'text-background-color': colors.paper,
-                'text-background-opacity': 0.92,
-                'text-background-padding': 3,
-                'z-index': 10,
-              },
-            },
-            {
-              selector: '.faded',
-              style: { 'opacity': 0.05 },
-            },
-            {
-              selector: 'edge',
-              style: {
-                'line-color': colors.line,
-                'width': 0.6,
-                'curve-style': 'haystack',  // straight-line edges are cheap to render
-                'opacity': 0.25,
-              },
-            },
-            {
-              selector: 'edge.hovered, edge.selected',
-              style: {
-                'line-color': colors.accent,
-                'opacity': 1,
-                'width': 1.6,
-                'z-index': 9,
-              },
-            },
-            {
-              selector: '.hidden',
-              style: { 'display': 'none' },
-            },
-          ],
-          // preset = use the (x, y) positions we baked in at build time.
-          layout: { name: 'preset', fit: true, padding: 40 },
-        });
-
-        // Caller (init) handles edge insertion + interaction wiring so
-        // the loading status can update between phases.
-        return edgeElements;
+        status.setAttribute('hidden', '');
+        controls.removeAttribute('hidden');
+        filters.removeAttribute('hidden');
+        resizeCanvas();
+        fitToCanvas();
+        wireInteractions();
       }
 
+      // --- Interactions ---------------------------------------------------
       function wireInteractions() {
-        // Layout cycle. "Force" is preset — using the spring_layout
-        // positions baked in at build time, so it's instant. Concentric/
-        // Circle/Grid are cheap built-ins. We deliberately do NOT include
-        // in-browser fcose here: at 1.8k nodes / 12k edges it would freeze
-        // the tab for ~30 seconds.
-        const LAYOUTS = [
-          { key: 'force', label: 'Force', opts: { name: 'preset', fit: true, padding: 40 } },
-          { key: 'concentric', label: 'Concentric',
-            opts: { name: 'concentric', fit: true, padding: 40, animate: false,
-                    minNodeSpacing: 4,
-                    concentric: (n) => n.degree(false),
-                    levelWidth: () => 1 } },
-          { key: 'circle', label: 'Circle',
-            opts: { name: 'circle', fit: true, padding: 40, animate: false, spacingFactor: 1 } },
-          { key: 'grid', label: 'Grid',
-            opts: { name: 'grid', fit: true, padding: 40, avoidOverlap: true, spacingFactor: 1.1 } },
-        ];
-        let li = 0;
-        function applyLayout() {
-          layoutBtn.disabled = true;
-          layoutBtn.textContent = 'Laying out…';
-          setTimeout(() => {
-            cy.layout(LAYOUTS[li].opts).run();
-            layoutBtn.disabled = false;
-            layoutBtn.textContent = `Layout: ${LAYOUTS[li].label}`;
-          }, 16);
-        }
-        layoutBtn.addEventListener('click', () => {
-          li = (li + 1) % LAYOUTS.length;
-          applyLayout();
+        // Pan + drag with mouse
+        let isPanning = false;
+        let panStart = null;
+        let downAt = null;
+        canvas.addEventListener('mousedown', (e) => {
+          isPanning = true;
+          panStart = { x: e.clientX, y: e.clientY, tx: view.tx, ty: view.ty };
+          downAt = { x: e.clientX, y: e.clientY };
+          canvas.style.cursor = 'grabbing';
         });
-
-        fitBtn.addEventListener('click', () => cy.fit(undefined, 40));
-
-        // Edges are an opt-in cost. First click triggers a progressive
-        // chunked add so the page stays responsive while ~12k edges
-        // stream in. Subsequent clicks just toggle a CSS class (instant)
-        // since the edges are already in the graph data.
-        const edgesBtn = document.querySelector('.net-edges');
-        async function loadEdgesProgressively() {
-          if (edgesState !== 'none' || !pendingEdgeElements) return;
-          edgesBtn.disabled = true;
-          const edges = pendingEdgeElements;
-          // 600 edges/chunk is a sweet spot on test hardware: each chunk
-          // runs in well under a frame budget (16ms), and 20-ish chunks
-          // is enough granularity for visible progress text.
-          const CHUNK = 600;
-          for (let i = 0; i < edges.length; i += CHUNK) {
-            const end = Math.min(i + CHUNK, edges.length);
-            cy.add(edges.slice(i, end));
-            edgesBtn.textContent = `Loading edges… ${end.toLocaleString()} / ${edges.length.toLocaleString()}`;
-            await yieldPaint();
+        window.addEventListener('mouseup', (e) => {
+          if (!isPanning) return;
+          isPanning = false;
+          canvas.style.cursor = '';
+          // Was this a click rather than a drag? Threshold = 4px.
+          const moved = downAt && (Math.hypot(e.clientX - downAt.x, e.clientY - downAt.y) > 4);
+          if (!moved) handleClick(e);
+          downAt = null;
+        });
+        canvas.addEventListener('mousemove', (e) => {
+          const rect = canvas.getBoundingClientRect();
+          const sx = e.clientX - rect.left;
+          const sy = e.clientY - rect.top;
+          if (isPanning && panStart) {
+            view.tx = panStart.tx + (e.clientX - panStart.x);
+            view.ty = panStart.ty + (e.clientY - panStart.y);
+            requestDraw();
+            tooltip.setAttribute('hidden', '');
+            return;
           }
-          pendingEdgeElements = null;
-          edgesState = 'loaded';
-          edgesBtn.disabled = false;
-          edgesBtn.setAttribute('aria-pressed', 'true');
-          edgesBtn.textContent = 'Hide edges';
-        }
-        function toggleEdgeVisibility() {
-          if (edgesState !== 'loaded') return;
-          const hide = !cy.edges().hasClass('hidden');
-          cy.batch(() => cy.edges().toggleClass('hidden', hide));
-          edgesBtn.setAttribute('aria-pressed', hide ? 'false' : 'true');
-          edgesBtn.textContent = hide ? 'Show edges' : 'Hide edges';
-        }
-        edgesBtn.addEventListener('click', () => {
-          if (edgesState === 'none') loadEdgesProgressively();
-          else toggleEdgeVisibility();
+          const hit = hitTest(sx, sy);
+          if (hit !== hoveredIdx) {
+            hoveredIdx = hit;
+            requestDraw();
+          }
+          if (hit >= 0) {
+            canvas.style.cursor = 'pointer';
+            showTooltip(nodes[hit], sx, sy);
+          } else {
+            canvas.style.cursor = '';
+            tooltip.setAttribute('hidden', '');
+          }
+        });
+        canvas.addEventListener('mouseleave', () => {
+          if (hoveredIdx !== -1) { hoveredIdx = -1; requestDraw(); }
+          tooltip.setAttribute('hidden', '');
+          canvas.style.cursor = '';
         });
 
-        // --- Type filter chips
+        // Zoom toward cursor
+        canvas.addEventListener('wheel', (e) => {
+          e.preventDefault();
+          const rect = canvas.getBoundingClientRect();
+          const sx = e.clientX - rect.left;
+          const sy = e.clientY - rect.top;
+          const factor = e.deltaY < 0 ? 1.15 : 1 / 1.15;
+          const newScale = Math.max(0.05, Math.min(8, view.scale * factor));
+          const ratio = newScale / view.scale;
+          view.tx = sx - (sx - view.tx) * ratio;
+          view.ty = sy - (sy - view.ty) * ratio;
+          view.scale = newScale;
+          requestDraw();
+          tooltip.setAttribute('hidden', '');
+        }, { passive: false });
+
+        // Double-click → navigate immediately
+        canvas.addEventListener('dblclick', (e) => {
+          const rect = canvas.getBoundingClientRect();
+          const hit = hitTest(e.clientX - rect.left, e.clientY - rect.top);
+          if (hit >= 0) {
+            const n = nodes[hit];
+            window.location.href = `/${TYPE_DIRS[n.type] || 'pages'}/${n.id}/`;
+          }
+        });
+
+        function handleClick(e) {
+          const rect = canvas.getBoundingClientRect();
+          const hit = hitTest(e.clientX - rect.left, e.clientY - rect.top);
+          if (hit < 0) {
+            if (selectedIdx !== -1) { selectedIdx = -1; updateSelectionPanel(); requestDraw(); }
+            return;
+          }
+          if (selectedIdx === hit) {
+            selectedIdx = -1;
+          } else {
+            selectedIdx = hit;
+          }
+          updateSelectionPanel();
+          requestDraw();
+        }
+
+        // Layout cycle
+        layoutBtn.addEventListener('click', () => {
+          layoutIdx = (layoutIdx + 1) % LAYOUTS.length;
+          layoutBtn.textContent = `Layout: ${LAYOUTS[layoutIdx].label}`;
+          LAYOUTS[layoutIdx].apply();
+        });
+
+        fitBtn.addEventListener('click', () => fitToCanvas());
+
+        // Edges toggle — pure visibility flag here, no expensive add work
+        edgesBtn.addEventListener('click', () => {
+          edgesVisible = !edgesVisible;
+          edgesBtn.setAttribute('aria-pressed', edgesVisible ? 'true' : 'false');
+          edgesBtn.textContent = edgesVisible ? 'Hide edges' : 'Show edges';
+          requestDraw();
+        });
+
+        // Type filter chips
         for (const chip of filters.querySelectorAll('.net-chip')) {
           chip.addEventListener('click', () => {
             const t = chip.dataset.type;
@@ -432,100 +631,78 @@ for (const e of entities()) byType[e.type] = (byType[e.type] ?? 0) + 1;
             chip.classList.toggle('active', on);
             chip.setAttribute('aria-pressed', on ? 'true' : 'false');
             if (on) activeTypes.add(t); else activeTypes.delete(t);
-            applyFilter();
-          });
-        }
-        function applyFilter() {
-          cy.batch(() => {
-            cy.nodes().forEach((n) => {
-              const show = activeTypes.has(n.data('type'));
-              n.toggleClass('hidden', !show);
-            });
-            cy.edges().forEach((e) => {
-              const src = e.source().hasClass('hidden');
-              const tgt = e.target().hasClass('hidden');
-              e.toggleClass('hidden', src || tgt);
-            });
+            for (const n of nodes) n.visible = activeTypes.has(n.type);
+            // Clear selection if it now points at an invisible node
+            if (selectedIdx >= 0 && !nodes[selectedIdx].visible) {
+              selectedIdx = -1;
+              updateSelectionPanel();
+            }
+            requestDraw();
           });
         }
 
-        // --- Selection
-        const selEyebrow = panel.querySelector('.gs-eyebrow');
-        const selTitle = panel.querySelector('.gs-title');
-        const selCount = panel.querySelector('.gs-count');
-        const selGo = panel.querySelector('.gs-go');
-        const selDeselect = panel.querySelector('.gs-deselect');
-        const selBridge = panel.querySelector('.gs-bridge');
-        const selBridgeRank = panel.querySelector('.gs-bridge-rank');
-
-        function clearSelection() {
-          cy.elements().removeClass('selected faded');
-          panel.setAttribute('hidden', '');
-        }
-        function selectNode(node) {
-          cy.elements().removeClass('selected faded');
-          node.addClass('selected');
-          const keep = node.union(node.connectedEdges()).union(node.connectedEdges().connectedNodes());
-          cy.elements().not(keep).addClass('faded');
-          const d = node.data();
-          selEyebrow.textContent = TYPE_LABELS[d.type] || '';
-          selEyebrow.className = `gs-eyebrow type-${d.type}`;
-          selTitle.textContent = d.title;
-          selCount.textContent = (d.count || 0).toLocaleString();
-          if (d.bridgeRank) {
-            selBridgeRank.textContent = '#' + d.bridgeRank;
-            selBridge.removeAttribute('hidden');
-          } else {
-            selBridge.setAttribute('hidden', '');
-          }
-          const dir = TYPE_DIRS[d.type] || 'pages';
-          selGo.href = `/${dir}/${d.id}/`;
-          panel.removeAttribute('hidden');
-        }
-        cy.on('tap', 'node', (evt) => {
-          const n = evt.target;
-          if (n.hasClass('selected') && cy.nodes('.selected').length === 1) clearSelection();
-          else selectNode(n);
-        });
-        cy.on('tap', (evt) => { if (evt.target === cy) clearSelection(); });
-        selDeselect.addEventListener('click', clearSelection);
-
-        // --- Edge hover tooltip (lightweight — just the two endpoints)
-        cy.on('mouseover', 'edge', (evt) => {
-          const e = evt.target;
-          const s = e.source().data('title');
-          const t = e.target().data('title');
-          tooltip.innerHTML =
-            '<div class="gt-pair"><span>' + escapeHtml(s) + '</span> ' +
-            '<span class="gt-link">&mdash;</span> <span>' + escapeHtml(t) + '</span></div>';
-          tooltip.removeAttribute('hidden');
-          positionTooltip(evt);
-        });
-        cy.on('mousemove', 'edge', positionTooltip);
-        cy.on('mouseout', 'edge', () => tooltip.setAttribute('hidden', ''));
-
-        function positionTooltip(evt) {
-          const cr = canvas.getBoundingClientRect();
-          const sr = shell.getBoundingClientRect();
-          const x = (cr.left - sr.left) + evt.renderedPosition.x;
-          const y = (cr.top - sr.top) + evt.renderedPosition.y;
-          const maxX = sr.width - tooltip.offsetWidth - 8;
-          tooltip.style.left = Math.min(Math.max(8, x + 14), maxX) + 'px';
-          tooltip.style.top = Math.max(8, y - tooltip.offsetHeight - 10) + 'px';
-        }
-
-        // --- Fullscreen
-        function toggleFullscreen() {
+        // Fullscreen
+        fullscreenBtn.addEventListener('click', () => {
           const on = article.classList.toggle('fullscreen');
           fullscreenBtn.setAttribute('aria-pressed', on ? 'true' : 'false');
           fullscreenBtn.textContent = on ? 'Exit' : 'Fullscreen';
           document.body.classList.toggle('net-fullscreen-active', on);
-          requestAnimationFrame(() => { cy.resize(); cy.fit(undefined, 40); });
-        }
-        fullscreenBtn.addEventListener('click', toggleFullscreen);
-        document.addEventListener('keydown', (e) => {
-          if (e.key === 'Escape' && article.classList.contains('fullscreen')) toggleFullscreen();
+          requestAnimationFrame(() => { resizeCanvas(); fitToCanvas(); });
         });
+        document.addEventListener('keydown', (e) => {
+          if (e.key === 'Escape' && article.classList.contains('fullscreen')) {
+            article.classList.remove('fullscreen');
+            fullscreenBtn.setAttribute('aria-pressed', 'false');
+            fullscreenBtn.textContent = 'Fullscreen';
+            document.body.classList.remove('net-fullscreen-active');
+            requestAnimationFrame(() => { resizeCanvas(); fitToCanvas(); });
+          }
+        });
+
+        // Selection panel buttons
+        const selDeselect = panel.querySelector('.gs-deselect');
+        selDeselect.addEventListener('click', () => {
+          selectedIdx = -1; updateSelectionPanel(); requestDraw();
+        });
+      }
+
+      function updateSelectionPanel() {
+        if (selectedIdx < 0) { panel.setAttribute('hidden', ''); return; }
+        const n = nodes[selectedIdx];
+        panel.querySelector('.gs-eyebrow').textContent = TYPE_LABELS[n.type] || '';
+        panel.querySelector('.gs-eyebrow').className = `gs-eyebrow type-${n.type}`;
+        panel.querySelector('.gs-title').textContent = n.title;
+        panel.querySelector('.gs-count').textContent = n.count.toLocaleString();
+        const br = panel.querySelector('.gs-bridge');
+        if (n.bridgeRank) {
+          panel.querySelector('.gs-bridge-rank').textContent = '#' + n.bridgeRank;
+          br.removeAttribute('hidden');
+        } else br.setAttribute('hidden', '');
+        const dir = TYPE_DIRS[n.type] || 'pages';
+        panel.querySelector('.gs-go').href = `/${dir}/${n.id}/`;
+        panel.removeAttribute('hidden');
+      }
+
+      function escapeHtml(s) {
+        return String(s).replace(/[&<>"']/g, (c) => (
+          { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
+        ));
+      }
+
+      function showTooltip(node, sx, sy) {
+        const bits = [
+          '<div class="gt-pair"><span>' + escapeHtml(node.title) + '</span></div>',
+          '<div class="gt-meta">' + escapeHtml(TYPE_LABELS[node.type] || node.type),
+          ' · ' + node.count.toLocaleString() + ' mentions',
+          node.bridgeRank ? ' · bridge #' + node.bridgeRank : '',
+          '</div>',
+        ];
+        tooltip.innerHTML = bits.join('');
+        tooltip.removeAttribute('hidden');
+        const sr = shell.getBoundingClientRect();
+        const maxX = sr.width - tooltip.offsetWidth - 8;
+        tooltip.style.left = Math.min(Math.max(8, sx + 14), maxX) + 'px';
+        tooltip.style.top = Math.max(8, sy - tooltip.offsetHeight - 10) + 'px';
       }
 
       loadBtn.addEventListener('click', init);
