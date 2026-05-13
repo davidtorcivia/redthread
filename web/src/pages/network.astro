@@ -15,9 +15,10 @@ const total = entities().length;
       <p class="entity-dek">
         Every {total.toLocaleString()} entries in the vault on one map.
         <strong>Scroll</strong> to zoom, <strong>drag</strong> to pan,
-        <strong>click</strong> a node to select, <strong>double-click</strong> to navigate.
-        Bridge entities are ringed in gold; spatial position reflects shared connections.
-        Edges are off by default — toggle them when you want to see specific links.
+        <strong>click</strong> a node or connection line to select,
+        <strong>double-click</strong> a node to navigate.
+        Use the sliders to dim everything or spread Force layout farther apart.
+        Bridge entities are ringed in gold; edges that touch them tint gold too.
       </p>
     </header>
 
@@ -36,8 +37,23 @@ const total = entities().length;
       <div class="net-controls" hidden id="net-controls">
         <button class="graph-btn net-layout" type="button">Layout: Force</button>
         <button class="graph-btn net-fit" type="button">Refit</button>
-        <button class="graph-btn net-edges" type="button" aria-pressed="false">Show edges</button>
+        <button class="graph-btn net-edges" type="button" aria-pressed="true">Hide edges</button>
+        <button class="graph-btn net-implicit" type="button" aria-pressed="false">+ Inferred</button>
+        <button class="graph-btn net-multi" type="button" aria-pressed="false">Multi: off</button>
         <button class="graph-btn net-fullscreen" type="button" aria-pressed="false">Fullscreen</button>
+      </div>
+
+      <div class="net-sliders" hidden id="net-sliders">
+        <label class="net-slider" id="net-opacity-slider">
+          <span class="net-slider-label">Opacity</span>
+          <input type="range" class="net-slider-input" id="net-opacity" min="0" max="100" value="100" />
+          <span class="net-slider-val" id="net-opacity-val">100%</span>
+        </label>
+        <label class="net-slider" id="net-force-slider">
+          <span class="net-slider-label">Force</span>
+          <input type="range" class="net-slider-input" id="net-force" min="50" max="400" value="100" />
+          <span class="net-slider-val" id="net-force-val">100%</span>
+        </label>
       </div>
 
       <div class="net-filters" hidden id="net-filters" aria-label="Filter by type">
@@ -57,9 +73,10 @@ const total = entities().length;
         </div>
         <div class="gs-meta"><span class="gs-count"></span> mentions across the vault</div>
         <div class="gs-bridge" hidden>Bridge entity (rank <span class="gs-bridge-rank"></span>)</div>
+        <div class="gs-summary" hidden></div>
         <div class="gs-actions">
           <a class="gs-go" href="#">Go to page &rarr;</a>
-          <button class="gs-deselect" type="button">Deselect</button>
+          <button class="gs-deselect" type="button">Clear</button>
         </div>
       </div>
 
@@ -90,6 +107,12 @@ const total = entities().length;
       const fitBtn = controls.querySelector('.net-fit');
       const edgesBtn = controls.querySelector('.net-edges');
       const fullscreenBtn = controls.querySelector('.net-fullscreen');
+      const sliders = document.getElementById('net-sliders');
+      const opacityInput = document.getElementById('net-opacity');
+      const opacityVal = document.getElementById('net-opacity-val');
+      const forceSlider = document.getElementById('net-force-slider');
+      const forceInput = document.getElementById('net-force');
+      const forceVal = document.getElementById('net-force-val');
       const panel = document.getElementById('net-selection');
       const tooltip = document.getElementById('net-tooltip');
 
@@ -118,6 +141,7 @@ const total = entities().length;
           muted: get('--muted', '#6a6258'),
           line: get('--line-2', '#c8bca0'),
           accent: get('--accent', '#94322a'),
+          accentSoft: get('--accent-soft', '#c97a6a'),
           ink: get('--ink', '#1a1814'),
           paper: get('--paper', '#f7f2e7'),
           gold: get('--gold', '#8a6e25'),
@@ -132,15 +156,44 @@ const total = entities().length;
       let nodes = [];
       /** @type {[number,number][]} pairs of node indices */
       let edges = [];
-      let edgesVisible = false;
+      let edgesVisible = true;
+      /** Implicit (NER-inferred) edges are hidden by default. Toggling
+       *  "+ Inferred" includes them, drawn as dashed lines so the user
+       *  can tell which connections are confirmed wikilinks vs guesses. */
+      let showImplicit = false;
+      /** Set of edge indices (into the `edges` array) whose underlying
+       *  pair is implicit-only (no explicit wikilink). Built in init(). */
+      let implicitEdgeIdx = null;
       const activeTypes = new Set([
         'person','organization','program','event','concept','place',
         'source','meta','misc','page',
       ]);
       let hoveredIdx = -1;
-      let selectedIdx = -1;
+      let hoveredEdge = -1;
+      /** Selections are Sets so multi-select (shift-click or Multi mode)
+       *  can hold an arbitrary number of nodes and/or edges. The old
+       *  scalar selectedIdx / selectedEdge state is gone. */
+      const selectedNodes = new Set();
+      const selectedEdges = new Set();
+      let multiMode = false;
+      /** When anything is selected, this set holds the node indices that
+       *  remain "in focus" (selected nodes + their neighbors + endpoints
+       *  of selected edges). Everything outside the set fades back. */
+      let focusNodes = null;
       /** transform: model (x,y) maps to screen (x*scale + tx, y*scale + ty) */
       const view = { tx: 0, ty: 0, scale: 1 };
+      /** Active layout key — controls visibility of the Force slider. */
+      let currentLayout = 'force';
+      /** Tunable multipliers driven by the slider controls. */
+      let opacityMult = 1.0;   // 0.2 .. 1.0, dims nodes + labels
+      let forceMult = 1.0;     // 0.5 .. 4.0, scales Force layout spread
+      /** Raw spring_layout positions in their parser-normalized 0-1000
+       *  range. Force layout multiplies these by a baseline scale * the
+       *  Force slider so the user can spread the graph apart on demand. */
+      let rawForcePositions = null;
+      /** Pre-computed for each node: set of neighbor indices. Built once
+       *  in init(), used for fast neighbor lookup during selection. */
+      let neighborSets = null;
 
       // --- Canvas + DPR ---------------------------------------------------
       let dpr = Math.max(1, window.devicePixelRatio || 1);
@@ -162,6 +215,25 @@ const total = entities().length;
         drawScheduled = true;
         requestAnimationFrame(() => { drawScheduled = false; draw(); });
       }
+      function recomputeFocus() {
+        if (selectedNodes.size === 0 && selectedEdges.size === 0) {
+          focusNodes = null;
+          return;
+        }
+        focusNodes = new Set();
+        for (const idx of selectedNodes) {
+          focusNodes.add(idx);
+          if (neighborSets) {
+            for (const n of neighborSets[idx]) focusNodes.add(n);
+          }
+        }
+        for (const k of selectedEdges) {
+          const e = edges[k];
+          focusNodes.add(e[0]);
+          focusNodes.add(e[1]);
+        }
+      }
+
       function modelToScreenX(x) { return x * view.scale + view.tx; }
       function modelToScreenY(y) { return y * view.scale + view.ty; }
       function screenToModelX(x) { return (x - view.tx) / view.scale; }
@@ -183,63 +255,90 @@ const total = entities().length;
           y1: screenToModelY(canvas.height / dpr + 50),
         };
 
-        // Connection-emphasis pre-pass: when something is selected, the
-        // edges touching the selected node draw thicker + accent-colored
-        // on top of the regular edge layer. Compute that set once.
+        // Selection state — used throughout the draw pass to decide
+        // whether to fade non-related elements.
+        const hasSelection = (selectedNodes.size > 0 || selectedEdges.size > 0);
+
+        // Edges of interest: incident on any selected node, or any
+        // selected edge itself, plus a softer hover set.
         const focusEdges = new Set();
-        if (selectedIdx >= 0 && edgesVisible) {
-          for (let i = 0; i < edges.length; i++) {
-            const e = edges[i];
-            if (e[0] === selectedIdx || e[1] === selectedIdx) focusEdges.add(i);
+        if (edgesVisible) {
+          if (selectedNodes.size > 0) {
+            for (let i = 0; i < edges.length; i++) {
+              const e = edges[i];
+              if (selectedNodes.has(e[0]) || selectedNodes.has(e[1])) focusEdges.add(i);
+            }
           }
+          for (const k of selectedEdges) focusEdges.add(k);
         }
         const hoverEdges = new Set();
-        if (hoveredIdx >= 0 && hoveredIdx !== selectedIdx && edgesVisible) {
+        if (hoveredIdx >= 0 && !selectedNodes.has(hoveredIdx) && edgesVisible) {
           for (let i = 0; i < edges.length; i++) {
             const e = edges[i];
             if (e[0] === hoveredIdx || e[1] === hoveredIdx) hoverEdges.add(i);
           }
         }
+        if (hoveredEdge >= 0 && !selectedEdges.has(hoveredEdge)) hoverEdges.add(hoveredEdge);
 
         // --- Edges (only if toggled on) -----------------------------------
         if (edgesVisible) {
-          ctx.lineWidth = 0.6;
-          ctx.strokeStyle = hexToRgba(COLORS.line, 0.22);
-          ctx.beginPath();
-          for (let i = 0; i < edges.length; i++) {
-            const e = edges[i];
-            if (focusEdges.has(i) || hoverEdges.has(i)) continue;
-            const a = nodes[e[0]];
-            const b = nodes[e[1]];
-            if (!a.visible || !b.visible) continue;
-            // Cheap culling: both endpoints outside viewport bounding box.
-            if ((a.x < viewport.x0 && b.x < viewport.x0) ||
-                (a.x > viewport.x1 && b.x > viewport.x1) ||
-                (a.y < viewport.y0 && b.y < viewport.y0) ||
-                (a.y > viewport.y1 && b.y > viewport.y1)) continue;
-            ctx.moveTo(modelToScreenX(a.x), modelToScreenY(a.y));
-            ctx.lineTo(modelToScreenX(b.x), modelToScreenY(b.y));
-          }
-          ctx.stroke();
-          // Emphasized edges layer
-          if (focusEdges.size) {
-            ctx.lineWidth = 1.5;
-            ctx.strokeStyle = COLORS.accent;
+          const bgAlpha = hasSelection ? 0.06 : 0.32;
+          ctx.lineWidth = 0.7;
+
+          // Helper: draw the subset of edges that match a kind predicate
+          // and a bridge predicate, with the current stroke style. Edges
+          // already claimed by hover or selection are skipped because
+          // they're drawn on top later.
+          function drawPass(kindOK, bridgeOK) {
             ctx.beginPath();
-            focusEdges.forEach((i) => {
+            for (let i = 0; i < edges.length; i++) {
+              if (focusEdges.has(i) || hoverEdges.has(i)) continue;
+              const isImpl = implicitEdgeIdx && implicitEdgeIdx.has(i);
+              if (!kindOK(isImpl)) continue;
               const e = edges[i];
               const a = nodes[e[0]], b = nodes[e[1]];
-              if (!a.visible || !b.visible) return;
+              if (!a.visible || !b.visible) continue;
+              if (!bridgeOK(a, b)) continue;
+              if ((a.x < viewport.x0 && b.x < viewport.x0) ||
+                  (a.x > viewport.x1 && b.x > viewport.x1) ||
+                  (a.y < viewport.y0 && b.y < viewport.y0) ||
+                  (a.y > viewport.y1 && b.y > viewport.y1)) continue;
               ctx.moveTo(modelToScreenX(a.x), modelToScreenY(a.y));
               ctx.lineTo(modelToScreenX(b.x), modelToScreenY(b.y));
-            });
+            }
             ctx.stroke();
           }
+
+          // ----- Solid background edges (explicit wikilinks).
+          ctx.setLineDash([]);
+          ctx.strokeStyle = hexToRgba(COLORS.gold, bgAlpha * 0.8);
+          drawPass((isImpl) => !isImpl, (a, b) => !!(a.bridgeRank || b.bridgeRank));
+          ctx.strokeStyle = hexToRgba(COLORS.accentSoft || COLORS.line, bgAlpha);
+          drawPass((isImpl) => !isImpl, (a, b) => !a.bridgeRank && !b.bridgeRank);
+
+          // ----- Dashed background edges (NER-inferred). Only when the
+          //       user opted in via the "+ Inferred" button.
+          if (showImplicit) {
+            ctx.setLineDash([4, 3]);
+            ctx.lineWidth = 0.6;
+            ctx.strokeStyle = hexToRgba(COLORS.gold, bgAlpha * 0.8);
+            drawPass((isImpl) => isImpl, (a, b) => !!(a.bridgeRank || b.bridgeRank));
+            ctx.strokeStyle = hexToRgba(COLORS.accentSoft || COLORS.line, bgAlpha);
+            drawPass((isImpl) => isImpl, (a, b) => !a.bridgeRank && !b.bridgeRank);
+            ctx.setLineDash([]);
+            ctx.lineWidth = 0.7;
+          }
+
+          // ----- Hover overlay. Preserve the dashed-vs-solid style for
+          // implicit edges so the user can tell what kind they're over.
           if (hoverEdges.size) {
-            ctx.lineWidth = 1.2;
-            ctx.strokeStyle = hexToRgba(COLORS.accent, 0.7);
+            ctx.lineWidth = 1.1;
+            ctx.strokeStyle = hexToRgba(COLORS.accent, 0.55);
+            // Solid hovers
+            ctx.setLineDash([]);
             ctx.beginPath();
             hoverEdges.forEach((i) => {
+              if (implicitEdgeIdx && implicitEdgeIdx.has(i)) return;
               const e = edges[i];
               const a = nodes[e[0]], b = nodes[e[1]];
               if (!a.visible || !b.visible) return;
@@ -247,6 +346,53 @@ const total = entities().length;
               ctx.lineTo(modelToScreenX(b.x), modelToScreenY(b.y));
             });
             ctx.stroke();
+            // Dashed hovers (only if implicit edges are visible at all)
+            if (showImplicit) {
+              ctx.setLineDash([4, 3]);
+              ctx.beginPath();
+              hoverEdges.forEach((i) => {
+                if (!(implicitEdgeIdx && implicitEdgeIdx.has(i))) return;
+                const e = edges[i];
+                const a = nodes[e[0]], b = nodes[e[1]];
+                if (!a.visible || !b.visible) return;
+                ctx.moveTo(modelToScreenX(a.x), modelToScreenY(a.y));
+                ctx.lineTo(modelToScreenX(b.x), modelToScreenY(b.y));
+              });
+              ctx.stroke();
+              ctx.setLineDash([]);
+            }
+          }
+
+          // ----- Selected edges — thicker, full accent, dash style
+          //       preserved for implicit edges.
+          if (focusEdges.size) {
+            ctx.lineWidth = 1.8;
+            ctx.strokeStyle = COLORS.accent;
+            ctx.setLineDash([]);
+            ctx.beginPath();
+            focusEdges.forEach((i) => {
+              if (implicitEdgeIdx && implicitEdgeIdx.has(i)) return;
+              const e = edges[i];
+              const a = nodes[e[0]], b = nodes[e[1]];
+              if (!a.visible || !b.visible) return;
+              ctx.moveTo(modelToScreenX(a.x), modelToScreenY(a.y));
+              ctx.lineTo(modelToScreenX(b.x), modelToScreenY(b.y));
+            });
+            ctx.stroke();
+            if (showImplicit) {
+              ctx.setLineDash([5, 4]);
+              ctx.beginPath();
+              focusEdges.forEach((i) => {
+                if (!(implicitEdgeIdx && implicitEdgeIdx.has(i))) return;
+                const e = edges[i];
+                const a = nodes[e[0]], b = nodes[e[1]];
+                if (!a.visible || !b.visible) return;
+                ctx.moveTo(modelToScreenX(a.x), modelToScreenY(a.y));
+                ctx.lineTo(modelToScreenX(b.x), modelToScreenY(b.y));
+              });
+              ctx.stroke();
+              ctx.setLineDash([]);
+            }
           }
         }
 
@@ -261,16 +407,29 @@ const total = entities().length;
           if (sx + sr < 0 || sx - sr > canvas.width / dpr ||
               sy + sr < 0 || sy - sr > canvas.height / dpr) continue;
 
-          ctx.globalAlpha = 0.85;
+          // Three opacity tiers:
+          //   • Selected/hovered: full opacity, pops to the front
+          //   • In the current focus set (or no selection active): default
+          //   • Outside focus (selection active): faded so the picked
+          //     subgraph reads clearly
+          const isSelected = selectedNodes.has(i);
+          const isMain = isSelected || i === hoveredIdx;
+          const inFocus = !focusNodes || focusNodes.has(i);
+          // Selected/hovered always show at full opacity so the user's
+          // pick stays legible no matter where the dim slider is.
+          const base = isMain ? 1 : (inFocus ? 0.55 : 0.08);
+          ctx.globalAlpha = isMain ? base : base * opacityMult;
           ctx.fillStyle = n.color;
           ctx.beginPath();
           ctx.arc(sx, sy, sr, 0, Math.PI * 2);
           ctx.fill();
           ctx.globalAlpha = 1;
 
-          // Bridge ring
+          // Bridge ring (gold). Fades with the node when not in focus.
           if (n.bridgeRank) {
-            ctx.strokeStyle = COLORS.gold;
+            ctx.strokeStyle = inFocus
+              ? COLORS.gold
+              : hexToRgba(COLORS.gold, 0.18);
             ctx.lineWidth = 2;
             ctx.beginPath();
             ctx.arc(sx, sy, sr + 1.2, 0, Math.PI * 2);
@@ -278,7 +437,7 @@ const total = entities().length;
           }
 
           // Selection / hover ring
-          if (i === selectedIdx) {
+          if (isSelected) {
             ctx.strokeStyle = COLORS.accent;
             ctx.lineWidth = 3;
             ctx.beginPath();
@@ -293,36 +452,84 @@ const total = entities().length;
           }
         }
 
-        // --- Labels: only the prominent ones, or hovered/selected --------
+        // --- Labels with collision detection.
+        // Gather candidates ordered by priority:
+        //   tier 0: hovered/selected (always — placed first, can't be skipped)
+        //   tier 1: landmarks (top-20 by mention count) in mention order
+        //   tier 2: any other node where screen radius > a hi threshold
+        // For each candidate (in tier order), compute its label rect and
+        // skip if it would overlap any already-placed rect. Result: dense
+        // areas only show the most prominent node's label, sparse areas
+        // fill in nicely as the user zooms.
         ctx.textAlign = 'center';
         ctx.textBaseline = 'top';
-        const labelThreshold = 14;  // screen-pixel radius above which we label
+        const W = canvas.width / dpr;
+        const H = canvas.height / dpr;
+        const candidates = [];
         for (let i = 0; i < nodes.length; i++) {
           const n = nodes[i];
           if (!n.visible) continue;
-          const sr = n.size * view.scale;
-          const isImportant = i === hoveredIdx || i === selectedIdx;
-          if (!isImportant && sr < labelThreshold) continue;
+          // When a selection is active, hide every label outside the
+          // focus set so the user's chosen subgraph dominates.
+          if (hasSelection && focusNodes && !focusNodes.has(i)) {
+            if (i !== hoveredIdx) continue;
+          }
           const sx = modelToScreenX(n.x);
           const sy = modelToScreenY(n.y);
-          if (sx < -200 || sx > canvas.width / dpr + 200) continue;
+          if (sx < -200 || sx > W + 200 || sy < -40 || sy > H + 40) continue;
+          const sr = n.size * view.scale;
+          const isHover = i === hoveredIdx || selectedNodes.has(i);
+          // Inside a selection, all focus-set nodes get a label even if
+          // the zoom would normally hide them — that's the point.
+          const inFocusSet = focusNodes && focusNodes.has(i);
+          let tier;
+          if (isHover) tier = 0;
+          else if (inFocusSet) tier = 1;
+          else if (n.isLandmark) tier = 1;
+          else if (sr >= 9) tier = 2;
+          else continue;
+          candidates.push({ i, n, sx, sy, sr, tier, isHover });
+        }
+        // Sort: lower tier first; within a tier, higher mention count first
+        candidates.sort((a, b) => a.tier - b.tier || b.n.count - a.n.count);
 
-          const fontSize = isImportant ? 13 : 10;
-          ctx.font = `${isImportant ? 600 : 500} ${fontSize}px "Inter Tight", sans-serif`;
-          const text = n.title;
+        const drawn = [];
+        function boxesOverlap(a, b) {
+          return !(a.x1 < b.x0 || b.x1 < a.x0 || a.y1 < b.y0 || b.y1 < a.y0);
+        }
+        for (const c of candidates) {
+          const fontSize = c.isHover ? 13 : (c.n.isLandmark ? 11 : 10);
+          ctx.font = `${c.isHover || c.n.isLandmark ? 600 : 500} ${fontSize}px "Inter Tight", sans-serif`;
+          const text = c.n.title;
           const metrics = ctx.measureText(text);
           const padX = 4, padY = 2;
-          const labelY = sy + sr + 4;
-          // Background plaque so the label reads over edges + nodes
-          ctx.fillStyle = hexToRgba(COLORS.paper, 0.92);
-          ctx.fillRect(
-            sx - metrics.width / 2 - padX,
-            labelY - 1,
-            metrics.width + 2 * padX,
-            fontSize + 2 * padY,
-          );
-          ctx.fillStyle = COLORS.ink;
-          ctx.fillText(text, sx, labelY + padY - 1);
+          const labelY = c.sy + c.sr + 4;
+          const box = {
+            x0: c.sx - metrics.width / 2 - padX,
+            x1: c.sx + metrics.width / 2 + padX,
+            y0: labelY - 1,
+            y1: labelY + fontSize + 2 * padY,
+          };
+          // Hovered/selected labels always win (tier 0) — push everyone
+          // else aside. Otherwise, skip if any previously-drawn label
+          // would overlap.
+          if (c.tier > 0) {
+            let collide = false;
+            for (let k = 0; k < drawn.length; k++) {
+              if (boxesOverlap(drawn[k], box)) { collide = true; break; }
+            }
+            if (collide) continue;
+          }
+          // Dim labels along with nodes. Hover/select labels stay full
+          // opacity so they remain legible at any slider position.
+          const labelMult = c.isHover ? 1 : opacityMult;
+          ctx.globalAlpha = labelMult;
+          ctx.fillStyle = hexToRgba(COLORS.paper, c.isHover ? 0.95 : 0.85);
+          ctx.fillRect(box.x0, box.y0, box.x1 - box.x0, box.y1 - box.y0);
+          ctx.fillStyle = c.isHover ? COLORS.accent : COLORS.ink;
+          ctx.fillText(text, c.sx, labelY + padY - 1);
+          ctx.globalAlpha = 1;
+          drawn.push(box);
         }
       }
 
@@ -358,6 +565,41 @@ const total = entities().length;
         }
         return best;
       }
+      function edgeHitTest(sx, sy, threshold) {
+        // Distance from point (sx,sy) to each visible edge segment;
+        // returns the index of the closest within `threshold` pixels, or
+        // -1. Only checked when no node was hit, so we don't pay the
+        // O(E) cost on every mousemove unless the cursor is actually
+        // over empty space.
+        if (!edgesVisible) return -1;
+        threshold = threshold ?? 4;
+        let best = -1;
+        let bestD = threshold;
+        const W = canvas.width / dpr;
+        const H = canvas.height / dpr;
+        for (let k = 0; k < edges.length; k++) {
+          // Skip implicit edges if they're not currently shown — they
+          // shouldn't be clickable when they're invisible.
+          if (!showImplicit && implicitEdgeIdx && implicitEdgeIdx.has(k)) continue;
+          const e = edges[k];
+          const a = nodes[e[0]], b = nodes[e[1]];
+          if (!a.visible || !b.visible) continue;
+          const ax = modelToScreenX(a.x), ay = modelToScreenY(a.y);
+          const bx = modelToScreenX(b.x), by = modelToScreenY(b.y);
+          // Cheap viewport reject — both ends off the same side.
+          if ((ax < -10 && bx < -10) || (ax > W + 10 && bx > W + 10) ||
+              (ay < -10 && by < -10) || (ay > H + 10 && by > H + 10)) continue;
+          const dx = bx - ax, dy = by - ay;
+          const len2 = dx * dx + dy * dy;
+          if (len2 === 0) continue;
+          let t = ((sx - ax) * dx + (sy - ay) * dy) / len2;
+          if (t < 0) t = 0; else if (t > 1) t = 1;
+          const nx = ax + t * dx, ny = ay + t * dy;
+          const d = Math.hypot(sx - nx, sy - ny);
+          if (d < bestD) { bestD = d; best = k; }
+        }
+        return best;
+      }
 
       // --- Fit / centring -------------------------------------------------
       function fitToCanvas(padding) {
@@ -381,8 +623,11 @@ const total = entities().length;
 
       // --- Layouts --------------------------------------------------------
       function nodeSize(mentions, isBridge) {
-        const base = 14 + Math.log2(1 + (mentions || 0)) * 3.2;
-        return Math.min(56, isBridge ? base + 6 : base);
+        // Radius (not diameter). Small dots — a constellation at fit
+        // zoom, not boulders. Translucent fill lets overlaps stack
+        // visibly rather than swallowing one another.
+        const base = 2 + Math.log2(1 + (mentions || 0)) * 0.9;
+        return Math.min(8, isBridge ? base + 1 : base);
       }
 
       const LAYOUTS = [
@@ -393,12 +638,20 @@ const total = entities().length;
       ];
       let layoutIdx = 0;
 
-      let forcePositions = null;  // cached from build-time spring_layout
+      // Baseline 6× spreads the natural spring output enough that clusters
+      // are legible at fit zoom. The Force slider scales this further:
+      // 50% gives the original tight layout, 100% is the new comfortable
+      // default, 400% pulls everything way apart for dense-area exploration.
+      const FORCE_BASELINE = 6;
+
       function applyForceLayout() {
-        if (!forcePositions) return;
+        if (!rawForcePositions) return;
+        const scale = FORCE_BASELINE * forceMult;
         for (let i = 0; i < nodes.length; i++) {
-          nodes[i].x = forcePositions[i][0];
-          nodes[i].y = forcePositions[i][1];
+          const p = rawForcePositions[i];
+          if (!p) continue;
+          nodes[i].x = p[0] * scale;
+          nodes[i].y = p[1] * scale;
         }
         fitToCanvas();
       }
@@ -406,12 +659,10 @@ const total = entities().length;
         const visible = nodes.filter((n) => n.visible);
         const cols = Math.max(1, Math.ceil(Math.sqrt(visible.length)));
         const step = 90;
-        // Sort by mention count desc so important nodes are top-left.
-        const order = visible.map((_, i) => i).sort((a, b) => visible[b].count - visible[a].count);
-        for (let k = 0; k < order.length; k++) {
-          const idx = order[k];
-          // Find the original node index for this visible[idx]
-          const target = nodes.indexOf(visible[idx]);
+        const ordered = visible.slice().sort((a, b) => b.count - a.count);
+        const nodeIdx = new Map(nodes.map((n, i) => [n, i]));
+        for (let k = 0; k < ordered.length; k++) {
+          const target = nodeIdx.get(ordered[k]);
           nodes[target].x = (k % cols) * step;
           nodes[target].y = Math.floor(k / cols) * step;
         }
@@ -419,11 +670,28 @@ const total = entities().length;
       }
       function applyCircleLayout() {
         const visible = nodes.filter((n) => n.visible);
-        const n = visible.length;
-        const radius = Math.max(400, n * 6);
-        for (let k = 0; k < n; k++) {
-          const angle = (k / n) * 2 * Math.PI;
-          const target = nodes.indexOf(visible[k]);
+        // Interleave landmarks evenly around the ring so the labels that
+        // do survive collision detection are spaced across the full
+        // circumference — not bunched on one side because the parser
+        // happened to walk that part of the alphabet first.
+        const landmarks = visible.filter((n) => n.isLandmark);
+        const others = visible.filter((n) => !n.isLandmark);
+        const total = visible.length;
+        const interval = landmarks.length > 0 ? Math.floor(total / landmarks.length) : total;
+        const ordered = new Array(total);
+        let li = 0, oi = 0;
+        for (let k = 0; k < total; k++) {
+          if (li < landmarks.length && (k % interval === 0)) ordered[k] = landmarks[li++];
+          else if (oi < others.length) ordered[k] = others[oi++];
+          else if (li < landmarks.length) ordered[k] = landmarks[li++];
+        }
+        const radius = Math.max(400, total * 6);
+        // Build a lookup from node object to its target index so the
+        // hot loop doesn't have to scan nodes[] for each entry.
+        const nodeIdx = new Map(nodes.map((n, i) => [n, i]));
+        for (let k = 0; k < total; k++) {
+          const angle = (k / total) * 2 * Math.PI;
+          const target = nodeIdx.get(ordered[k]);
           nodes[target].x = Math.cos(angle) * radius;
           nodes[target].y = Math.sin(angle) * radius;
         }
@@ -441,13 +709,14 @@ const total = entities().length;
         });
         const rings = 8;
         const perRing = Math.ceil(sorted.length / rings);
+        const nodeIdx = new Map(nodes.map((n, i) => [n, i]));
         for (let i = 0; i < sorted.length; i++) {
           const r = Math.floor(i / perRing);
           const idxInRing = i % perRing;
           const radius = 80 + r * 90;
           const angleStep = (2 * Math.PI) / Math.max(1, perRing);
           const angle = idxInRing * angleStep;
-          const target = nodes.indexOf(sorted[i]);
+          const target = nodeIdx.get(sorted[i]);
           nodes[target].x = Math.cos(angle) * radius;
           nodes[target].y = Math.sin(angle) * radius;
         }
@@ -472,14 +741,18 @@ const total = entities().length;
           return;
         }
 
-        // Build node array
-        forcePositions = data.positions || null;
+        // Keep the parser's natural 0-1000 spring_layout output verbatim;
+        // applyForceLayout multiplies by FORCE_BASELINE × forceMult.
+        rawForcePositions = data.positions || null;
+        const baselineScale = FORCE_BASELINE * forceMult;
         for (let i = 0; i < data.ids.length; i++) {
           const br = data.bridges?.[String(i)];
           const isBridge = br != null;
           const bridgeRank = isBridge ? (typeof br === 'object' ? br.rank : br) : 0;
           const bridgeScore = isBridge && typeof br === 'object' ? br.score : 0;
-          const p = forcePositions ? forcePositions[i] : [Math.random() * 1000, Math.random() * 1000];
+          const p = rawForcePositions
+            ? [rawForcePositions[i][0] * baselineScale, rawForcePositions[i][1] * baselineScale]
+            : [Math.random() * 3000, Math.random() * 3000];
           nodes.push({
             id: data.ids[i],
             title: data.titles[i],
@@ -494,20 +767,62 @@ const total = entities().length;
             visible: true,
           });
         }
+        // Pre-mark the top-20 mention-count nodes for always-on labelling
+        // — these are the landmarks (CIA, United States, Reagan...) that
+        // orient the user no matter how zoomed out they are.
+        const topByMentions = nodes
+          .map((n, i) => ({ i, c: n.count }))
+          .sort((a, b) => b.c - a.c)
+          .slice(0, 20)
+          .map((x) => x.i);
+        for (const i of topByMentions) nodes[i].isLandmark = true;
 
-        // Build edge array (deduped — adjacency is symmetric)
+        // Build edge array (deduped — adjacency is symmetric) and
+        // simultaneously build neighborSets so selection focus is O(1)
+        // lookup rather than scanning edges on every click.
+        neighborSets = Array.from({ length: nodes.length }, () => new Set());
+        const edgePairToIdx = new Map();
         for (let i = 0; i < data.adj.length; i++) {
           const neigh = data.adj[i];
           for (let k = 0; k < neigh.length; k++) {
             const j = neigh[k];
+            neighborSets[i].add(j);
             if (j <= i) continue;
+            edgePairToIdx.set(i * 100000 + j, edges.length);
             edges.push([i, j]);
           }
+        }
+        // Mark which edges are implicit-only (NER-inferred) so the
+        // "+ Inferred" toggle can hide/show them and the renderer can
+        // draw them dashed.
+        implicitEdgeIdx = new Set();
+        if (data.implicitPairs) {
+          for (const [a, b] of data.implicitPairs) {
+            const key = a < b ? a * 100000 + b : b * 100000 + a;
+            const idx = edgePairToIdx.get(key);
+            if (idx != null) implicitEdgeIdx.add(idx);
+          }
+        }
+        // Mark isolated entries (zero in or out links) and hide them.
+        // They're real vault entries but add no information to a graph
+        // view — they're just dots floating in empty space. Type-filter
+        // toggles AND with !isolated so they stay hidden either way.
+        let isolatedCount = 0;
+        for (let i = 0; i < nodes.length; i++) {
+          if (neighborSets[i].size === 0) {
+            nodes[i].isolated = true;
+            nodes[i].visible = false;
+            isolatedCount++;
+          }
+        }
+        if (isolatedCount > 0) {
+          console.info(`[net] hiding ${isolatedCount} orphan node(s) with no connections`);
         }
 
         status.setAttribute('hidden', '');
         controls.removeAttribute('hidden');
         filters.removeAttribute('hidden');
+        sliders.removeAttribute('hidden');
         resizeCanvas();
         fitToCanvas();
         wireInteractions();
@@ -546,13 +861,20 @@ const total = entities().length;
             return;
           }
           const hit = hitTest(sx, sy);
-          if (hit !== hoveredIdx) {
+          let edgeHit = -1;
+          if (hit < 0) edgeHit = edgeHitTest(sx, sy);
+          if (hit !== hoveredIdx || edgeHit !== hoveredEdge) {
             hoveredIdx = hit;
+            hoveredEdge = edgeHit;
             requestDraw();
           }
           if (hit >= 0) {
             canvas.style.cursor = 'pointer';
             showTooltip(nodes[hit], sx, sy);
+          } else if (edgeHit >= 0) {
+            canvas.style.cursor = 'pointer';
+            const ed = edges[edgeHit];
+            showEdgeTooltip(nodes[ed[0]], nodes[ed[1]], sx, sy);
           } else {
             canvas.style.cursor = '';
             tooltip.setAttribute('hidden', '');
@@ -571,7 +893,7 @@ const total = entities().length;
           const sx = e.clientX - rect.left;
           const sy = e.clientY - rect.top;
           const factor = e.deltaY < 0 ? 1.15 : 1 / 1.15;
-          const newScale = Math.max(0.05, Math.min(8, view.scale * factor));
+          const newScale = Math.max(0.05, Math.min(50, view.scale * factor));
           const ratio = newScale / view.scale;
           view.tx = sx - (sx - view.tx) * ratio;
           view.ty = sy - (sy - view.ty) * ratio;
@@ -592,16 +914,54 @@ const total = entities().length;
 
         function handleClick(e) {
           const rect = canvas.getBoundingClientRect();
-          const hit = hitTest(e.clientX - rect.left, e.clientY - rect.top);
+          const sx = e.clientX - rect.left;
+          const sy = e.clientY - rect.top;
+          const additive = multiMode || e.shiftKey;
+          const hit = hitTest(sx, sy);
+
           if (hit < 0) {
-            if (selectedIdx !== -1) { selectedIdx = -1; updateSelectionPanel(); requestDraw(); }
+            // Node miss — try edge.
+            const edgeHit = edgeHitTest(sx, sy);
+            if (edgeHit >= 0) {
+              if (additive) {
+                if (selectedEdges.has(edgeHit)) selectedEdges.delete(edgeHit);
+                else selectedEdges.add(edgeHit);
+              } else {
+                selectedNodes.clear();
+                selectedEdges.clear();
+                selectedEdges.add(edgeHit);
+              }
+              recomputeFocus();
+              updateSelectionPanel();
+              requestDraw();
+              return;
+            }
+            // Background click — clear only if we're in single-select
+            // mode. In additive mode the user might be reaching for a
+            // node and miss; better not to wipe their working set.
+            if (!additive && (selectedNodes.size > 0 || selectedEdges.size > 0)) {
+              selectedNodes.clear();
+              selectedEdges.clear();
+              recomputeFocus();
+              updateSelectionPanel();
+              requestDraw();
+            }
             return;
           }
-          if (selectedIdx === hit) {
-            selectedIdx = -1;
+
+          // Node hit.
+          if (additive) {
+            if (selectedNodes.has(hit)) selectedNodes.delete(hit);
+            else selectedNodes.add(hit);
           } else {
-            selectedIdx = hit;
+            const wasOnlySelection = selectedNodes.size === 1
+              && selectedEdges.size === 0
+              && selectedNodes.has(hit);
+            selectedNodes.clear();
+            selectedEdges.clear();
+            if (!wasOnlySelection) selectedNodes.add(hit);
           }
+          recomputeFocus();
           updateSelectionPanel();
           requestDraw();
         }
@@ -609,7 +969,10 @@ const total = entities().length;
         // Layout cycle
         layoutBtn.addEventListener('click', () => {
           layoutIdx = (layoutIdx + 1) % LAYOUTS.length;
+          currentLayout = LAYOUTS[layoutIdx].key;
           layoutBtn.textContent = `Layout: ${LAYOUTS[layoutIdx].label}`;
+          // Force slider only meaningful when Force layout is active.
+          forceSlider.classList.toggle('hidden', currentLayout !== 'force');
           LAYOUTS[layoutIdx].apply();
         });
 
@@ -631,12 +994,17 @@ const total = entities().length;
             chip.classList.toggle('active', on);
             chip.setAttribute('aria-pressed', on ? 'true' : 'false');
             if (on) activeTypes.add(t); else activeTypes.delete(t);
-            for (const n of nodes) n.visible = activeTypes.has(n.type);
-            // Clear selection if it now points at an invisible node
-            if (selectedIdx >= 0 && !nodes[selectedIdx].visible) {
-              selectedIdx = -1;
-              updateSelectionPanel();
+            for (const n of nodes) n.visible = !n.isolated && activeTypes.has(n.type);
+            // Drop any selections that point at now-invisible elements.
+            for (const idx of [...selectedNodes]) {
+              if (!nodes[idx].visible) selectedNodes.delete(idx);
             }
+            for (const k of [...selectedEdges]) {
+              const e = edges[k];
+              if (!nodes[e[0]].visible || !nodes[e[1]].visible) selectedEdges.delete(k);
+            }
+            recomputeFocus();
+            updateSelectionPanel();
             requestDraw();
           });
         }
@@ -659,28 +1027,176 @@ const total = entities().length;
           }
         });
 
-        // Selection panel buttons
+        // Selection panel "Clear" button — wipes everything.
         const selDeselect = panel.querySelector('.gs-deselect');
         selDeselect.addEventListener('click', () => {
-          selectedIdx = -1; updateSelectionPanel(); requestDraw();
+          selectedNodes.clear();
+          selectedEdges.clear();
+          recomputeFocus();
+          updateSelectionPanel();
+          requestDraw();
         });
+
+        // Multi-select toggle button — when on, every click adds/removes
+        // (no shift required). Shift-click still works regardless.
+        const multiBtn = document.querySelector('.net-multi');
+        multiBtn?.addEventListener('click', () => {
+          multiMode = !multiMode;
+          multiBtn.setAttribute('aria-pressed', multiMode ? 'true' : 'false');
+          multiBtn.textContent = multiMode ? 'Multi: on' : 'Multi: off';
+        });
+
+        // Inferred-edges toggle — adds the dashed NER-inferred edges to
+        // the canvas. They're hidden by default because they're guesses,
+        // not confirmed wikilinks.
+        const implicitBtn = document.querySelector('.net-implicit');
+        implicitBtn?.addEventListener('click', () => {
+          showImplicit = !showImplicit;
+          implicitBtn.setAttribute('aria-pressed', showImplicit ? 'true' : 'false');
+          implicitBtn.textContent = showImplicit ? '− Inferred' : '+ Inferred';
+          requestDraw();
+        });
+
+        // Opacity slider — dims nodes + labels in lockstep.
+        opacityInput.addEventListener('input', () => {
+          const pct = parseInt(opacityInput.value, 10);
+          opacityMult = pct / 100;
+          opacityVal.textContent = pct + '%';
+          requestDraw();
+        });
+
+        // Force slider — scales positions in real time around the current
+        // screen center. This is dynamic (not a full layout re-run), so
+        // the user keeps their pan and zoom while the graph stretches /
+        // contracts under their pointer.
+        forceInput.addEventListener('input', () => {
+          const pct = parseInt(forceInput.value, 10);
+          const newMult = pct / 100;
+          forceVal.textContent = pct + '%';
+          if (currentLayout === 'force' && rawForcePositions && newMult !== forceMult) {
+            const ratio = newMult / forceMult;
+            // Find the model-space point currently at the canvas center
+            // and anchor it there after the scale so the user's view
+            // stays put.
+            const W = canvas.width / dpr;
+            const H = canvas.height / dpr;
+            // Scale every node position from the model origin.
+            for (let i = 0; i < nodes.length; i++) {
+              nodes[i].x *= ratio;
+              nodes[i].y *= ratio;
+            }
+            // Adjust the view translate so the screen content stays
+            // anchored. Derivation: the model point at screen center
+            // moves from cx to cx*ratio; offset the translate to
+            // compensate.
+            view.tx = W / 2 * (1 - ratio) + view.tx * ratio;
+            view.ty = H / 2 * (1 - ratio) + view.ty * ratio;
+            requestDraw();
+          }
+          forceMult = newMult;
+        });
+        // Initial visibility — Force layout is the default so the slider
+        // is visible; hide if a different layout is active on first paint.
+        forceSlider.classList.toggle('hidden', currentLayout !== 'force');
       }
 
       function updateSelectionPanel() {
-        if (selectedIdx < 0) { panel.setAttribute('hidden', ''); return; }
-        const n = nodes[selectedIdx];
-        panel.querySelector('.gs-eyebrow').textContent = TYPE_LABELS[n.type] || '';
-        panel.querySelector('.gs-eyebrow').className = `gs-eyebrow type-${n.type}`;
-        panel.querySelector('.gs-title').textContent = n.title;
-        panel.querySelector('.gs-count').textContent = n.count.toLocaleString();
-        const br = panel.querySelector('.gs-bridge');
-        if (n.bridgeRank) {
-          panel.querySelector('.gs-bridge-rank').textContent = '#' + n.bridgeRank;
-          br.removeAttribute('hidden');
-        } else br.setAttribute('hidden', '');
-        const dir = TYPE_DIRS[n.type] || 'pages';
-        panel.querySelector('.gs-go').href = `/${dir}/${n.id}/`;
+        // Reset any dynamic sibling buttons we may have added previously.
+        const goB = panel.querySelector('.gs-go-b');
+        if (goB) goB.setAttribute('hidden', '');
+        const go = panel.querySelector('.gs-go');
+        go.textContent = 'Go to page →';
+        go.removeAttribute('hidden');
+        panel.querySelector('.gs-meta')?.classList?.remove?.('hidden-meta');
+        panel.querySelector('.gs-summary')?.setAttribute('hidden', '');
+
+        const nodeCount = selectedNodes.size;
+        const edgeCount = selectedEdges.size;
+        const total = nodeCount + edgeCount;
+
+        if (total === 0) { panel.setAttribute('hidden', ''); return; }
+
+        // Single edge selected — show both endpoints with go-to links.
+        if (total === 1 && edgeCount === 1) {
+          const k = selectedEdges.values().next().value;
+          const e = edges[k];
+          const a = nodes[e[0]], b = nodes[e[1]];
+          panel.querySelector('.gs-eyebrow').textContent = 'Connection';
+          panel.querySelector('.gs-eyebrow').className = 'gs-eyebrow';
+          panel.querySelector('.gs-title').textContent = `${a.title} ↔ ${b.title}`;
+          panel.querySelector('.gs-count').textContent = '';
+          panel.querySelector('.gs-meta')?.classList?.add?.('hidden-meta');
+          panel.querySelector('.gs-bridge').setAttribute('hidden', '');
+          go.href = `/${TYPE_DIRS[a.type] || 'pages'}/${a.id}/`;
+          go.textContent = `Go to ${a.title} →`;
+          let goB2 = panel.querySelector('.gs-go-b');
+          if (!goB2) {
+            goB2 = document.createElement('a');
+            goB2.className = 'gs-go gs-go-b';
+            go.parentNode.insertBefore(goB2, go.nextSibling);
+          }
+          goB2.href = `/${TYPE_DIRS[b.type] || 'pages'}/${b.id}/`;
+          goB2.textContent = `Go to ${b.title} →`;
+          goB2.removeAttribute('hidden');
+          panel.removeAttribute('hidden');
+          return;
+        }
+
+        // Single node selected — original behavior.
+        if (total === 1 && nodeCount === 1) {
+          const i = selectedNodes.values().next().value;
+          const n = nodes[i];
+          panel.querySelector('.gs-eyebrow').textContent = TYPE_LABELS[n.type] || '';
+          panel.querySelector('.gs-eyebrow').className = `gs-eyebrow type-${n.type}`;
+          panel.querySelector('.gs-title').textContent = n.title;
+          panel.querySelector('.gs-count').textContent = n.count.toLocaleString();
+          const br = panel.querySelector('.gs-bridge');
+          if (n.bridgeRank) {
+            panel.querySelector('.gs-bridge-rank').textContent = '#' + n.bridgeRank;
+            br.removeAttribute('hidden');
+          } else br.setAttribute('hidden', '');
+          go.href = `/${TYPE_DIRS[n.type] || 'pages'}/${n.id}/`;
+          panel.removeAttribute('hidden');
+          return;
+        }
+
+        // Multi-select summary — show counts + a short list of titles.
+        const titles = [];
+        for (const i of selectedNodes) titles.push(nodes[i].title);
+        for (const k of selectedEdges) {
+          const e = edges[k];
+          titles.push(`${nodes[e[0]].title}↔${nodes[e[1]].title}`);
+        }
+        const summary = titles.slice(0, 6).join(', ') + (titles.length > 6 ? `, +${titles.length - 6} more` : '');
+        panel.querySelector('.gs-eyebrow').textContent = 'Multi-select';
+        panel.querySelector('.gs-eyebrow').className = 'gs-eyebrow';
+        const parts = [];
+        if (nodeCount) parts.push(`${nodeCount} ${nodeCount === 1 ? 'entity' : 'entities'}`);
+        if (edgeCount) parts.push(`${edgeCount} ${edgeCount === 1 ? 'connection' : 'connections'}`);
+        panel.querySelector('.gs-title').textContent = parts.join(' · ');
+        panel.querySelector('.gs-count').textContent = '';
+        panel.querySelector('.gs-meta')?.classList?.add?.('hidden-meta');
+        panel.querySelector('.gs-bridge').setAttribute('hidden', '');
+        const sumEl = panel.querySelector('.gs-summary');
+        sumEl.textContent = summary;
+        sumEl.removeAttribute('hidden');
+        go.setAttribute('hidden', '');  // no single navigation target
         panel.removeAttribute('hidden');
+      }
+
+      function showEdgeTooltip(a, b, sx, sy) {
+        const bits = [
+          '<div class="gt-pair"><span>' + escapeHtml(a.title) + '</span> ',
+          '<span class="gt-link">&mdash;</span> ',
+          '<span>' + escapeHtml(b.title) + '</span></div>',
+          '<div class="gt-meta">connection &middot; click to pin</div>',
+        ];
+        tooltip.innerHTML = bits.join('');
+        tooltip.removeAttribute('hidden');
+        const sr = shell.getBoundingClientRect();
+        const maxX = sr.width - tooltip.offsetWidth - 8;
+        tooltip.style.left = Math.min(Math.max(8, sx + 14), maxX) + 'px';
+        tooltip.style.top = Math.max(8, sy - tooltip.offsetHeight - 10) + 'px';
       }
 
       function escapeHtml(s) {

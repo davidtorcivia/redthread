@@ -1100,6 +1100,16 @@ body.graph-fullscreen-active { overflow: hidden; }
   letter-spacing: 0.04em;
 }
 .graph-selection .gs-bridge-rank { color: var(--ink-2); }
+.graph-selection .gs-summary {
+  font-family: var(--serif);
+  font-size: 0.85rem;
+  color: var(--muted);
+  line-height: 1.4;
+  margin-bottom: 0.55rem;
+  max-height: 4.5em;
+  overflow: hidden;
+}
+.graph-selection .gs-meta.hidden-meta { display: none; }
 .graph-selection .gs-actions {
   display: flex;
   align-items: center;
@@ -1667,6 +1677,58 @@ body.graph-fullscreen-active { overflow: hidden; }
   gap: 0.8rem;
   text-align: center;
   padding: 1rem;
+}
+/* Browser default [hidden] { display: none } has the same specificity
+   as our .net-status rule but loses on source-order — so the hidden
+   attribute does nothing visually unless we restate it here. Same trap
+   bites .net-controls / .net-filters below. */
+.net-status[hidden],
+.net-controls[hidden],
+.net-filters[hidden],
+.net-sliders[hidden] { display: none !important; }
+
+/* Inline sliders below the filter chips. Force slider is hidden when
+   any layout other than Force is active. */
+.net-sliders {
+  position: absolute;
+  top: 3.4rem;
+  left: 0.6rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem 0.6rem;
+  z-index: 3;
+  background: var(--card);
+  border: 1px solid var(--line-2);
+  border-radius: 4px;
+  padding: 0.4rem 0.55rem;
+  box-shadow: 0 4px 12px -6px rgba(20, 16, 8, 0.3);
+}
+.net-slider {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-family: var(--sans);
+  font-size: 0.7rem;
+  color: var(--muted);
+}
+.net-slider.hidden { display: none; }
+.net-slider-label {
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--muted-2);
+}
+.net-slider-input {
+  width: 7rem;
+  margin: 0;
+  accent-color: var(--accent);
+}
+.net-slider-val {
+  font-variant-numeric: tabular-nums;
+  color: var(--ink-2);
+  font-weight: 600;
+  min-width: 2.6em;
+  text-align: right;
 }
 .net-load {
   font-family: var(--sans);

@@ -45,9 +45,17 @@ from markdown_it import MarkdownIt
 DEFAULT_CONFIG = {
     "vaultPath": "..",
     "skipPathPatterns": [
+        # Maintenance / generator files — not real vault entries
+        "CLAUDE.md",
+        "DATAVIEW RENDERING.md",
+        "00 - META/CHANGELOG.md",
+        "00 - META/THE INFO WEB.md",
+        # Dataview/MOC stubs that exist to render index queries
         "DATAVIEW - *.md",
+        "DATAVIEW *.md",
         "MOC - *.md",
         "KEY *.md",
+        # Directories that don't belong in the entity graph
         "TEMP/**",
         ".obsidian/**",
         "IMAGES/**",
@@ -811,6 +819,9 @@ def build_adjacency(
         mentions.append(e.get("mention_count", 0))
 
     adj_sets: list[set[int]] = [set() for _ in entities]
+    # Track which pairs are explicit so we can flag the implicit-only
+    # edges separately for the network view's "+ Inferred" toggle.
+    explicit_pairs: set[tuple[int, int]] = set()
     for edge in edges:
         s, t = edge.get("source"), edge.get("target_id")
         if not s or not t or s == t:
@@ -821,8 +832,23 @@ def build_adjacency(
             continue
         adj_sets[si].add(ti)
         adj_sets[ti].add(si)
+        if edge.get("kind", "explicit") == "explicit":
+            key = (si, ti) if si < ti else (ti, si)
+            explicit_pairs.add(key)
 
     adj = [sorted(s) for s in adj_sets]
+
+    # Implicit-only pairs: any pair in the combined adjacency that doesn't
+    # have at least one explicit edge backing it. Emitted as a list of
+    # [low, high] index pairs so the frontend can flag them for dashed
+    # rendering when the user toggles "+ Inferred" on.
+    implicit_only_pairs: list[list[int]] = []
+    for i, neigh in enumerate(adj):
+        for j in neigh:
+            if j <= i:
+                continue
+            if (i, j) not in explicit_pairs:
+                implicit_only_pairs.append([i, j])
 
     # Bridge ranks are sparse (only top 50 set) — emit as a dict keyed by
     # node index. Keeps the JSON small even when bridges grow.
@@ -839,6 +865,7 @@ def build_adjacency(
         "adj": adj,
         "mentions": mentions,
         "bridges": bridges,
+        "implicitPairs": implicit_only_pairs,
     }
 
 
@@ -1192,6 +1219,15 @@ def main() -> int:
     render_html(entities, slug_index)
     related, mention_count, page_density = compute_relationships(entities, edges)
 
+    # Attach mention_count + page_density to entities BEFORE building the
+    # adjacency map — build_adjacency reads mention_count off each entity
+    # for the parallel `mentions` array that ships to the /network/ view.
+    # (Bug history: doing this after build_adjacency produced an all-zero
+    # mentions array, breaking the selection panel display.)
+    for e in entities:
+        e["mention_count"] = mention_count.get(e["id"], 0)
+        e["page_density"] = page_density.get(e["id"], 0)
+
     # Adjacency + betweenness centrality. Adjacency feeds the client-side
     # path finder; centrality identifies bridge nodes — entities that
     # connect otherwise-separate clusters. Researchers care about bridges
@@ -1215,11 +1251,9 @@ def main() -> int:
         bridge_rank[eid] = rank
         bridge_score[eid] = score
 
-    # Attach mention_count + bridge_rank + bridge_score to each entity so
-    # the frontend can rank hubs and badge bridges cheaply.
+    # Attach bridge_rank + bridge_score to entities (mention_count was
+    # already attached above, before build_adjacency).
     for e in entities:
-        e["mention_count"] = mention_count.get(e["id"], 0)
-        e["page_density"] = page_density.get(e["id"], 0)
         if e["id"] in bridge_rank:
             e["bridge_rank"] = bridge_rank[e["id"]]
             e["bridge_score"] = bridge_score[e["id"]]
