@@ -16,11 +16,12 @@ for (const e of entities()) byType[e.type] = (byType[e.type] ?? 0) + 1;
       <div class="entity-eyebrow"><span>Tools</span></div>
       <h1 class="entity-title">The full network</h1>
       <p class="entity-dek">
-        Every {total.toLocaleString()} entries in the vault on one map. At this scale most nodes
-        look small until you zoom in — <strong>scroll</strong> to zoom, <strong>drag</strong> to pan,
-        <strong>click</strong> a node to navigate. Bridge entities are ringed in gold.
-        If your machine struggles, toggle <strong>Edges: off</strong> to hide the ~12,000
-        connection lines and keep just the nodes.
+        Every {total.toLocaleString()} entries in the vault on one map.
+        <strong>Scroll</strong> to zoom, <strong>drag</strong> to pan,
+        <strong>click</strong> a node to navigate. Bridge entities are ringed in gold;
+        clusters by type are spatial.
+        Edges are off by default — there are ~12,000 of them and rendering all at once
+        slows older machines down. Click <em>Show edges</em> when you want them.
       </p>
     </header>
 
@@ -39,7 +40,7 @@ for (const e of entities()) byType[e.type] = (byType[e.type] ?? 0) + 1;
       <div class="net-controls" hidden id="net-controls">
         <button class="graph-btn net-layout" type="button">Layout: Force</button>
         <button class="graph-btn net-fit" type="button">Refit</button>
-        <button class="graph-btn net-edges" type="button" aria-pressed="true">Edges: on</button>
+        <button class="graph-btn net-edges" type="button" aria-pressed="false">Show edges</button>
         <button class="graph-btn net-fullscreen" type="button" aria-pressed="false">Fullscreen</button>
       </div>
 
@@ -149,7 +150,8 @@ for (const e of entities()) byType[e.type] = (byType[e.type] ?? 0) + 1;
 
       let cy = null;
       let activeTypes = new Set(['person', 'organization', 'program', 'event', 'concept', 'place', 'source', 'meta', 'misc', 'page']);
-      let edgesVisible = true;
+      let edgesState = 'none';       // 'none' | 'loaded'
+      let pendingEdgeElements = null; // edges-to-add when user opts in
 
       function escapeHtml(s) {
         return String(s).replace(/[&<>"']/g, (c) => (
@@ -181,21 +183,13 @@ for (const e of entities()) byType[e.type] = (byType[e.type] ?? 0) + 1;
           controls.removeAttribute('hidden');
           filters.removeAttribute('hidden');
 
-          // Phase 1: render nodes (cheap).
+          // Nodes-only render — fast, never freezes. Edges are stashed
+          // for the "Show edges" button to load on demand.
           loadBtn.textContent = `Rendering ${data.ids.length.toLocaleString()} nodes…`;
           await yieldPaint();
-          const edgeElements = renderNodes(data);
-
-          // Phase 2: add edges in a single batch. cy.batch defers all the
-          // internal style/render updates so this is ~2x faster than
-          // adding edges one-chunk-at-a-time with the cache invalidating
-          // between chunks.
-          loadBtn.textContent = `Rendering ${edgeElements.length.toLocaleString()} connections…`;
-          await yieldPaint();
-          cy.batch(() => cy.add(edgeElements));
+          pendingEdgeElements = renderNodes(data);
           cy.fit(undefined, 40);
 
-          // Done — hide the load overlay.
           status.setAttribute('hidden', '');
           wireInteractions();
         } catch (err) {
@@ -393,17 +387,42 @@ for (const e of entities()) byType[e.type] = (byType[e.type] ?? 0) + 1;
 
         fitBtn.addEventListener('click', () => cy.fit(undefined, 40));
 
-        // Edges toggle — major perf escape hatch. Hides every edge at
-        // once via a class so users on slower machines can still pan and
-        // navigate even when 12k lines slow things down.
+        // Edges are an opt-in cost. First click triggers a progressive
+        // chunked add so the page stays responsive while ~12k edges
+        // stream in. Subsequent clicks just toggle a CSS class (instant)
+        // since the edges are already in the graph data.
         const edgesBtn = document.querySelector('.net-edges');
-        function setEdges(on) {
-          edgesVisible = on;
-          cy.batch(() => cy.edges().toggleClass('hidden', !on));
-          edgesBtn.setAttribute('aria-pressed', on ? 'true' : 'false');
-          edgesBtn.textContent = on ? 'Edges: on' : 'Edges: off';
+        async function loadEdgesProgressively() {
+          if (edgesState !== 'none' || !pendingEdgeElements) return;
+          edgesBtn.disabled = true;
+          const edges = pendingEdgeElements;
+          // 600 edges/chunk is a sweet spot on test hardware: each chunk
+          // runs in well under a frame budget (16ms), and 20-ish chunks
+          // is enough granularity for visible progress text.
+          const CHUNK = 600;
+          for (let i = 0; i < edges.length; i += CHUNK) {
+            const end = Math.min(i + CHUNK, edges.length);
+            cy.add(edges.slice(i, end));
+            edgesBtn.textContent = `Loading edges… ${end.toLocaleString()} / ${edges.length.toLocaleString()}`;
+            await yieldPaint();
+          }
+          pendingEdgeElements = null;
+          edgesState = 'loaded';
+          edgesBtn.disabled = false;
+          edgesBtn.setAttribute('aria-pressed', 'true');
+          edgesBtn.textContent = 'Hide edges';
         }
-        edgesBtn.addEventListener('click', () => setEdges(!edgesVisible));
+        function toggleEdgeVisibility() {
+          if (edgesState !== 'loaded') return;
+          const hide = !cy.edges().hasClass('hidden');
+          cy.batch(() => cy.edges().toggleClass('hidden', hide));
+          edgesBtn.setAttribute('aria-pressed', hide ? 'false' : 'true');
+          edgesBtn.textContent = hide ? 'Show edges' : 'Hide edges';
+        }
+        edgesBtn.addEventListener('click', () => {
+          if (edgesState === 'none') loadEdgesProgressively();
+          else toggleEdgeVisibility();
+        });
 
         // --- Type filter chips
         for (const chip of filters.querySelectorAll('.net-chip')) {
