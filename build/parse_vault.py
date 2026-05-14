@@ -58,6 +58,9 @@ DEFAULT_CONFIG = {
         # Directories that don't belong in the entity graph
         "TEMP/**",
         ".obsidian/**",
+        ".obsidian-*/**",   # plugin sidecar dirs
+        ".claude/**",       # Claude Code agent files / project memory
+        ".git/**",
         "IMAGES/**",
         "_web/**",
     ],
