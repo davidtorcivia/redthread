@@ -5,6 +5,7 @@ import {
   entitiesByTag,
   tagDisplayFor,
   hrefFor,
+  renderInlineMd,
   TYPE_LABELS,
   TYPE_PLURALS,
 } from '../../lib/data.ts';
@@ -73,7 +74,7 @@ for (const [t, items] of Object.entries(byType)) {
               <a class="entry-title" href={hrefFor({ id: e.id, type: e.type })}>
                 {e.title}
               </a>
-              {e.summary && <span class="entry-summary">{e.summary}</span>}
+              {e.summary && <span class="entry-summary" set:html={renderInlineMd(e.summary)} />}
             </li>
           ))}
         </ul>

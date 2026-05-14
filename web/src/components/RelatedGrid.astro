@@ -1,5 +1,5 @@
 ---
-import { related, hrefFor, TYPE_LABELS } from '../lib/data.ts';
+import { related, hrefFor, renderInlineMd, TYPE_LABELS } from '../lib/data.ts';
 interface Props { id: string; limit?: number }
 const { id, limit = 8 } = Astro.props;
 const items = related(id).slice(0, limit);
@@ -13,7 +13,7 @@ const items = related(id).slice(0, limit);
           <a class="rc-link" href={hrefFor({ id: r.id, type: r.type })} aria-label={r.title}>
             <div class="rc-eyebrow">{TYPE_LABELS[r.type]}</div>
             <div class="rc-title">{r.title}</div>
-            {r.summary && <div class="rc-summary">{r.summary}</div>}
+            {r.summary && <div class="rc-summary" set:html={renderInlineMd(r.summary)} />}
             <div class="rc-count">{r.count} shared page{r.count === 1 ? '' : 's'}</div>
           </a>
           {r.via && r.via.length > 0 && (

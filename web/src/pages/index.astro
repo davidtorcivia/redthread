@@ -1,6 +1,6 @@
 ---
 import Base from '../layouts/Base.astro';
-import { entities, entitiesByType, hrefFor, topHubs, TYPE_DIRS, TYPE_LABELS, TYPE_PLURALS } from '../lib/data.ts';
+import { entities, entitiesByType, hrefFor, renderInlineMd, topHubs, TYPE_DIRS, TYPE_LABELS, TYPE_PLURALS } from '../lib/data.ts';
 import type { EntityType } from '../lib/types.ts';
 
 const total = entities().length;
@@ -41,7 +41,7 @@ const counts = headlineTypes.map((t) => ({
       <div class="featured-card">
         <div class="fc-eyebrow">{TYPE_LABELS[featured.type]} · {featured.category ?? 'Featured'}</div>
         <a href={hrefFor(featured)} class="fc-title">{featured.title}</a>
-        {featured.summary && <p class="fc-dek">{featured.summary}</p>}
+        {featured.summary && <p class="fc-dek" set:html={renderInlineMd(featured.summary)} />}
         <div class="fc-meta">Referenced on {featured.mention_count.toLocaleString()} pages</div>
       </div>
     </section>

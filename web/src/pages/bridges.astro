@@ -1,6 +1,6 @@
 ---
 import Base from '../layouts/Base.astro';
-import { bridgeEntities, hrefFor, TYPE_LABELS } from '../lib/data.ts';
+import { bridgeEntities, hrefFor, renderInlineMd, TYPE_LABELS } from '../lib/data.ts';
 
 const all = bridgeEntities();
 const top = all[0];
@@ -75,7 +75,7 @@ const medianTopMentions = mentionsTop.length
                   <span class="br-mentions">{e.mention_count.toLocaleString()} mentions</span>
                 </div>
                 <a class="br-title" href={hrefFor({ id: e.id, type: e.type })}>{e.title}</a>
-                {e.summary && <p class="br-summary">{e.summary}</p>}
+                {e.summary && <p class="br-summary" set:html={renderInlineMd(e.summary)} />}
                 <div class="br-score-row" title={`Betweenness centrality: ${score.toFixed(5)} — share of the vault's shortest-path traffic that routes through this entity.`}>
                   <div class="br-score-bar" aria-hidden="true">
                     <div class="br-score-fill" style={`width: ${barWidth}%`}></div>

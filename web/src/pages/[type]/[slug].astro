@@ -6,7 +6,7 @@ import NetworkGraph from '../../components/NetworkGraph.astro';
 import PathWidget from '../../components/PathWidget.astro';
 import RelatedGrid from '../../components/RelatedGrid.astro';
 import TableOfContents from '../../components/TableOfContents.astro';
-import { entities, tagHref, TYPE_DIRS, TYPE_LABELS, TYPE_PLURALS } from '../../lib/data.ts';
+import { entities, tagHref, renderInlineMd, TYPE_DIRS, TYPE_LABELS, TYPE_PLURALS } from '../../lib/data.ts';
 import type { Entity } from '../../lib/types.ts';
 
 export function getStaticPaths() {
@@ -110,7 +110,7 @@ const ogType = entity.type === 'person' ? 'profile' : 'article';
 
     <h1 class="entity-title">{entity.title}</h1>
 
-    {entity.summary && <p class="entity-dek">{entity.summary}</p>}
+    {entity.summary && <p class="entity-dek" set:html={renderInlineMd(entity.summary)} />}
 
     <div class="entity-meta">
       {dateLabel && (

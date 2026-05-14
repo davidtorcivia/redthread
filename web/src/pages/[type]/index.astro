@@ -1,6 +1,6 @@
 ---
 import Base from '../../layouts/Base.astro';
-import { entitiesByType, hrefFor, TYPE_DIRS, TYPE_PLURALS } from '../../lib/data.ts';
+import { entitiesByType, hrefFor, renderInlineMd, TYPE_DIRS, TYPE_PLURALS } from '../../lib/data.ts';
 import type { EntityType, Entity } from '../../lib/types.ts';
 
 export function getStaticPaths() {
@@ -77,7 +77,7 @@ const manyCategories = ordered.length > 4;
             {list.map((e, i) => (
               <li id={i === 0 ? `letter-${e.title[0]?.toUpperCase()}` : undefined}>
                 <a class="entry-title" href={hrefFor(e)}>{e.title}</a>
-                {e.summary && <span class="entry-summary">{e.summary}</span>}
+                {e.summary && <span class="entry-summary" set:html={renderInlineMd(e.summary)} />}
               </li>
             ))}
           </ul>

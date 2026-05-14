@@ -1,6 +1,6 @@
 ---
 import Base from '../layouts/Base.astro';
-import { activity, hrefFor, TYPE_LABELS } from '../lib/data.ts';
+import { activity, hrefFor, renderInlineMd, TYPE_LABELS } from '../lib/data.ts';
 import type { EntityType } from '../lib/types.ts';
 
 const CHANGELOG_LIMIT = 25;
@@ -60,7 +60,7 @@ for (const e of entries) {
               <a class="cl-title" href={hrefFor({ id: e.id, type: e.type })}>
                 {e.title}
               </a>
-              {e.summary && <p class="cl-summary">{e.summary}</p>}
+              {e.summary && <p class="cl-summary" set:html={renderInlineMd(e.summary)} />}
             </li>
           ))}
         </ol>

@@ -4,7 +4,10 @@ import {
   entitiesWithDates,
   primaryYear,
   hrefFor,
+  tagHref,
+  renderInlineMd,
   TYPE_LABELS,
+  TYPE_PLURALS,
 } from '../lib/data.ts';
 import type { Entity, EntityType } from '../lib/types.ts';
 
@@ -13,7 +16,13 @@ import type { Entity, EntityType } from '../lib/types.ts';
 const dated = entitiesWithDates();
 type Item = { entity: Entity; year: number };
 type YearGroup = { year: number; items: Item[] };
-type DecadeGroup = { decade: number; years: YearGroup[] };
+type DecadeGroup = {
+  decade: number;
+  years: YearGroup[];
+  total: number;
+  typeBreakdown: [EntityType, number][];
+  yearCounts: number[];
+};
 
 const byDecade = new Map<number, Map<number, Item[]>>();
 for (const e of dated) {
@@ -43,8 +52,25 @@ const grouped: DecadeGroup[] = Array.from(byDecade.keys())
           .get(year)!
           .sort((a, b) => a.entity.title.localeCompare(b.entity.title)),
       }));
-    return { decade: dec, years: yearGroups };
+    const typeMap = new Map<EntityType, number>();
+    const yearCounts = new Array(10).fill(0);
+    let total = 0;
+    for (const yg of yearGroups) {
+      yearCounts[yg.year - dec] = yg.items.length;
+      total += yg.items.length;
+      for (const { entity } of yg.items) {
+        typeMap.set(entity.type, (typeMap.get(entity.type) ?? 0) + 1);
+      }
+    }
+    const typeBreakdown = Array.from(typeMap.entries()).sort(
+      ([, a], [, b]) => b - a,
+    );
+    return { decade: dec, years: yearGroups, total, typeBreakdown, yearCounts };
   });
+
+// Sparkline scale: use the global busiest year so a quiet decade looks quiet
+// relative to a loud one, not just relative to its own busiest year.
+const globalMaxYearCount = Math.max(1, ...grouped.flatMap((g) => g.yearCounts));
 
 const total = dated.length;
 
@@ -58,21 +84,17 @@ const typesInUse: EntityType[] = Array.from(typeCounts.keys()).sort(
     TYPE_LABELS[a].localeCompare(TYPE_LABELS[b]),
 );
 
-// Render a lifespan / span next to the title when an entity has two endpoints
-// (born/died for people, start/end for orgs/programs). A single-year `date`
-// is already covered by the year column, so we skip it.
 function yearOf(s?: string): number | null {
   if (!s) return null;
   const m = s.match(/^(-?\d{1,4})/);
   return m ? parseInt(m[1], 10) : null;
 }
-function rangeFor(e: Entity): string | null {
-  // Only show a range when we have both endpoints; open-ended spans add noise.
+function rangeFor(e: Entity): { text: string; years: number } | null {
   const a = yearOf(e.dates.born) ?? yearOf(e.dates.start);
   const b = yearOf(e.dates.died) ?? yearOf(e.dates.end);
   if (a == null || b == null) return null;
   if (a === b) return null;
-  return `${a}–${b}`;
+  return { text: `${a}–${b}`, years: b - a };
 }
 ---
 <Base
@@ -92,29 +114,42 @@ function rangeFor(e: Entity): string | null {
   <section class="browse-body">
     {typesInUse.length > 1 && (
       <div class="tl-filters" data-tl-filters>
-        <span class="tl-filters-label">Show</span>
-        <div class="tl-filters-chips">
-          {typesInUse.map((t) => (
-            <button
-              type="button"
-              class={`net-chip active type-${t}`}
-              data-tl-type={t}
-              aria-pressed="true"
-            >
-              <span class="net-chip-name">{TYPE_LABELS[t]}</span>
-              <span class="net-chip-count">{typeCounts.get(t)}</span>
-            </button>
-          ))}
+        <div class="tl-filters-group">
+          <span class="tl-filters-label">Show</span>
+          <div class="tl-filters-chips">
+            {typesInUse.map((t) => (
+              <button
+                type="button"
+                class={`net-chip active type-${t}`}
+                data-tl-type={t}
+                aria-pressed="true"
+              >
+                <span class="net-chip-name">{TYPE_LABELS[t]}</span>
+                <span class="net-chip-count">{typeCounts.get(t)}</span>
+              </button>
+            ))}
+          </div>
         </div>
-        <button
-          type="button"
-          class="net-chip tl-summary-toggle"
-          data-tl-summaries
-          aria-pressed="false"
-          title="Expand or collapse summaries"
-        >
-          Full summaries
-        </button>
+        <div class="tl-filters-tools">
+          <input
+            type="search"
+            class="tl-search"
+            placeholder="Search title, summary, tags, year…"
+            data-tl-search
+            aria-label="Search timeline"
+            autocomplete="off"
+            spellcheck="false"
+          />
+          <button
+            type="button"
+            class="net-chip tl-summary-toggle"
+            data-tl-summaries
+            aria-pressed="false"
+            title="Expand or collapse summaries"
+          >
+            Full summaries
+          </button>
+        </div>
       </div>
     )}
 
@@ -132,24 +167,97 @@ function rangeFor(e: Entity): string | null {
     <div class="tl-body" data-tl-body>
       {grouped.map((g) => (
         <section class="tl-decade" id={`d-${g.decade}`}>
-          <h2 class="tl-decade-label">{g.decade}s</h2>
+          <header class="tl-decade-header">
+            <h2 class="tl-decade-label">{g.decade}s</h2>
+            <div class="tl-decade-spark" aria-hidden="true">
+              {g.yearCounts.map((count, i) => (
+                <span
+                  class="tl-decade-spark-bar"
+                  style={`--h: ${count / globalMaxYearCount}`}
+                  title={`${count} in ${g.decade + i}`}
+                ></span>
+              ))}
+            </div>
+          </header>
+          <p class="tl-decade-meta">
+            <span class="tl-decade-meta-total">
+              {g.total} {g.total === 1 ? 'entry' : 'entries'}
+            </span>
+            {g.typeBreakdown.slice(0, 3).map((tb) => (
+              <span class="tl-decade-meta-type">
+                {tb[1]}{' '}
+                {(tb[1] === 1
+                  ? TYPE_LABELS[tb[0]]
+                  : TYPE_PLURALS[tb[0]]
+                ).toLowerCase()}
+              </span>
+            ))}
+          </p>
           <ol class="tl-list">
             {g.years.map((yg) => (
               <li class="tl-year-cluster">
                 <span class="tl-year">{yg.year}</span>
                 <ul class="tl-cluster-items">
-                  {yg.items.map(({ entity }) => {
+                  {yg.items.map(({ entity, year }) => {
                     const range = rangeFor(entity);
+                    const haystack = [
+                      entity.title,
+                      entity.summary ?? '',
+                      ...(entity.tags ?? []),
+                      String(year),
+                      range?.text ?? '',
+                    ]
+                      .join(' ')
+                      .toLowerCase();
+                    const hasPreview =
+                      !!entity.summary ||
+                      (entity.tags?.length ?? 0) > 0 ||
+                      entity.mention_count > 0;
                     return (
-                      <li class={`tl-item type-${entity.type}`} data-tl-type={entity.type}>
+                      <li
+                        class={`tl-item type-${entity.type}`}
+                        data-tl-type={entity.type}
+                        data-tl-search={haystack}
+                      >
                         <span class="tl-type">{TYPE_LABELS[entity.type]}</span>
                         <div class="tl-title-row">
                           <a class="tl-title" href={hrefFor({ id: entity.id, type: entity.type })}>
                             {entity.title}
                           </a>
-                          {range && <span class="tl-range">{range}</span>}
+                          {range && (
+                            <span class="tl-lifespan">
+                              <span
+                                class="tl-lifespan-bar"
+                                style={`--years: ${range.years}`}
+                                aria-hidden="true"
+                              ></span>
+                              <span class="tl-range">{range.text}</span>
+                            </span>
+                          )}
                         </div>
-                        {entity.summary && <span class="tl-summary">{entity.summary}</span>}
+                        {entity.summary && (
+                          <span class="tl-summary" set:html={renderInlineMd(entity.summary)} />
+                        )}
+                        {hasPreview && (
+                          <div class="tl-preview" role="tooltip">
+                            {entity.summary && (
+                              <p class="tl-preview-summary" set:html={renderInlineMd(entity.summary)} />
+                            )}
+                            {entity.tags && entity.tags.length > 0 && (
+                              <div class="tl-preview-tags">
+                                {entity.tags.slice(0, 6).map((t) => (
+                                  <a class="tl-preview-tag" href={tagHref(t)}>#{t}</a>
+                                ))}
+                              </div>
+                            )}
+                            {entity.mention_count > 0 && (
+                              <p class="tl-preview-meta">
+                                {entity.mention_count.toLocaleString()} mention
+                                {entity.mention_count === 1 ? '' : 's'} across the vault
+                              </p>
+                            )}
+                          </div>
+                        )}
                       </li>
                     );
                   })}
@@ -169,26 +277,39 @@ function rangeFor(e: Entity): string | null {
     if (!filters) return;
     const chips = filters.querySelectorAll('[data-tl-type]');
     const items = document.querySelectorAll('.tl-item[data-tl-type]');
-    const hidden = new Set();
+    const search = document.querySelector('[data-tl-search]');
+    const summariesBtn = document.querySelector('[data-tl-summaries]');
+    const body = document.querySelector('[data-tl-body]');
+    const hiddenTypes = new Set();
+    let q = '';
+
     const apply = () => {
       items.forEach((item) => {
-        item.classList.toggle('tl-hidden', hidden.has(item.dataset.tlType));
+        const typeOut = hiddenTypes.has(item.dataset.tlType);
+        const searchOut = q && !item.dataset.tlSearch.includes(q);
+        item.classList.toggle('tl-out', typeOut || searchOut);
       });
     };
+
     chips.forEach((chip) => {
       chip.addEventListener('click', () => {
         const t = chip.dataset.tlType;
         const wasActive = chip.classList.contains('active');
         chip.classList.toggle('active');
         chip.setAttribute('aria-pressed', wasActive ? 'false' : 'true');
-        if (wasActive) hidden.add(t);
-        else hidden.delete(t);
+        if (wasActive) hiddenTypes.add(t);
+        else hiddenTypes.delete(t);
         apply();
       });
     });
 
-    const summariesBtn = document.querySelector('[data-tl-summaries]');
-    const body = document.querySelector('[data-tl-body]');
+    if (search) {
+      search.addEventListener('input', () => {
+        q = search.value.toLowerCase().trim();
+        apply();
+      });
+    }
+
     if (summariesBtn && body) {
       summariesBtn.addEventListener('click', () => {
         const wasActive = summariesBtn.classList.contains('active');

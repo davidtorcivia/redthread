@@ -197,6 +197,39 @@ export function hrefFor(e: Pick<Entity, 'id' | 'type'>): string {
   return `/${TYPE_DIRS[e.type]}/${e.id}/`;
 }
 
+/** Inline-markdown renderer used wherever an entity summary is shown. Handles
+ *  the common cases that show up in vault frontmatter — bold, italic, inline
+ *  code, markdown links, and Obsidian-style [[wikilinks]] (display text only).
+ *  HTML is escaped first so untrusted input can't inject tags.
+ *  Use with Astro's `set:html` directive at every render site so the page,
+ *  hover cards, browse lists, and the wikilink popover all stay in sync. */
+export function renderInlineMd(s: string | null | undefined): string {
+  if (s == null) return '';
+  let h = String(s).replace(/[&<>"']/g, (c) => (
+    { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' } as Record<string, string>
+  )[c]);
+  // Wikilinks: [[Target|Display]] and [[Target]] -> plain display text. We
+  // don't try to resolve the slug here; the title alone is more informative
+  // than the bracketed source syntax, and full linking can come later.
+  h = h.replace(/\[\[([^|\]]+?)\|([^\]]+?)\]\]/g, '$2');
+  h = h.replace(/\[\[([^\]]+?)\]\]/g, '$1');
+  // Bold: **text**
+  h = h.replace(/\*\*([^*\n]+?)\*\*/g, '<strong>$1</strong>');
+  // Italic: *text* (single asterisk, not adjacent to a word char on the outside)
+  h = h.replace(/(^|[^*\w])\*([^*\n]+?)\*(?!\*)/g, '$1<em>$2</em>');
+  // Italic: _text_ (underscore form)
+  h = h.replace(/(^|[^_\w])_([^_\n]+?)_(?!_)/g, '$1<em>$2</em>');
+  // Inline code: `text`
+  h = h.replace(/`([^`\n]+?)`/g, '<code>$1</code>');
+  // Markdown links: [text](url) — url is taken as-is; the surrounding HTML-
+  // escape pass already neutralized quotes, but we re-escape just the href
+  // quote char as a belt-and-suspenders measure.
+  h = h.replace(/\[([^\]\n]+?)\]\(([^)\n]+?)\)/g, (_m, text, url) =>
+    `<a href="${String(url).replace(/"/g, '%22')}">${text}</a>`,
+  );
+  return h;
+}
+
 /** URL slug for a tag — lowercase, replace underscores + whitespace with
  *  hyphens. Matches the entity slugify convention so tags in URLs stay
  *  predictable. Coerces to string defensively because YAML parses

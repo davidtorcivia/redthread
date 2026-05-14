@@ -2415,8 +2415,21 @@ body.net-fullscreen-active { overflow: hidden; }
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 0.5rem 0.7rem;
+  gap: 0.6rem 1rem;
   margin: 1.4rem 0 1.4rem;
+}
+.tl-filters-group {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.5rem 0.7rem;
+}
+.tl-filters-tools {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.5rem 0.6rem;
+  margin-left: auto;
 }
 .tl-filters-label {
   font-family: var(--sans);
@@ -2427,9 +2440,29 @@ body.net-fullscreen-active { overflow: hidden; }
   font-weight: 700;
 }
 .tl-filters-chips { display: flex; flex-wrap: wrap; gap: 0.35rem 0.45rem; }
-.tl-summary-toggle { margin-left: auto; }
+/* Search input — mirrors the site's paper-2 / 4px-radius input vocabulary
+   (see .pagefind-ui__search-input and header.site .search-trigger). */
+.tl-search {
+  font-family: var(--sans);
+  font-size: 0.9rem;
+  padding: 0.42rem 0.9rem 0.42rem 2.15rem;
+  background-color: var(--paper-2);
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23888' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><circle cx='11' cy='11' r='7'/><line x1='21' y1='21' x2='16.65' y2='16.65'/></svg>");
+  background-repeat: no-repeat;
+  background-position: 0.7rem center;
+  background-size: 0.95rem 0.95rem;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  color: var(--ink);
+  min-width: 17rem;
+  outline: none;
+  transition: border-color 0.12s, background-color 0.12s;
+}
+.tl-search::placeholder { color: var(--muted-2); }
+.tl-search:focus { border-color: var(--accent); background-color: var(--card); }
 @media (max-width: 600px) {
-  .tl-summary-toggle { margin-left: 0; }
+  .tl-filters-tools { margin-left: 0; width: 100%; }
+  .tl-search { flex: 1 1 auto; min-width: 0; }
 }
 
 /* Decade jump nav — a quick-pick strip of every decade with data, so readers
@@ -2472,16 +2505,50 @@ body.net-fullscreen-active { overflow: hidden; }
 .tl-decade-nav-list a:hover { color: var(--accent); background: var(--paper-2); }
 
 .tl-decade { margin: 2.2rem 0; scroll-margin-top: 1rem; }
+.tl-decade-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1rem;
+  padding-bottom: 0.45rem;
+  margin: 0 0 0.55rem;
+  border-bottom: 1px solid var(--line);
+}
 .tl-decade-label {
   font-family: var(--sans);
   font-size: 1.05rem;
   font-weight: 700;
   letter-spacing: 0.01em;
   color: var(--accent);
-  margin: 0 0 0.8rem;
-  padding-bottom: 0.4rem;
-  border-bottom: 1px solid var(--line);
+  margin: 0;
+  padding: 0;
+  border: none;
 }
+.tl-decade-spark {
+  display: inline-flex;
+  align-items: flex-end;
+  gap: 1px;
+  height: 1rem;
+  flex-shrink: 0;
+}
+.tl-decade-spark-bar {
+  width: 0.22rem;
+  height: calc(max(var(--h, 0), 0.05) * 1rem);
+  background: var(--accent);
+  opacity: 0.45;
+  border-radius: 1px;
+}
+.tl-decade-meta {
+  font-family: var(--sans);
+  font-size: 0.76rem;
+  color: var(--muted);
+  margin: 0 0 0.95rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.1rem 0.45rem;
+}
+.tl-decade-meta-total { font-weight: 600; color: var(--ink-2); }
+.tl-decade-meta-type::before { content: "· "; opacity: 0.6; padding-right: 0.05rem; }
 .tl-list { list-style: none; padding: 0; margin: 0; }
 .tl-year-cluster {
   display: grid;
@@ -2516,6 +2583,7 @@ body.net-fullscreen-active { overflow: hidden; }
   align-items: baseline;
   column-gap: 0.9rem;
   row-gap: 0.15rem;
+  position: relative;
 }
 .tl-type {
   grid-area: type;
@@ -2558,6 +2626,28 @@ body.net-fullscreen-active { overflow: hidden; }
   color: var(--muted);
   letter-spacing: 0.02em;
 }
+.tl-lifespan {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+.tl-lifespan-bar {
+  display: inline-block;
+  height: 0.3rem;
+  width: calc(var(--years, 0) * 0.075rem);
+  min-width: 0.5rem;
+  max-width: 7rem;
+  background: currentColor;
+  border-radius: 999px;
+  opacity: 0.5;
+}
+.tl-item.type-person       .tl-lifespan-bar { color: var(--t-person); }
+.tl-item.type-organization .tl-lifespan-bar { color: var(--t-organization); }
+.tl-item.type-program      .tl-lifespan-bar { color: var(--t-program); }
+.tl-item.type-event        .tl-lifespan-bar { color: var(--t-event); }
+.tl-item.type-concept      .tl-lifespan-bar { color: var(--t-concept); }
+.tl-item.type-place        .tl-lifespan-bar { color: var(--t-place); }
+.tl-item.type-source       .tl-lifespan-bar { color: var(--t-source); }
 .tl-summary {
   grid-area: summary;
   font-family: var(--serif);
@@ -2578,9 +2668,81 @@ body.net-fullscreen-active { overflow: hidden; }
   text-overflow: clip;
 }
 
-.tl-item.tl-hidden { display: none; }
-.tl-year-cluster:not(:has(.tl-item:not(.tl-hidden))) { display: none; }
-.tl-decade:not(:has(.tl-item:not(.tl-hidden))) { display: none; }
+.tl-item.tl-out { display: none; }
+.tl-year-cluster:not(:has(.tl-item:not(.tl-out))) { display: none; }
+.tl-decade:not(:has(.tl-item:not(.tl-out))) { display: none; }
+
+/* Hover preview — appears immediately on hover; the previous build had a
+   300ms delay that felt sluggish. We trade a touch of mouseflicker for
+   speed. Suppressed entirely on touch devices. */
+.tl-preview {
+  position: absolute;
+  top: 100%;
+  left: 7rem;
+  margin-top: 0.4rem;
+  width: 26rem;
+  max-width: calc(100vw - 3rem);
+  padding: 0.8rem 1rem;
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  box-shadow: 0 6px 22px rgba(0, 0, 0, 0.10), 0 1px 2px rgba(0, 0, 0, 0.06);
+  z-index: 20;
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition: opacity 0.1s, visibility 0s 0.1s;
+}
+@media (hover: hover) {
+  .tl-item:hover .tl-preview {
+    opacity: 1;
+    visibility: visible;
+    pointer-events: auto;
+    transition: opacity 0.1s, visibility 0s;
+  }
+}
+@media (hover: none) {
+  .tl-preview { display: none; }
+}
+.tl-preview-summary {
+  font-family: var(--serif);
+  font-size: 0.9rem;
+  color: var(--ink-2);
+  line-height: 1.45;
+  margin: 0 0 0.55rem;
+}
+.tl-preview-summary strong { color: var(--ink); font-weight: 700; }
+.tl-preview-summary em { font-style: italic; }
+.tl-preview-summary code {
+  font-family: var(--mono);
+  font-size: 0.85em;
+  background: var(--paper-2);
+  padding: 0.05em 0.3em;
+  border-radius: 2px;
+}
+.tl-preview-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.2rem 0.35rem;
+  margin: 0 0 0.5rem;
+}
+.tl-preview-tag {
+  font-family: var(--sans);
+  font-size: 0.72rem;
+  color: var(--muted);
+  background: var(--paper-2);
+  padding: 0.1rem 0.45rem;
+  border-radius: 3px;
+  text-decoration: none;
+}
+.tl-preview-tag:hover { color: var(--accent); background: var(--card); }
+.tl-preview-meta {
+  font-family: var(--sans);
+  font-size: 0.72rem;
+  color: var(--muted);
+  margin: 0;
+  font-variant-numeric: tabular-nums;
+}
 
 @media (max-width: 600px) {
   .tl-year-cluster { grid-template-columns: 3rem 1fr; column-gap: 0.6rem; }
