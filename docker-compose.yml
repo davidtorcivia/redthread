@@ -4,6 +4,11 @@ services:
     build:
       context: ..
       dockerfile: _web/deploy/Dockerfile
+      args:
+        SITE_URL: ${SITE_URL:-}
+        ANALYTICS_SRC: ${ANALYTICS_SRC:-}
+        ANALYTICS_ID: ${ANALYTICS_ID:-}
+        ANALYTICS_ID_ATTR: ${ANALYTICS_ID_ATTR:-}
     ports:
       - "${PORT:-8080}:80"
     restart: unless-stopped

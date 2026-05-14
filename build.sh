@@ -9,6 +9,13 @@ set -euo pipefail
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 project_root="$(cd "$script_dir/.." && pwd)"
+
+# Auto-load env vars from .env next to this script (same file docker compose
+# already auto-loads — keeps local and docker builds consistent).
+if [[ -f "$script_dir/.env" ]]; then
+  set -a; source "$script_dir/.env"; set +a
+fi
+
 vault_path="${VAULT_PATH:-$project_root}"
 
 echo "[build] vault: $vault_path"

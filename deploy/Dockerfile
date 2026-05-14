@@ -38,6 +38,18 @@ COPY --from=parser /work/_web/data /app/_web/data
 RUN mkdir -p /app/_web/web/public && \
     cp /app/_web/data/previews.json /app/_web/web/public/previews.json
 
+# Build-time configuration. SITE_URL is baked into canonical URLs / OG tags
+# / sitemap.xml. The ANALYTICS_* trio injects an optional analytics script
+# (Umami / Plausible / Fathom etc.) into every page's <head>.
+ARG SITE_URL
+ARG ANALYTICS_SRC
+ARG ANALYTICS_ID
+ARG ANALYTICS_ID_ATTR
+ENV SITE_URL=$SITE_URL \
+    ANALYTICS_SRC=$ANALYTICS_SRC \
+    ANALYTICS_ID=$ANALYTICS_ID \
+    ANALYTICS_ID_ATTR=$ANALYTICS_ID_ATTR
+
 RUN npm run build
 
 # ---------- Stage 3: nginx serve ----------

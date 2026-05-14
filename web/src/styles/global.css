@@ -2677,18 +2677,19 @@ body.net-fullscreen-active { overflow: hidden; }
   inset: 0;
   background: rgba(16, 12, 6, 0.55);
   z-index: 200;
-  display: flex;
   align-items: flex-start;
   justify-content: center;
   padding: 8vh 1rem 1rem;
   backdrop-filter: blur(3px);
+  display: none;
 }
-#pf-modal { visibility: hidden; }
-#pf-modal.open { display: flex; visibility: visible; }
-/* Mount stays in the DOM at load (Pagefind needs the input present) but is
-   visually hidden until the modal opens — without display:none, which would
-   prevent the input from being focusable. */
-#pf-modal:not(.open) { pointer-events: none; }
+#pf-modal.open { display: flex; }
+/* `display: none` rather than visibility/pointer-events — on iOS Safari the
+   modal's fixed/inset:0 + backdrop-filter layer was intercepting taps over
+   the header (hamburger + search button) even with pointer-events:none.
+   Pagefind UI mounts into #pf-mount via appendChild regardless of display
+   state; first-open focus is gated by requestAnimationFrame in openModal so
+   layout is flushed before .focus() runs. */
 #pf-modal .pf-shell {
   width: min(44rem, 100%);
   max-height: 80vh;

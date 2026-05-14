@@ -26,6 +26,16 @@ const {
 const canonical = Astro.site
   ? new URL(Astro.url.pathname, Astro.site).href
   : Astro.url.pathname;
+
+// Optional analytics snippet. Set ANALYTICS_SRC + ANALYTICS_ID in the build
+// environment and a script tag gets injected into <head>. Defaults match
+// Umami's convention (data-website-id="…"); override the attribute name with
+// ANALYTICS_ID_ATTR for Plausible (data-domain), Fathom (data-site), etc.
+const analyticsSrc = import.meta.env.ANALYTICS_SRC as string | undefined;
+const analyticsId = import.meta.env.ANALYTICS_ID as string | undefined;
+const analyticsIdAttr =
+  (import.meta.env.ANALYTICS_ID_ATTR as string | undefined) || 'data-website-id';
+const analyticsEnabled = Boolean(analyticsSrc && analyticsId);
 ---
 <!doctype html>
 <html lang="en">
@@ -63,6 +73,15 @@ const canonical = Astro.site
         widget on every entity page (and /network/, /path/) starts with
         the data already in cache. ~250KB, served compressed. */}
     <link rel="preload" as="fetch" href="/adjacency.json" crossorigin="anonymous" />
+
+    {analyticsEnabled && (
+      <script
+        is:inline
+        defer
+        src={analyticsSrc}
+        {...{ [analyticsIdAttr]: analyticsId }}
+      ></script>
+    )}
   </head>
   <body class={bodyClass}>
     <header class="site">

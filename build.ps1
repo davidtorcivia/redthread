@@ -15,6 +15,20 @@ $ErrorActionPreference = 'Stop'
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Definition
 $projectRoot = Split-Path -Parent $scriptDir
 
+# Auto-load env vars from .env next to this script (same file docker compose
+# already auto-loads — keeps local and docker builds consistent).
+$envFile = Join-Path $scriptDir '.env'
+if (Test-Path $envFile) {
+    Get-Content $envFile | ForEach-Object {
+        $line = $_.Trim()
+        if ($line -and -not $line.StartsWith('#') -and $line -match '^([^=]+)=(.*)$') {
+            $name = $matches[1].Trim()
+            $value = $matches[2].Trim().Trim('"').Trim("'")
+            [Environment]::SetEnvironmentVariable($name, $value, 'Process')
+        }
+    }
+}
+
 if (-not $VaultPath) {
     $VaultPath = $projectRoot
 }

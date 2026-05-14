@@ -208,6 +208,20 @@ reverse-proxy route. Not necessary for v1.
 | `VAULT_PATH` | parent of `_web/` | Where to find the markdown vault |
 | `SITE_URL` | `http://localhost:8080` | Canonical site URL (SEO, sitemap, OG tags) |
 | `PORT` | `8080` | Host port for the nginx Docker container |
+| `ANALYTICS_SRC` | _(off)_ | URL of an analytics script — Umami, Plausible, Fathom, etc. Setting this *and* `ANALYTICS_ID` injects a `<script defer>` tag into every page's `<head>`. |
+| `ANALYTICS_ID` | _(off)_ | Site identifier to set on the analytics script tag. |
+| `ANALYTICS_ID_ATTR` | `data-website-id` | Attribute name for the ID. Defaults to Umami's convention; use `data-domain` for Plausible, `data-site` for Fathom. |
+
+Both `build.sh` and `build.ps1` auto-source `_web/.env` if it exists (the
+same file `docker compose` already loads), so the simplest setup is a
+single `_web/.env`:
+
+```bash
+SITE_URL=https://your.domain.com
+PORT=8080
+ANALYTICS_SRC=https://umami.your-host.com/script.js
+ANALYTICS_ID=00000000-0000-0000-0000-000000000000
+```
 
 `build/parse_vault.py` accepts the same overrides via `--vault` and
 `--out` flags. See `--help`.
