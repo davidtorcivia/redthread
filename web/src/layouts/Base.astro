@@ -250,8 +250,20 @@ const analyticsEnabled = Boolean(analyticsSrc && analyticsId);
         });
       })();
 
+      // Run fn once the DOM is ready. Crucially, fires immediately if the
+      // document has already advanced past `loading` by the time this inline
+      // script executes — `window.addEventListener('DOMContentLoaded')` after
+      // DCL has fired never runs, which was killing both header buttons.
+      function onReady(fn) {
+        if (document.readyState === 'loading') {
+          document.addEventListener('DOMContentLoaded', fn, { once: true });
+        } else {
+          fn();
+        }
+      }
+
       // ---------- Mobile hamburger menu ----------
-      window.addEventListener('DOMContentLoaded', () => {
+      onReady(() => {
         const toggle = document.getElementById('nav-toggle');
         const nav = document.getElementById('site-nav');
         if (!toggle || !nav) return;
@@ -274,27 +286,30 @@ const analyticsEnabled = Boolean(analyticsSrc && analyticsId);
       });
 
       // ---------- ⌘K search modal (Mac convention) ----------
-      window.addEventListener('DOMContentLoaded', () => {
+      onReady(() => {
         const modal = document.getElementById('pf-modal');
         const mount = document.getElementById('pf-mount');
         const trigger = document.getElementById('search-open');
+        if (!modal || !mount) return;
         let pfReady = false;
 
         function init() {
           if (pfReady) return;
           if (!window.PagefindUI) return;
-          new window.PagefindUI({
-            element: '#pf-mount',
-            showImages: false,
-            showSubResults: true,
-            resetStyles: false,
-            placeholder: 'Search the vault…',
-          });
-          pfReady = true;
+          try {
+            new window.PagefindUI({
+              element: '#pf-mount',
+              showImages: false,
+              showSubResults: true,
+              resetStyles: false,
+              placeholder: 'Search the vault…',
+            });
+            pfReady = true;
+          } catch (_) {
+            // Swallow — the click listener below still works, and the modal
+            // will show an empty shell rather than the whole header dying.
+          }
         }
-        // Eager init: Pagefind mounts its DOM at page-load so the input
-        // exists before the modal is opened (avoids the "can't type" race).
-        init();
 
         function focusInput(retries) {
           if (retries === undefined) retries = 12;
@@ -309,14 +324,22 @@ const analyticsEnabled = Boolean(analyticsSrc && analyticsId);
         function openModal() {
           init();
           modal.classList.add('open');
-          requestAnimationFrame(() => focusInput());
+          // Force a layout flush so the input is reachable, then focus
+          // synchronously within the user-gesture so iOS Safari raises
+          // the soft keyboard. rAF/setTimeout here would break that chain.
+          void modal.offsetHeight;
+          focusInput();
         }
         function closeModal() {
           modal.classList.remove('open');
           if (trigger) trigger.focus();
         }
+
+        // Attach the click handler FIRST, before the eager init() call —
+        // so even if PagefindUI's constructor explodes, the button still
+        // opens the modal.
         trigger && trigger.addEventListener('click', openModal);
-        modal && modal.addEventListener('mousedown', (e) => {
+        modal.addEventListener('mousedown', (e) => {
           if (e.target === modal) closeModal();
         });
         document.addEventListener('keydown', (e) => {
@@ -328,6 +351,11 @@ const analyticsEnabled = Boolean(analyticsSrc && analyticsId);
             closeModal();
           }
         });
+
+        // Eager init AFTER wiring the click — Pagefind mounts its DOM at
+        // page-load so the input exists when the modal opens (avoids the
+        // "can't type on first open" race).
+        init();
       });
     </script>
   </body>

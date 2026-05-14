@@ -202,6 +202,8 @@ header.site .nav-toggle {
   color: var(--muted);
   align-items: center;
   justify-content: center;
+  /* Skip the 300ms tap-delay and double-tap-zoom heuristics on touch. */
+  touch-action: manipulation;
 }
 header.site .nav-toggle:hover { color: var(--ink); border-color: var(--line-2); }
 header.site .nav-toggle .nav-icon,
@@ -241,6 +243,7 @@ header.site .search-trigger {
   display: flex;
   align-items: center;
   gap: 0.5rem;
+  touch-action: manipulation;
 }
 header.site .search-trigger:hover { border-color: var(--line-2); color: var(--ink); }
 header.site .search-trigger kbd {
