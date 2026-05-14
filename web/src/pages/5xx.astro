@@ -1,0 +1,22 @@
+---
+import Base from '../layouts/Base.astro';
+---
+<Base
+  title="Server error — The Info Web"
+  description="Something went wrong on the server."
+  noindex
+>
+  <article class="error-article">
+    <div class="error-code">5xx</div>
+    <h1 class="error-title">The signal dropped</h1>
+    <p class="error-dek">
+      Something went wrong on the server while loading this page.
+      It's probably temporary — try again in a moment, or head back home.
+    </p>
+
+    <div class="error-actions">
+      <a class="error-btn primary" href="/">Return home</a>
+      <button type="button" class="error-btn" onclick="window.location.reload()">Retry</button>
+    </div>
+  </article>
+</Base>

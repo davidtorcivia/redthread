@@ -24,18 +24,14 @@ else
 fi
 
 # Copy runtime-fetched data into Astro public/. previews.json drives the
-# wikilink hover-preview popovers; adjacency.json drives the /path/ page;
-# the per-entity neighborhood JSONs drive the graph widget.
+# wikilink hover-preview popovers; adjacency.json is the shared dataset
+# for /network/, /path/, and every entity page's NetworkGraph widget.
 mkdir -p "$script_dir/web/public"
 cp -f "$script_dir/data/previews.json" "$script_dir/web/public/previews.json"
 cp -f "$script_dir/data/adjacency.json" "$script_dir/web/public/adjacency.json"
 
-ng_dst="$script_dir/web/public/api/neighborhood"
-rm -rf "$ng_dst"
-if [[ -d "$script_dir/data/api/neighborhood" ]]; then
-  mkdir -p "$ng_dst"
-  cp -f "$script_dir/data/api/neighborhood"/*.json "$ng_dst"/
-fi
+# Clean up any stale per-entity neighborhood JSONs from older builds.
+rm -rf "$script_dir/web/public/api/neighborhood"
 
 # 2. Build Astro + Pagefind
 cd "$script_dir/web"

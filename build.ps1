@@ -29,20 +29,16 @@ Write-Host "[build] (1/2) parsing vault..."
 if ($LASTEXITCODE -ne 0) { throw "parse failed" }
 
 # Copy runtime-fetched data into Astro public/. previews.json drives the
-# wikilink hover-preview popovers; adjacency.json drives the /path/ page;
-# the per-entity neighborhood JSONs drive the graph widget.
+# wikilink hover-preview popovers; adjacency.json is the shared dataset
+# for /network/, /path/, and every entity page's NetworkGraph widget.
 $publicDir = Join-Path $scriptDir 'web\public'
 New-Item -ItemType Directory -Force -Path $publicDir | Out-Null
 Copy-Item -Force (Join-Path $scriptDir 'data\previews.json') (Join-Path $publicDir 'previews.json')
 Copy-Item -Force (Join-Path $scriptDir 'data\adjacency.json') (Join-Path $publicDir 'adjacency.json')
 
-$ngSrc = Join-Path $scriptDir 'data\api\neighborhood'
+# Clean up any stale per-entity neighborhood JSONs from older builds.
 $ngDst = Join-Path $publicDir 'api\neighborhood'
 if (Test-Path $ngDst) { Remove-Item -Recurse -Force $ngDst }
-if (Test-Path $ngSrc) {
-    New-Item -ItemType Directory -Force -Path $ngDst | Out-Null
-    Copy-Item -Force "$ngSrc\*.json" $ngDst
-}
 
 # 2. Build Astro + Pagefind
 Push-Location "$scriptDir\web"

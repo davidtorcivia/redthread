@@ -265,16 +265,28 @@ footer.site .container {
   padding-top: 0;
   padding-bottom: 0;
   display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 1rem;
-  flex-wrap: wrap;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.7rem;
+  text-align: center;
 }
-footer.site .colophon { max-width: 32rem; }
+footer.site .foot-brand {
+  font-family: var(--sans);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.18em;
+  font-size: 0.85rem;
+  color: var(--ink);
+  background: none;
+  background-image: none;
+}
+footer.site .foot-brand:hover { color: var(--accent); }
 footer.site .foot-nav {
   display: flex;
   align-items: baseline;
-  gap: 1.4rem;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 0.9rem 1.4rem;
   font-family: var(--sans);
 }
 footer.site .foot-nav a {
@@ -839,6 +851,122 @@ footer.site .to-top { font-size: 0.75rem; }
   background-size: 100% 1px;
 }
 
+/* Error pages — 404 and 5xx. Centered single-column, the kind of "lost
+   in a vault" tone that fits the rest of the site. */
+.error-article {
+  max-width: var(--measure);
+  margin: 0 auto;
+  padding: 5rem 1.5rem 4rem;
+  text-align: center;
+}
+@media (min-width: 800px) {
+  .error-article { padding: 7rem 2rem 5rem; }
+}
+.error-code {
+  font-family: var(--sans);
+  font-size: clamp(4rem, 12vw, 8rem);
+  font-weight: 700;
+  letter-spacing: -0.04em;
+  line-height: 1;
+  color: var(--accent);
+  opacity: 0.85;
+  margin-bottom: 1rem;
+}
+.error-title {
+  font-family: var(--serif);
+  font-weight: 600;
+  font-size: clamp(2rem, 4vw, 3rem);
+  letter-spacing: -0.02em;
+  margin: 0 0 1rem;
+  color: var(--ink);
+}
+.error-dek {
+  font-family: var(--serif);
+  font-style: italic;
+  font-size: var(--fs-lead);
+  color: var(--muted);
+  margin: 0 auto 2.5rem;
+  max-width: 30rem;
+  line-height: 1.5;
+}
+.error-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0.8rem;
+  margin-bottom: 3rem;
+}
+.error-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-family: var(--sans);
+  font-size: 0.9rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--ink-2);
+  background: var(--paper-2);
+  background-image: none;
+  border: 1px solid var(--line);
+  padding: 0.65rem 1.1rem;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background-color 0.12s, color 0.12s, border-color 0.12s;
+}
+.error-btn:hover {
+  background: var(--card);
+  border-color: var(--accent-soft);
+  color: var(--accent);
+}
+.error-btn.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--paper);
+}
+.error-btn.primary:hover { background: var(--link-hover); color: var(--paper); border-color: var(--link-hover); }
+.error-btn kbd {
+  font-family: var(--mono);
+  font-size: 0.75rem;
+  background: rgba(255, 255, 255, 0.15);
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  border-radius: 3px;
+  padding: 0.05em 0.4em;
+  font-weight: 500;
+}
+.error-btn:not(.primary) kbd {
+  background: var(--paper);
+  border-color: var(--line);
+  color: var(--muted);
+}
+.error-browse {
+  padding-top: 2rem;
+  border-top: 1px solid var(--line);
+}
+.error-browse .section-heading {
+  text-align: center;
+  margin-bottom: 1rem;
+}
+.error-browse-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0.7rem 1.6rem;
+  font-family: var(--sans);
+  font-size: 0.9rem;
+}
+.error-browse-list a {
+  color: var(--ink-2);
+  background: none;
+  background-image: linear-gradient(var(--line-2), var(--line-2));
+  background-position: 0 100%;
+  background-repeat: no-repeat;
+  background-size: 100% 1px;
+}
+.error-browse-list a:hover { color: var(--accent); }
+
 /* Hidden connections — NER-discovered entity mentions. Sits between prose
    and Connected-to. Treated as a "found objects" section: tighter than
    related-grid, visually distinct so readers know these aren't curated
@@ -933,7 +1061,59 @@ footer.site .to-top { font-size: 0.75rem; }
   align-self: center;
 }
 
-/* Local-network graph (Cytoscape-rendered, lazy-loaded). */
+/* Per-entity network — canvas-based, lazy on viewport intersection.
+   Shares all the drawer / selection / tooltip styles with /network/.
+   Compact height by default; expands when fullscreen toggled. */
+.entity-network {
+  max-width: var(--measure-wide);
+  margin: 3.5rem auto 0;
+  padding-top: 2rem;
+  border-top: 1px solid var(--line);
+}
+.entity-network .net-blurb {
+  font-family: var(--serif);
+  font-style: italic;
+  font-size: 0.92rem;
+  color: var(--muted);
+  margin: 0 0 1rem;
+  max-width: 38rem;
+  line-height: 1.5;
+}
+.entity-net-shell {
+  height: 30rem;
+}
+@media (max-width: 720px) {
+  .entity-net-shell { height: 22rem; }
+}
+.entity-network.fullscreen {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  margin: 0;
+  padding: 0;
+  background: var(--paper);
+  border-top: none;
+  max-width: none;
+  display: flex;
+  flex-direction: column;
+}
+.entity-network.fullscreen .section-heading,
+.entity-network.fullscreen .net-blurb {
+  padding: 0.8rem 1.5rem 0;
+  margin: 0;
+}
+.entity-network.fullscreen .net-blurb { padding-bottom: 0.6rem; }
+.entity-network.fullscreen .entity-net-shell {
+  flex: 1;
+  height: auto;
+  border-radius: 0;
+  border-left: 0;
+  border-right: 0;
+  border-bottom: 0;
+  border-top: 1px solid var(--line);
+}
+
+/* Legacy Cytoscape graph (kept for graceful fallback during transition). */
 .graph-section {
   max-width: var(--measure-wide);
   margin: 3.5rem auto 0;
@@ -1104,10 +1284,42 @@ body.graph-fullscreen-active { overflow: hidden; }
   font-family: var(--serif);
   font-size: 0.85rem;
   color: var(--muted);
-  line-height: 1.4;
+  line-height: 1.5;
   margin-bottom: 0.55rem;
-  max-height: 4.5em;
-  overflow: hidden;
+  max-height: 8em;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--line-2) transparent;
+}
+.graph-selection .gs-summary-link {
+  font-family: var(--serif);
+  font-weight: 500;
+  color: var(--ink-2);
+  background: none;
+  background-image: linear-gradient(var(--line-2), var(--line-2));
+  background-position: 0 100%;
+  background-repeat: no-repeat;
+  background-size: 100% 1px;
+  transition: color 0.12s;
+}
+.graph-selection .gs-summary-link:hover {
+  color: var(--accent);
+  background-image: linear-gradient(var(--accent-soft), var(--accent-soft));
+  background-size: 100% 1px;
+}
+.graph-selection .gs-summary-link.type-person      { color: var(--t-person); }
+.graph-selection .gs-summary-link.type-organization { color: var(--t-organization); }
+.graph-selection .gs-summary-link.type-program     { color: var(--t-program); }
+.graph-selection .gs-summary-link.type-event       { color: var(--t-event); }
+.graph-selection .gs-summary-link.type-concept     { color: var(--t-concept); }
+.graph-selection .gs-summary-link.type-place       { color: var(--t-place); }
+.graph-selection .gs-summary-link-sep {
+  color: var(--muted-2);
+  margin: 0 0.15em;
+}
+.graph-selection .gs-summary-more {
+  color: var(--muted-2);
+  font-style: italic;
 }
 .graph-selection .gs-meta.hidden-meta { display: none; }
 .graph-selection .gs-actions {
@@ -1665,7 +1877,14 @@ body.graph-fullscreen-active { overflow: hidden; }
   min-height: 32rem;
   overflow: hidden;
 }
-.net-canvas { width: 100%; height: 100%; cursor: grab; }
+.net-canvas {
+  width: 100%;
+  height: 100%;
+  cursor: grab;
+  /* Critical for mobile: disable browser scroll/zoom gestures on the
+     canvas so our touch handlers can pan + pinch without scroll-jacking. */
+  touch-action: none;
+}
 .net-canvas:active { cursor: grabbing; }
 .net-status {
   position: absolute;
@@ -1687,15 +1906,25 @@ body.graph-fullscreen-active { overflow: hidden; }
 .net-filters[hidden],
 .net-sliders[hidden] { display: none !important; }
 
-/* Sliders panel uses the .net-drawer-left base styles for collapse +
-   carrot. Only position + slight body-padding tweaks are panel-specific. */
+/* Sliders panel — bottom-right, mirrors the vertical controls drawer
+   above it. Each slider sits on its own row so labels and values
+   don't compete with siblings for horizontal space. */
 .net-sliders {
-  top: 3rem;
+  top: auto;
+  bottom: 0.6rem;
 }
 .net-sliders .net-drawer-body {
-  flex-wrap: wrap;
-  gap: 0.35rem 0.7rem;
-  padding: 0.4rem 0.65rem;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.35rem;
+  padding: 0.5rem 0.65rem;
+}
+.net-sliders .net-slider {
+  justify-content: space-between;
+}
+.net-sliders .net-slider-input {
+  flex: 1;
+  margin: 0 0.35rem;
 }
 .net-slider {
   display: inline-flex;
@@ -1781,6 +2010,15 @@ body.graph-fullscreen-active { overflow: hidden; }
 .net-drawer-right.collapsed {
   transform: translateX(calc(100% - 1.5rem));
 }
+/* Reveal-animation starting position: drawer fully off the right edge,
+   tab and all. Transitions to .collapsed (tab visible) when the JS
+   removes the .entering class. */
+.net-drawer-right.entering.collapsed {
+  transform: translateX(100%);
+}
+.net-drawer-left.entering.collapsed {
+  transform: translateX(-100%);
+}
 .net-drawer-toggle {
   flex: 0 0 auto;
   width: 1.5rem;
@@ -1795,6 +2033,17 @@ body.graph-fullscreen-active { overflow: hidden; }
   font-family: var(--sans);
 }
 .net-drawer-toggle:hover { color: var(--accent); }
+/* Attention flash — pulses gold once when the drawer reveal animation
+   finishes so the user notices that the tab is interactive. */
+@keyframes drawer-attention-flash {
+  0%   { color: var(--muted); }
+  20%  { color: var(--gold); transform: scale(1.25); }
+  60%  { color: var(--gold); transform: scale(1.25); }
+  100% { color: var(--muted); transform: scale(1); }
+}
+.net-drawer-toggle.attention-flash {
+  animation: drawer-attention-flash 1.4s ease-out;
+}
 .net-drawer-left .net-drawer-toggle {
   border-left: none;
   border-radius: 0 4px 4px 0;
@@ -1835,21 +2084,27 @@ body.graph-fullscreen-active { overflow: hidden; }
 .net-drawer-right.collapsed .net-carrot { transform: rotate(135deg); }
 
 /* Position the three drawers individually. Each uses .net-drawer-left/right
-   for behavior; this block just places them and tweaks heights. */
+   for behavior; this block just places them and tweaks heights.
+   Right-side drawers (controls + sliders) stack their contents vertically;
+   left-side filters drawer stays horizontal. */
 .net-controls {
   top: 0.6rem;
-  height: 2rem;
 }
 .net-controls .net-drawer-body {
-  gap: 0.4rem;
-  padding: 0 0.6rem;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.35rem;
+  padding: 0.5rem 0.6rem;
 }
 .net-controls .graph-btn {
-  height: 100%;
+  width: 100%;
   display: inline-flex;
   align-items: center;
-  padding: 0 0.7rem;
+  justify-content: flex-start;
+  padding: 0.35rem 0.7rem;
+  text-align: left;
 }
+/* Filters drawer — horizontal row of chips. */
 .net-filters {
   top: 0.6rem;
   height: 2rem;

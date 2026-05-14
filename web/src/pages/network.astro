@@ -48,7 +48,10 @@ const total = entities().length;
         </div>
       </div>
 
-      <div class="net-sliders net-drawer net-drawer-left" hidden id="net-sliders">
+      <div class="net-sliders net-drawer net-drawer-right" hidden id="net-sliders">
+        <button class="net-drawer-toggle" id="net-sliders-toggle" type="button" aria-label="Toggle sliders" aria-expanded="true">
+          <span class="net-carrot" aria-hidden="true"></span>
+        </button>
         <div class="net-drawer-body net-sliders-body">
           <label class="net-slider" id="net-opacity-slider">
             <span class="net-slider-label">Opacity</span>
@@ -66,9 +69,6 @@ const total = entities().length;
             <span class="net-slider-val" id="net-force-val">100%</span>
           </label>
         </div>
-        <button class="net-drawer-toggle" id="net-sliders-toggle" type="button" aria-label="Toggle sliders" aria-expanded="true">
-          <span class="net-carrot" aria-hidden="true"></span>
-        </button>
       </div>
 
       <div class="net-filters net-drawer net-drawer-left" hidden id="net-filters" aria-label="Filter by type">
@@ -361,12 +361,15 @@ const total = entities().length;
             ctx.lineWidth = 0.7;
           }
 
-          // ----- Hover overlay. Preserve the dashed-vs-solid style for
-          // implicit edges so the user can tell what kind they're over.
+          // ----- Hover overlay. ALWAYS shows implicit edges from the
+          // hovered node, regardless of the global "+ Inferred" toggle —
+          // when the user is asking "what is this connected to?" the
+          // answer should include the NER-inferred connections too.
+          // Style preserves dashed vs solid so the user can tell which
+          // are wikilinked vs inferred.
           if (hoverEdges.size) {
             ctx.lineWidth = 1.1;
             ctx.strokeStyle = hexToRgba(COLORS.accent, 0.55);
-            // Solid hovers
             ctx.setLineDash([]);
             ctx.beginPath();
             hoverEdges.forEach((i) => {
@@ -378,32 +381,10 @@ const total = entities().length;
               ctx.lineTo(modelToScreenX(b.x), modelToScreenY(b.y));
             });
             ctx.stroke();
-            // Dashed hovers (only if implicit edges are visible at all)
-            if (showImplicit) {
-              ctx.setLineDash([4, 3]);
-              ctx.beginPath();
-              hoverEdges.forEach((i) => {
-                if (!(implicitEdgeIdx && implicitEdgeIdx.has(i))) return;
-                const e = edges[i];
-                const a = nodes[e[0]], b = nodes[e[1]];
-                if (!a.visible || !b.visible) return;
-                ctx.moveTo(modelToScreenX(a.x), modelToScreenY(a.y));
-                ctx.lineTo(modelToScreenX(b.x), modelToScreenY(b.y));
-              });
-              ctx.stroke();
-              ctx.setLineDash([]);
-            }
-          }
-
-          // ----- Selected edges — thicker, full accent, dash style
-          //       preserved for implicit edges.
-          if (focusEdges.size) {
-            ctx.lineWidth = 1.8;
-            ctx.strokeStyle = COLORS.accent;
-            ctx.setLineDash([]);
+            ctx.setLineDash([4, 3]);
             ctx.beginPath();
-            focusEdges.forEach((i) => {
-              if (implicitEdgeIdx && implicitEdgeIdx.has(i)) return;
+            hoverEdges.forEach((i) => {
+              if (!(implicitEdgeIdx && implicitEdgeIdx.has(i))) return;
               const e = edges[i];
               const a = nodes[e[0]], b = nodes[e[1]];
               if (!a.visible || !b.visible) return;
@@ -411,11 +392,74 @@ const total = entities().length;
               ctx.lineTo(modelToScreenX(b.x), modelToScreenY(b.y));
             });
             ctx.stroke();
-            if (showImplicit) {
+            ctx.setLineDash([]);
+          }
+
+          // ----- Selected edges — thicker, full accent. Edges that
+          // connect two SELECTED nodes get a slightly thicker treatment
+          // (the gold-tinted "between selections" layer) so multi-select
+          // makes the actual interconnections inside the chosen set
+          // pop out from edges going outward. As with hover, implicit
+          // edges from selected nodes always render regardless of the
+          // global "+ Inferred" toggle.
+          if (focusEdges.size) {
+            const goldEdges = new Set();
+            if (selectedNodes.size > 1) {
+              focusEdges.forEach((i) => {
+                const e = edges[i];
+                if (selectedNodes.has(e[0]) && selectedNodes.has(e[1])) goldEdges.add(i);
+              });
+            }
+            // Solid accent for non-implicit focus edges (excluding gold).
+            ctx.lineWidth = 1.8;
+            ctx.strokeStyle = COLORS.accent;
+            ctx.setLineDash([]);
+            ctx.beginPath();
+            focusEdges.forEach((i) => {
+              if (implicitEdgeIdx && implicitEdgeIdx.has(i)) return;
+              if (goldEdges.has(i)) return;
+              const e = edges[i];
+              const a = nodes[e[0]], b = nodes[e[1]];
+              if (!a.visible || !b.visible) return;
+              ctx.moveTo(modelToScreenX(a.x), modelToScreenY(a.y));
+              ctx.lineTo(modelToScreenX(b.x), modelToScreenY(b.y));
+            });
+            ctx.stroke();
+            // Dashed accent for implicit focus edges (always shown).
+            ctx.setLineDash([5, 4]);
+            ctx.beginPath();
+            focusEdges.forEach((i) => {
+              if (!(implicitEdgeIdx && implicitEdgeIdx.has(i))) return;
+              if (goldEdges.has(i)) return;
+              const e = edges[i];
+              const a = nodes[e[0]], b = nodes[e[1]];
+              if (!a.visible || !b.visible) return;
+              ctx.moveTo(modelToScreenX(a.x), modelToScreenY(a.y));
+              ctx.lineTo(modelToScreenX(b.x), modelToScreenY(b.y));
+            });
+            ctx.stroke();
+            ctx.setLineDash([]);
+            // Between-selected edges — thicker + gold so the actual
+            // interconnections among the chosen set are obvious.
+            if (goldEdges.size) {
+              ctx.lineWidth = 2.6;
+              ctx.strokeStyle = COLORS.gold;
+              ctx.beginPath();
+              goldEdges.forEach((i) => {
+                const isImpl = implicitEdgeIdx && implicitEdgeIdx.has(i);
+                if (isImpl) return; // solid pass
+                const e = edges[i];
+                const a = nodes[e[0]], b = nodes[e[1]];
+                if (!a.visible || !b.visible) return;
+                ctx.moveTo(modelToScreenX(a.x), modelToScreenY(a.y));
+                ctx.lineTo(modelToScreenX(b.x), modelToScreenY(b.y));
+              });
+              ctx.stroke();
               ctx.setLineDash([5, 4]);
               ctx.beginPath();
-              focusEdges.forEach((i) => {
-                if (!(implicitEdgeIdx && implicitEdgeIdx.has(i))) return;
+              goldEdges.forEach((i) => {
+                const isImpl = implicitEdgeIdx && implicitEdgeIdx.has(i);
+                if (!isImpl) return; // dashed pass
                 const e = edges[i];
                 const a = nodes[e[0]], b = nodes[e[1]];
                 if (!a.visible || !b.visible) return;
@@ -861,6 +905,15 @@ const total = entities().length;
         controls.removeAttribute('hidden');
         filters.removeAttribute('hidden');
         sliders.removeAttribute('hidden');
+        // On phone-sized viewports, auto-collapse the drawers so the
+        // canvas isn't smothered by chrome. The user can still open any.
+        if (window.matchMedia('(max-width: 720px)').matches) {
+          for (const d of document.querySelectorAll('.net-drawer')) {
+            d.classList.add('collapsed');
+            const t = d.querySelector('.net-drawer-toggle');
+            if (t) t.setAttribute('aria-expanded', 'false');
+          }
+        }
         resizeCanvas();
         fitToCanvas();
         wireInteractions();
@@ -948,6 +1001,78 @@ const total = entities().length;
             const n = nodes[hit];
             window.location.href = `/${TYPE_DIRS[n.type] || 'pages'}/${n.id}/`;
           }
+        });
+
+        // --- Touch: pan (1 finger), pinch-zoom (2 fingers), tap (=click),
+        //     double-tap (=navigate). touch-action: none on .net-canvas
+        //     in CSS prevents the browser from scroll-jacking.
+        let pinchStart = null;
+        let lastTap = 0;
+        canvas.addEventListener('touchstart', (e) => {
+          if (e.touches.length === 1) {
+            const t = e.touches[0];
+            isPanning = true;
+            panStart = { x: t.clientX, y: t.clientY, tx: view.tx, ty: view.ty };
+            downAt = { x: t.clientX, y: t.clientY };
+          } else if (e.touches.length === 2) {
+            isPanning = false;
+            const a = e.touches[0], b = e.touches[1];
+            const rect = canvas.getBoundingClientRect();
+            pinchStart = {
+              dist: Math.hypot(b.clientX - a.clientX, b.clientY - a.clientY),
+              scale: view.scale, tx: view.tx, ty: view.ty,
+              midX: (a.clientX + b.clientX) / 2 - rect.left,
+              midY: (a.clientY + b.clientY) / 2 - rect.top,
+            };
+          }
+          e.preventDefault();
+        }, { passive: false });
+        canvas.addEventListener('touchmove', (e) => {
+          if (e.touches.length === 2 && pinchStart) {
+            const a = e.touches[0], b = e.touches[1];
+            const dist = Math.hypot(b.clientX - a.clientX, b.clientY - a.clientY);
+            const ratio = dist / (pinchStart.dist || 1);
+            const newScale = Math.max(0.05, Math.min(50, pinchStart.scale * ratio));
+            const r = newScale / pinchStart.scale;
+            view.scale = newScale;
+            view.tx = pinchStart.midX - (pinchStart.midX - pinchStart.tx) * r;
+            view.ty = pinchStart.midY - (pinchStart.midY - pinchStart.ty) * r;
+            requestDraw();
+          } else if (e.touches.length === 1 && isPanning && panStart) {
+            const t = e.touches[0];
+            view.tx = panStart.tx + (t.clientX - panStart.x);
+            view.ty = panStart.ty + (t.clientY - panStart.y);
+            requestDraw();
+            tooltip.setAttribute('hidden', '');
+          }
+          e.preventDefault();
+        }, { passive: false });
+        canvas.addEventListener('touchend', (e) => {
+          if (pinchStart && e.touches.length < 2) pinchStart = null;
+          if (isPanning && e.touches.length === 0) {
+            isPanning = false;
+            const t = e.changedTouches[0];
+            const moved = downAt && (Math.hypot(t.clientX - downAt.x, t.clientY - downAt.y) > 5);
+            if (!moved) {
+              // Double-tap navigates; single tap selects.
+              const now = Date.now();
+              if (now - lastTap < 320) {
+                const rect = canvas.getBoundingClientRect();
+                const hit = hitTest(t.clientX - rect.left, t.clientY - rect.top);
+                if (hit >= 0) {
+                  const n = nodes[hit];
+                  window.location.href = `/${TYPE_DIRS[n.type] || 'pages'}/${n.id}/`;
+                  return;
+                }
+              }
+              lastTap = now;
+              handleClick({ clientX: t.clientX, clientY: t.clientY, shiftKey: false });
+            }
+            downAt = null;
+          }
+        });
+        canvas.addEventListener('touchcancel', () => {
+          isPanning = false; pinchStart = null; downAt = null;
         });
 
         function handleClick(e) {
@@ -1224,14 +1349,24 @@ const total = entities().length;
           return;
         }
 
-        // Multi-select summary — show counts + a short list of titles.
-        const titles = [];
-        for (const i of selectedNodes) titles.push(nodes[i].title);
+        // Multi-select summary — each entity title becomes a clickable
+        // link to its entity page. Edges render as A↔B with both sides
+        // independently linkable.
+        function nodeLink(n) {
+          const href = `/${TYPE_DIRS[n.type] || 'pages'}/${n.id}/`;
+          return `<a href="${href}" class="gs-summary-link type-${n.type}">${escapeHtml(n.title)}</a>`;
+        }
+        const pieces = [];
+        for (const i of selectedNodes) pieces.push(nodeLink(nodes[i]));
         for (const k of selectedEdges) {
           const e = edges[k];
-          titles.push(`${nodes[e[0]].title}↔${nodes[e[1]].title}`);
+          pieces.push(`${nodeLink(nodes[e[0]])}<span class="gs-summary-link-sep">↔</span>${nodeLink(nodes[e[1]])}`);
         }
-        const summary = titles.slice(0, 6).join(', ') + (titles.length > 6 ? `, +${titles.length - 6} more` : '');
+        const MAX_INLINE = 8;
+        let html = pieces.slice(0, MAX_INLINE).join(', ');
+        if (pieces.length > MAX_INLINE) {
+          html += `<span class="gs-summary-more">, +${pieces.length - MAX_INLINE} more</span>`;
+        }
         panel.querySelector('.gs-eyebrow').textContent = 'Multi-select';
         panel.querySelector('.gs-eyebrow').className = 'gs-eyebrow';
         const parts = [];
@@ -1242,7 +1377,7 @@ const total = entities().length;
         panel.querySelector('.gs-meta')?.classList?.add?.('hidden-meta');
         panel.querySelector('.gs-bridge').setAttribute('hidden', '');
         const sumEl = panel.querySelector('.gs-summary');
-        sumEl.textContent = summary;
+        sumEl.innerHTML = html;
         sumEl.removeAttribute('hidden');
         go.setAttribute('hidden', '');  // no single navigation target
         panel.removeAttribute('hidden');

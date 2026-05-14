@@ -59,13 +59,10 @@ const canonical = Astro.site
     <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' fill='%23f7f2e7'/%3E%3Ctext y='.85em' x='8' font-family='Georgia,serif' font-size='86' font-weight='600' fill='%2394322a'%3EI%3C/text%3E%3C/svg%3E" />
     <link href="/pagefind/pagefind-ui.css" rel="stylesheet" />
     <script src="/pagefind/pagefind-ui.js" is:inline></script>
-    {/* Preload the graph stack. Browsers fetch these in parallel with HTML
-        render, so by the time the user scrolls to the graph section the
-        scripts are already cached and only need to execute. */}
-    <link rel="preload" as="script" href="https://unpkg.com/cytoscape@3.30.4/dist/cytoscape.min.js" crossorigin />
-    <link rel="preload" as="script" href="https://unpkg.com/layout-base@2.0.1/layout-base.js" crossorigin />
-    <link rel="preload" as="script" href="https://unpkg.com/cose-base@2.2.0/cose-base.js" crossorigin />
-    <link rel="preload" as="script" href="https://unpkg.com/cytoscape-fcose@2.2.0/cytoscape-fcose.js" crossorigin />
+    {/* Preload the shared adjacency map so the per-entity NetworkGraph
+        widget on every entity page (and /network/, /path/) starts with
+        the data already in cache. ~250KB, served compressed. */}
+    <link rel="preload" as="fetch" href="/adjacency.json" crossorigin="anonymous" />
   </head>
   <body class={bodyClass}>
     <header class="site">
@@ -101,9 +98,7 @@ const canonical = Astro.site
     </main>
     <footer class="site">
       <div class="container">
-        <div class="colophon">
-          The Info Web · a research vault on intelligence operations, parapsychology, and the parapolitical record.
-        </div>
+        <a href="/" class="foot-brand">The Info Web</a>
         <nav class="foot-nav">
           <a href="/network/">Network</a>
           <a href="/path/">Path</a>

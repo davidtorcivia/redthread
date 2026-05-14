@@ -1,0 +1,1289 @@
+---
+interface Props {
+  id: string;
+  title: string;
+}
+const { id, title } = Astro.props;
+---
+<section class="entity-network" data-focal-id={id}>
+  <h2 class="section-heading">Local network</h2>
+  <p class="net-blurb">
+    {title}'s direct connections. Click any node to navigate, drag to pan,
+    scroll (or pinch) to zoom. <strong>+ 2&#8209;hop</strong> expands the
+    neighborhood one level further.
+  </p>
+
+  <div class="net-shell entity-net-shell">
+    <canvas class="net-canvas" aria-label={`Network around ${title}`}></canvas>
+
+    <div class="net-status" hidden></div>
+
+    <div class="net-controls net-drawer net-drawer-right">
+      <button class="net-drawer-toggle" type="button" data-toggle="controls" aria-label="Toggle settings" aria-expanded="true">
+        <span class="net-carrot" aria-hidden="true"></span>
+      </button>
+      <div class="net-drawer-body net-controls-body">
+        <button class="graph-btn net-twohop" type="button" aria-pressed="false">+ 2&#8209;hop</button>
+        <button class="graph-btn net-layout" type="button">Layout: Force</button>
+        <button class="graph-btn net-fit" type="button">Refit</button>
+        <button class="graph-btn net-edges" type="button" aria-pressed="true">Hide edges</button>
+        <button class="graph-btn net-implicit" type="button" aria-pressed="true">− Inferred</button>
+        <button class="graph-btn net-multi" type="button" aria-pressed="false">Multi: off</button>
+        <button class="graph-btn net-fullscreen" type="button" aria-pressed="false">Fullscreen</button>
+      </div>
+    </div>
+
+    <div class="net-sliders net-drawer net-drawer-right">
+      <button class="net-drawer-toggle" type="button" data-toggle="sliders" aria-label="Toggle sliders" aria-expanded="true">
+        <span class="net-carrot" aria-hidden="true"></span>
+      </button>
+      <div class="net-drawer-body net-sliders-body">
+        <label class="net-slider">
+          <span class="net-slider-label">Opacity</span>
+          <input type="range" class="net-slider-input" data-slider="opacity" min="0" max="100" value="100" />
+          <span class="net-slider-val" data-slider-val="opacity">100%</span>
+        </label>
+        <label class="net-slider">
+          <span class="net-slider-label">Highlight</span>
+          <input type="range" class="net-slider-input" data-slider="highlight" min="0" max="100" value="100" />
+          <span class="net-slider-val" data-slider-val="highlight">100%</span>
+        </label>
+        <label class="net-slider" data-force-only>
+          <span class="net-slider-label">Force</span>
+          <input type="range" class="net-slider-input" data-slider="force" min="50" max="400" value="100" />
+          <span class="net-slider-val" data-slider-val="force">100%</span>
+        </label>
+      </div>
+    </div>
+
+    <div class="graph-selection net-selection" hidden>
+      <div class="gs-row">
+        <span class="gs-eyebrow"></span>
+        <span class="gs-title"></span>
+      </div>
+      <div class="gs-meta"><span class="gs-count"></span> mentions across the vault</div>
+      <div class="gs-bridge" hidden>Bridge entity (rank <span class="gs-bridge-rank"></span>)</div>
+      <div class="gs-summary" hidden></div>
+      <div class="gs-actions">
+        <a class="gs-go" href="#">Go to page &rarr;</a>
+        <button class="gs-deselect" type="button">Clear</button>
+      </div>
+    </div>
+
+    <div class="graph-tooltip net-tooltip" hidden></div>
+  </div>
+</section>
+
+<script is:inline define:vars={{ focalId: id, focalTitle: title }}>
+  /**
+   * Per-entity canvas network. Renders the focal entity at center
+   * plus its 1-hop neighbors (2-hop on demand). Same canvas engine
+   * as /network/, scoped down to one node's neighborhood — no filter
+   * chips, simpler layout pool, smaller default canvas.
+   *
+   * Loads the shared adjacency.json once and BFS-walks from focalId.
+   * The first visit downloads ~250KB; subsequent entity pages hit the
+   * browser cache.
+   */
+  (function () {
+    const section = document.querySelector(`.entity-network[data-focal-id="${focalId}"]`);
+    if (!section) return;
+    const shell = section.querySelector('.net-shell');
+    const canvas = section.querySelector('.net-canvas');
+    const ctx = canvas.getContext('2d');
+    const status = section.querySelector('.net-status');
+    const controls = section.querySelector('.net-controls');
+    const sliders = section.querySelector('.net-sliders');
+    const panel = section.querySelector('.net-selection');
+    const tooltip = section.querySelector('.net-tooltip');
+
+    const TYPE_DIRS = {
+      person: 'people', organization: 'organizations', program: 'programs',
+      event: 'events', concept: 'concepts', place: 'places',
+      source: 'sources', meta: 'meta', misc: 'misc', page: 'pages',
+    };
+    const TYPE_LABELS = {
+      person: 'Person', organization: 'Organization', program: 'Program',
+      event: 'Event', concept: 'Concept', place: 'Place',
+      source: 'Source', meta: 'Meta', misc: 'Misc', page: 'Page',
+    };
+
+    function readColors() {
+      const cs = getComputedStyle(document.documentElement);
+      const get = (v, f) => (cs.getPropertyValue(v).trim() || f);
+      return {
+        person: get('--t-person', '#8a5a1f'),
+        organization: get('--t-organization', '#2d6864'),
+        program: get('--t-program', '#3f3d8b'),
+        event: get('--t-event', '#94322a'),
+        concept: get('--t-concept', '#5e6b32'),
+        place: get('--t-place', '#735237'),
+        source: get('--t-source', '#6a6258'),
+        muted: get('--muted', '#6a6258'),
+        line: get('--line-2', '#c8bca0'),
+        accent: get('--accent', '#94322a'),
+        accentSoft: get('--accent-soft', '#c97a6a'),
+        ink: get('--ink', '#1a1814'),
+        paper: get('--paper', '#f7f2e7'),
+        gold: get('--gold', '#8a6e25'),
+      };
+    }
+    const COLORS = readColors();
+
+    // --- State ----------------------------------------------------------
+    let nodes = [];
+    let edges = [];
+    let neighborSets = null;
+    let implicitEdgeIdx = null;
+    let focalIdx = -1;
+    let hoveredIdx = -1, hoveredEdge = -1;
+    const selectedNodes = new Set();
+    const selectedEdges = new Set();
+    let multiMode = false;
+    let focusNodes = null;
+    const view = { tx: 0, ty: 0, scale: 1 };
+    let edgesVisible = true;
+    let showImplicit = true;       // inferred edges shown by default on entity pages
+    let twoHop = false;
+    let opacityMult = 1.0;
+    let highlightStrength = 1.0;
+    let forceMult = 1.0;           // scales Force layout spread
+    let currentLayout = 'force';   // force is the default per-entity layout
+    let initStarted = false;
+    /** Cached node positions from the most recent Force pass. The Force
+     *  slider scales these in real time without re-running the algorithm. */
+    let cachedForcePositions = null;
+
+    let dpr = Math.max(1, window.devicePixelRatio || 1);
+    function resizeCanvas() {
+      const rect = shell.getBoundingClientRect();
+      dpr = Math.max(1, window.devicePixelRatio || 1);
+      canvas.width = Math.round(rect.width * dpr);
+      canvas.height = Math.round(rect.height * dpr);
+      canvas.style.width = rect.width + 'px';
+      canvas.style.height = rect.height + 'px';
+      requestDraw();
+    }
+    window.addEventListener('resize', () => { if (initStarted) resizeCanvas(); });
+
+    function modelToScreenX(x) { return x * view.scale + view.tx; }
+    function modelToScreenY(y) { return y * view.scale + view.ty; }
+
+    let drawScheduled = false;
+    function requestDraw() {
+      if (drawScheduled) return;
+      drawScheduled = true;
+      requestAnimationFrame(() => { drawScheduled = false; draw(); });
+    }
+
+    function hexToRgba(hex, a) {
+      if (hex.startsWith('rgb')) return hex;
+      let h = hex.replace('#', '');
+      if (h.length === 3) h = h.split('').map((c) => c + c).join('');
+      const r = parseInt(h.substring(0, 2), 16);
+      const g = parseInt(h.substring(2, 4), 16);
+      const b = parseInt(h.substring(4, 6), 16);
+      return `rgba(${r},${g},${b},${a})`;
+    }
+    function escapeHtml(s) {
+      return String(s).replace(/[&<>"']/g, (c) => (
+        { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
+      ));
+    }
+
+    // --- Init: lazy on viewport intersection ----------------------------
+    const io = new IntersectionObserver((entries) => {
+      for (const e of entries) {
+        if (e.isIntersecting) { init(); io.disconnect(); break; }
+      }
+    }, { rootMargin: '300px' });
+    io.observe(section);
+
+    let adjacencyData = null;
+
+    async function init() {
+      if (initStarted) return;
+      initStarted = true;
+      status.textContent = 'Loading network…';
+      status.removeAttribute('hidden');
+      try {
+        // Browser will reuse the cached copy if /network/ or another
+        // entity page already loaded it.
+        if (!window._netAdj) {
+          const r = await fetch('/adjacency.json');
+          if (!r.ok) throw new Error('fetch failed');
+          window._netAdj = await r.json();
+        }
+        adjacencyData = window._netAdj;
+      } catch (err) {
+        status.textContent = 'Failed to load network.';
+        console.error('[entity-net]', err);
+        return;
+      }
+
+      // Find focal index in adjacency
+      focalIdx = adjacencyData.ids.indexOf(focalId);
+      if (focalIdx < 0) {
+        status.textContent = 'This entity is not in the network.';
+        return;
+      }
+
+      buildNeighborhood();
+      status.setAttribute('hidden', '');
+      resizeCanvas();
+      applyLayout();
+      wireInteractions();
+
+      // Reveal animation: drawers start FULLY off-screen, slide in to
+      // their collapsed-tab position, then the chevron flashes gold.
+      // The end state is collapsed — only the tab is visible. User
+      // clicks the tab to open the drawer themselves. No body-extending
+      // animation, no jitter.
+      const drawers = [...section.querySelectorAll('.net-drawer')];
+      for (const d of drawers) {
+        d.classList.add('collapsed', 'entering');
+        const t = d.querySelector('.net-drawer-toggle');
+        if (t) t.setAttribute('aria-expanded', 'false');
+      }
+      // Force a reflow so the off-screen transform is applied as the
+      // starting position; otherwise the browser may batch class changes
+      // and skip the transition entirely.
+      void section.offsetHeight;
+      requestAnimationFrame(() => {
+        for (const d of drawers) d.classList.remove('entering');
+        // Once the slide-in transition completes, flash the tab gold so
+        // the user sees that there's something there to click.
+        setTimeout(() => {
+          section.querySelectorAll('.net-drawer-toggle').forEach((tog) => {
+            tog.classList.add('attention-flash');
+            setTimeout(() => tog.classList.remove('attention-flash'), 1500);
+          });
+        }, 400);
+      });
+    }
+
+    // BFS from focal up to depth (1 or 2). Builds the local nodes + edges
+    // arrays plus neighborSets for fast lookup during selection.
+    function buildNeighborhood() {
+      const maxDepth = twoHop ? 2 : 1;
+      const adj = adjacencyData.adj;
+      const depth = new Map();
+      depth.set(focalIdx, 0);
+      const queue = [focalIdx];
+      let head = 0;
+      while (head < queue.length) {
+        const v = queue[head++];
+        const d = depth.get(v);
+        if (d >= maxDepth) continue;
+        for (const w of adj[v]) {
+          if (depth.has(w)) continue;
+          depth.set(w, d + 1);
+          queue.push(w);
+        }
+      }
+      const localIdxMap = new Map();
+      nodes = [];
+      let li = 0;
+      for (const [globalIdx, hop] of depth) {
+        localIdxMap.set(globalIdx, li);
+        const br = adjacencyData.bridges?.[String(globalIdx)];
+        const bridgeRank = br ? (typeof br === 'object' ? br.rank : br) : 0;
+        const bridgeScore = br && typeof br === 'object' ? br.score : 0;
+        nodes.push({
+          id: adjacencyData.ids[globalIdx],
+          title: adjacencyData.titles[globalIdx],
+          type: adjacencyData.types[globalIdx],
+          count: adjacencyData.mentions[globalIdx] || 0,
+          bridgeRank, bridgeScore,
+          color: COLORS[adjacencyData.types[globalIdx]] || COLORS.muted,
+          hop,
+          globalIdx,
+          x: 0, y: 0,
+          // sqrt scaling at small N gives more visual weight per node.
+          // Matches the older Cytoscape sizing rather than the dense
+          // log-scaling used on /network/.
+          size: Math.min(40, 10 + Math.sqrt(adjacencyData.mentions[globalIdx] || 0) * 1.8),
+          visible: true,
+          isFocal: globalIdx === focalIdx,
+        });
+        li++;
+      }
+      // Focal node is the centerpiece — explicitly larger so it reads
+      // as the anchor of the layout.
+      for (const n of nodes) {
+        if (n.isFocal) n.size = Math.max(n.size * 1.4 + 4, 28);
+      }
+
+      // Build edges from adjacency, scoped to local nodes.
+      edges = [];
+      const inLocal = new Set(localIdxMap.keys());
+      const edgePairToIdx = new Map();
+      neighborSets = Array.from({ length: nodes.length }, () => new Set());
+      for (const globalIdx of inLocal) {
+        for (const otherGlobal of adjacencyData.adj[globalIdx]) {
+          if (!inLocal.has(otherGlobal)) continue;
+          if (otherGlobal <= globalIdx) continue;
+          const a = localIdxMap.get(globalIdx);
+          const b = localIdxMap.get(otherGlobal);
+          neighborSets[a].add(b);
+          neighborSets[b].add(a);
+          edgePairToIdx.set(a * 100000 + b, edges.length);
+          edges.push([a, b]);
+        }
+      }
+      // Implicit edge index translated to local edges
+      implicitEdgeIdx = new Set();
+      if (adjacencyData.implicitPairs) {
+        for (const [ga, gb] of adjacencyData.implicitPairs) {
+          if (!inLocal.has(ga) || !inLocal.has(gb)) continue;
+          const a = localIdxMap.get(ga);
+          const b = localIdxMap.get(gb);
+          const key = a < b ? a * 100000 + b : b * 100000 + a;
+          const idx = edgePairToIdx.get(key);
+          if (idx != null) implicitEdgeIdx.add(idx);
+        }
+      }
+    }
+
+    // --- Layouts --------------------------------------------------------
+    function applyLayout() {
+      if (currentLayout === 'force') applyForceLayout();
+      else if (currentLayout === 'circle') applyCircleLayout();
+      else if (currentLayout === 'hierarchy') applyHierarchyLayout();
+      else applyConcentricLayout();
+      fitToCanvas();
+      requestDraw();
+    }
+    function applyConcentricLayout() {
+      // Focal at origin; 1-hop on inner ring; 2-hop on outer ring.
+      // Radii sized so even larger nodes don't overlap their neighbors.
+      const byHop = new Map();
+      for (let i = 0; i < nodes.length; i++) {
+        const h = nodes[i].hop;
+        let arr = byHop.get(h);
+        if (!arr) { arr = []; byHop.set(h, arr); }
+        arr.push(i);
+      }
+      const radii = { 0: 0, 1: 220, 2: 440 };
+      for (const [hop, arr] of byHop) {
+        if (hop === 0) {
+          for (const i of arr) { nodes[i].x = 0; nodes[i].y = 0; }
+          continue;
+        }
+        arr.sort((a, b) => nodes[b].count - nodes[a].count || nodes[a].title.localeCompare(nodes[b].title));
+        const r = radii[hop] ?? (220 + hop * 220);
+        const n = arr.length;
+        for (let k = 0; k < n; k++) {
+          const angle = (k / n) * 2 * Math.PI - Math.PI / 2;
+          nodes[arr[k]].x = Math.cos(angle) * r;
+          nodes[arr[k]].y = Math.sin(angle) * r;
+        }
+      }
+    }
+    function applyCircleLayout() {
+      const n = nodes.length;
+      const radius = Math.max(220, n * 11);
+      for (let k = 0; k < n; k++) {
+        if (nodes[k].isFocal) { nodes[k].x = 0; nodes[k].y = 0; continue; }
+      }
+      const others = nodes.map((_, i) => i).filter((i) => !nodes[i].isFocal);
+      others.sort((a, b) => nodes[b].count - nodes[a].count);
+      for (let k = 0; k < others.length; k++) {
+        const angle = (k / others.length) * 2 * Math.PI - Math.PI / 2;
+        const idx = others[k];
+        nodes[idx].x = Math.cos(angle) * radius;
+        nodes[idx].y = Math.sin(angle) * radius;
+      }
+    }
+    function applyHierarchyLayout() {
+      // BFS tree from focal: depth 0 at top, layers stack downward.
+      // Within each layer, sort by mention count desc and interleave
+      // around the centerline so high-mention nodes sit toward center.
+      const layers = new Map();
+      for (let i = 0; i < nodes.length; i++) {
+        const h = nodes[i].hop;
+        let arr = layers.get(h);
+        if (!arr) { arr = []; layers.set(h, arr); }
+        arr.push(i);
+      }
+      const layerHeight = 220;
+      const colStep = 160;
+      const keys = [...layers.keys()].sort((a, b) => a - b);
+      for (const d of keys) {
+        const arr = layers.get(d);
+        arr.sort((a, b) => nodes[b].count - nodes[a].count);
+        for (let k = 0; k < arr.length; k++) {
+          const sign = k % 2 === 0 ? 1 : -1;
+          const offset = Math.ceil(k / 2) * sign;
+          nodes[arr[k]].x = offset * colStep;
+          nodes[arr[k]].y = d * layerHeight;
+        }
+      }
+    }
+    function applyForceLayout() {
+      // Small Fruchterman-Reingold pass. With <100 nodes this converges
+      // quickly. Focal node is pinned at origin. Cached afterwards so
+      // the Force slider can scale spread in real time without re-running.
+      const n = nodes.length;
+      const baseArea = 600 * 600;
+      const k = Math.sqrt(baseArea / n);
+      // Init: scatter randomly around current positions or origin.
+      for (const node of nodes) {
+        if (Math.abs(node.x) < 1 && Math.abs(node.y) < 1) {
+          node.x = (Math.random() - 0.5) * 200;
+          node.y = (Math.random() - 0.5) * 200;
+        }
+      }
+      const ITER = 80;
+      let temp = 50;
+      for (let it = 0; it < ITER; it++) {
+        const disp = nodes.map(() => ({ x: 0, y: 0 }));
+        // Repulsive (every pair)
+        for (let i = 0; i < n; i++) {
+          for (let j = i + 1; j < n; j++) {
+            const dx = nodes[i].x - nodes[j].x;
+            const dy = nodes[i].y - nodes[j].y;
+            const dist = Math.sqrt(dx * dx + dy * dy) || 0.01;
+            const force = (k * k) / dist;
+            const fx = (dx / dist) * force;
+            const fy = (dy / dist) * force;
+            disp[i].x += fx; disp[i].y += fy;
+            disp[j].x -= fx; disp[j].y -= fy;
+          }
+        }
+        // Attractive (along edges)
+        for (const [a, b] of edges) {
+          const dx = nodes[a].x - nodes[b].x;
+          const dy = nodes[a].y - nodes[b].y;
+          const dist = Math.sqrt(dx * dx + dy * dy) || 0.01;
+          const force = (dist * dist) / k;
+          const fx = (dx / dist) * force;
+          const fy = (dy / dist) * force;
+          disp[a].x -= fx; disp[a].y -= fy;
+          disp[b].x += fx; disp[b].y += fy;
+        }
+        // Apply with temperature cap; pin focal
+        for (let i = 0; i < n; i++) {
+          if (nodes[i].isFocal) { nodes[i].x = 0; nodes[i].y = 0; continue; }
+          const d = Math.sqrt(disp[i].x * disp[i].x + disp[i].y * disp[i].y) || 0.01;
+          const lim = Math.min(d, temp);
+          nodes[i].x += (disp[i].x / d) * lim;
+          nodes[i].y += (disp[i].y / d) * lim;
+        }
+        temp *= 0.95;
+      }
+      // Cache and apply slider scaling.
+      cachedForcePositions = nodes.map((nd) => [nd.x, nd.y]);
+      if (forceMult !== 1.0) {
+        for (let i = 0; i < n; i++) {
+          nodes[i].x = cachedForcePositions[i][0] * forceMult;
+          nodes[i].y = cachedForcePositions[i][1] * forceMult;
+        }
+      }
+    }
+    const LAYOUTS = [
+      { key: 'force', label: 'Force' },
+      { key: 'hierarchy', label: 'Hierarchy' },
+      { key: 'concentric', label: 'Concentric' },
+      { key: 'circle', label: 'Circle' },
+    ];
+
+    function fitToCanvas(padding) {
+      if (!nodes.length) return;
+      padding = padding ?? 30;
+      let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+      for (const n of nodes) {
+        if (!n.visible) continue;
+        minX = Math.min(minX, n.x - n.size);
+        maxX = Math.max(maxX, n.x + n.size);
+        minY = Math.min(minY, n.y - n.size);
+        maxY = Math.max(maxY, n.y + n.size);
+      }
+      const W = canvas.width / dpr, H = canvas.height / dpr;
+      const w = Math.max(1, maxX - minX), h = Math.max(1, maxY - minY);
+      view.scale = Math.min((W - 2 * padding) / w, (H - 2 * padding) / h);
+      view.tx = (W - w * view.scale) / 2 - minX * view.scale;
+      view.ty = (H - h * view.scale) / 2 - minY * view.scale;
+    }
+
+    function recomputeFocus() {
+      if (selectedNodes.size === 0 && selectedEdges.size === 0) {
+        focusNodes = null; return;
+      }
+      focusNodes = new Set();
+      for (const idx of selectedNodes) {
+        focusNodes.add(idx);
+        if (neighborSets) for (const n of neighborSets[idx]) focusNodes.add(n);
+      }
+      for (const k of selectedEdges) {
+        focusNodes.add(edges[k][0]); focusNodes.add(edges[k][1]);
+      }
+    }
+
+    // --- Drawing --------------------------------------------------------
+    function draw() {
+      if (!nodes.length) return;
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      ctx.fillStyle = COLORS.paper;
+      ctx.fillRect(0, 0, canvas.width / dpr, canvas.height / dpr);
+
+      const hasSelection = (selectedNodes.size > 0 || selectedEdges.size > 0);
+      const fadedAlpha = 0.32 - (0.32 - 0.06) * highlightStrength;
+      const bgAlpha = hasSelection ? fadedAlpha : 0.42;
+
+      // Focus edges
+      const focusEdges = new Set();
+      if (edgesVisible) {
+        if (selectedNodes.size > 0) {
+          for (let i = 0; i < edges.length; i++) {
+            const e = edges[i];
+            if (selectedNodes.has(e[0]) || selectedNodes.has(e[1])) focusEdges.add(i);
+          }
+        }
+        for (const k of selectedEdges) focusEdges.add(k);
+      }
+      const hoverEdges = new Set();
+      if (hoveredIdx >= 0 && !selectedNodes.has(hoveredIdx) && edgesVisible) {
+        for (let i = 0; i < edges.length; i++) {
+          const e = edges[i];
+          if (e[0] === hoveredIdx || e[1] === hoveredIdx) hoverEdges.add(i);
+        }
+      }
+      if (hoveredEdge >= 0 && !selectedEdges.has(hoveredEdge)) hoverEdges.add(hoveredEdge);
+
+      // ---- Edges
+      if (edgesVisible) {
+        ctx.lineWidth = 0.9;
+        // Solid (explicit, non-bridge)
+        ctx.setLineDash([]);
+        ctx.strokeStyle = hexToRgba(COLORS.accentSoft, bgAlpha);
+        ctx.beginPath();
+        for (let i = 0; i < edges.length; i++) {
+          if (focusEdges.has(i) || hoverEdges.has(i)) continue;
+          if (implicitEdgeIdx && implicitEdgeIdx.has(i)) continue;
+          const e = edges[i];
+          const a = nodes[e[0]], b = nodes[e[1]];
+          if (!a.visible || !b.visible) continue;
+          if (a.bridgeRank || b.bridgeRank) continue;
+          ctx.moveTo(modelToScreenX(a.x), modelToScreenY(a.y));
+          ctx.lineTo(modelToScreenX(b.x), modelToScreenY(b.y));
+        }
+        ctx.stroke();
+        // Gold (bridge-touching, explicit)
+        ctx.strokeStyle = hexToRgba(COLORS.gold, bgAlpha * 0.9);
+        ctx.beginPath();
+        for (let i = 0; i < edges.length; i++) {
+          if (focusEdges.has(i) || hoverEdges.has(i)) continue;
+          if (implicitEdgeIdx && implicitEdgeIdx.has(i)) continue;
+          const e = edges[i];
+          const a = nodes[e[0]], b = nodes[e[1]];
+          if (!a.visible || !b.visible) continue;
+          if (!a.bridgeRank && !b.bridgeRank) continue;
+          ctx.moveTo(modelToScreenX(a.x), modelToScreenY(a.y));
+          ctx.lineTo(modelToScreenX(b.x), modelToScreenY(b.y));
+        }
+        ctx.stroke();
+        // Implicit (dashed, if toggled)
+        if (showImplicit) {
+          ctx.setLineDash([5, 4]);
+          ctx.lineWidth = 0.7;
+          ctx.strokeStyle = hexToRgba(COLORS.accentSoft, bgAlpha);
+          ctx.beginPath();
+          for (let i = 0; i < edges.length; i++) {
+            if (focusEdges.has(i) || hoverEdges.has(i)) continue;
+            if (!(implicitEdgeIdx && implicitEdgeIdx.has(i))) continue;
+            const e = edges[i];
+            const a = nodes[e[0]], b = nodes[e[1]];
+            if (!a.visible || !b.visible) continue;
+            ctx.moveTo(modelToScreenX(a.x), modelToScreenY(a.y));
+            ctx.lineTo(modelToScreenX(b.x), modelToScreenY(b.y));
+          }
+          ctx.stroke();
+          ctx.setLineDash([]);
+        }
+        // Hover overlay (always shows implicit, dashed if applicable)
+        if (hoverEdges.size) {
+          ctx.lineWidth = 1.4;
+          ctx.strokeStyle = hexToRgba(COLORS.accent, 0.6);
+          ctx.beginPath();
+          hoverEdges.forEach((i) => {
+            if (implicitEdgeIdx && implicitEdgeIdx.has(i)) return;
+            const e = edges[i];
+            const a = nodes[e[0]], b = nodes[e[1]];
+            if (!a.visible || !b.visible) return;
+            ctx.moveTo(modelToScreenX(a.x), modelToScreenY(a.y));
+            ctx.lineTo(modelToScreenX(b.x), modelToScreenY(b.y));
+          });
+          ctx.stroke();
+          ctx.setLineDash([4, 3]);
+          ctx.beginPath();
+          hoverEdges.forEach((i) => {
+            if (!(implicitEdgeIdx && implicitEdgeIdx.has(i))) return;
+            const e = edges[i];
+            const a = nodes[e[0]], b = nodes[e[1]];
+            if (!a.visible || !b.visible) return;
+            ctx.moveTo(modelToScreenX(a.x), modelToScreenY(a.y));
+            ctx.lineTo(modelToScreenX(b.x), modelToScreenY(b.y));
+          });
+          ctx.stroke();
+          ctx.setLineDash([]);
+        }
+        // Selected overlay (always shows implicit selected, dashed)
+        if (focusEdges.size) {
+          const goldEdges = new Set();
+          if (selectedNodes.size > 1) {
+            focusEdges.forEach((i) => {
+              const e = edges[i];
+              if (selectedNodes.has(e[0]) && selectedNodes.has(e[1])) goldEdges.add(i);
+            });
+          }
+          ctx.lineWidth = 2.2;
+          ctx.strokeStyle = COLORS.accent;
+          ctx.beginPath();
+          focusEdges.forEach((i) => {
+            if (implicitEdgeIdx && implicitEdgeIdx.has(i)) return;
+            if (goldEdges.has(i)) return;
+            const e = edges[i];
+            const a = nodes[e[0]], b = nodes[e[1]];
+            if (!a.visible || !b.visible) return;
+            ctx.moveTo(modelToScreenX(a.x), modelToScreenY(a.y));
+            ctx.lineTo(modelToScreenX(b.x), modelToScreenY(b.y));
+          });
+          ctx.stroke();
+          ctx.setLineDash([5, 4]);
+          ctx.beginPath();
+          focusEdges.forEach((i) => {
+            if (!(implicitEdgeIdx && implicitEdgeIdx.has(i))) return;
+            if (goldEdges.has(i)) return;
+            const e = edges[i];
+            const a = nodes[e[0]], b = nodes[e[1]];
+            if (!a.visible || !b.visible) return;
+            ctx.moveTo(modelToScreenX(a.x), modelToScreenY(a.y));
+            ctx.lineTo(modelToScreenX(b.x), modelToScreenY(b.y));
+          });
+          ctx.stroke();
+          ctx.setLineDash([]);
+          if (goldEdges.size) {
+            ctx.lineWidth = 3;
+            ctx.strokeStyle = COLORS.gold;
+            ctx.beginPath();
+            goldEdges.forEach((i) => {
+              if (implicitEdgeIdx && implicitEdgeIdx.has(i)) return;
+              const e = edges[i];
+              const a = nodes[e[0]], b = nodes[e[1]];
+              if (!a.visible || !b.visible) return;
+              ctx.moveTo(modelToScreenX(a.x), modelToScreenY(a.y));
+              ctx.lineTo(modelToScreenX(b.x), modelToScreenY(b.y));
+            });
+            ctx.stroke();
+            ctx.setLineDash([5, 4]);
+            ctx.beginPath();
+            goldEdges.forEach((i) => {
+              if (!(implicitEdgeIdx && implicitEdgeIdx.has(i))) return;
+              const e = edges[i];
+              const a = nodes[e[0]], b = nodes[e[1]];
+              if (!a.visible || !b.visible) return;
+              ctx.moveTo(modelToScreenX(a.x), modelToScreenY(a.y));
+              ctx.lineTo(modelToScreenX(b.x), modelToScreenY(b.y));
+            });
+            ctx.stroke();
+            ctx.setLineDash([]);
+          }
+        }
+      }
+
+      // ---- Nodes
+      for (let i = 0; i < nodes.length; i++) {
+        const n = nodes[i];
+        if (!n.visible) continue;
+        const sx = modelToScreenX(n.x);
+        const sy = modelToScreenY(n.y);
+        const sr = n.size * view.scale;
+        if (sx + sr < 0 || sx - sr > canvas.width / dpr ||
+            sy + sr < 0 || sy - sr > canvas.height / dpr) continue;
+
+        const isSelected = selectedNodes.has(i);
+        const isMain = isSelected || i === hoveredIdx || n.isFocal;
+        const inFocus = !focusNodes || focusNodes.has(i);
+        const fadeAlpha = 0.55 - (0.55 - 0.08) * highlightStrength;
+        const base = isMain ? 1 : (inFocus ? 0.7 : fadeAlpha);
+        ctx.globalAlpha = isMain ? base : base * opacityMult;
+        ctx.fillStyle = n.color;
+        ctx.beginPath();
+        ctx.arc(sx, sy, sr, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.globalAlpha = 1;
+
+        // Focal accent ring (always)
+        if (n.isFocal) {
+          ctx.strokeStyle = COLORS.accent;
+          ctx.lineWidth = 3;
+          ctx.beginPath();
+          ctx.arc(sx, sy, sr + 3, 0, Math.PI * 2);
+          ctx.stroke();
+        }
+        // Bridge gold ring
+        if (n.bridgeRank) {
+          ctx.strokeStyle = inFocus ? COLORS.gold : hexToRgba(COLORS.gold, 0.25);
+          ctx.lineWidth = 2;
+          ctx.beginPath();
+          ctx.arc(sx, sy, sr + 1.2, 0, Math.PI * 2);
+          ctx.stroke();
+        }
+        // Selection accent (only if NOT focal — focal already has one)
+        if (isSelected && !n.isFocal) {
+          ctx.strokeStyle = COLORS.accent;
+          ctx.lineWidth = 3;
+          ctx.beginPath();
+          ctx.arc(sx, sy, sr + 3, 0, Math.PI * 2);
+          ctx.stroke();
+        } else if (i === hoveredIdx && !isSelected && !n.isFocal) {
+          ctx.strokeStyle = COLORS.accent;
+          ctx.lineWidth = 2;
+          ctx.beginPath();
+          ctx.arc(sx, sy, sr + 2, 0, Math.PI * 2);
+          ctx.stroke();
+        }
+      }
+
+      // ---- Labels with collision detection
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'top';
+      const W = canvas.width / dpr;
+      const H = canvas.height / dpr;
+      const suppressOuterLabels = hasSelection && highlightStrength > 0.4;
+      const candidates = [];
+      for (let i = 0; i < nodes.length; i++) {
+        const n = nodes[i];
+        if (!n.visible) continue;
+        if (suppressOuterLabels && focusNodes && !focusNodes.has(i)) {
+          if (i !== hoveredIdx) continue;
+        }
+        const sx = modelToScreenX(n.x);
+        const sy = modelToScreenY(n.y);
+        if (sx < -200 || sx > W + 200 || sy < -40 || sy > H + 40) continue;
+        const sr = n.size * view.scale;
+        const isHover = i === hoveredIdx || selectedNodes.has(i);
+        const inFocusSet = focusNodes && focusNodes.has(i);
+        // Entity-page graph is small enough that we try to label
+        // everyone. Collision detection below will skip overlaps —
+        // the most-mentioned nodes win their label slot.
+        let tier;
+        if (isHover || n.isFocal) tier = 0;
+        else if (inFocusSet) tier = 1;
+        else tier = 2;
+        candidates.push({ i, n, sx, sy, sr, tier, isHover, isFocal: n.isFocal });
+      }
+      candidates.sort((a, b) => a.tier - b.tier || b.n.count - a.n.count);
+      const drawn = [];
+      function boxesOverlap(a, b) {
+        return !(a.x1 < b.x0 || b.x1 < a.x0 || a.y1 < b.y0 || b.y1 < a.y0);
+      }
+      for (const c of candidates) {
+        const fontSize = (c.isHover || c.isFocal) ? 12 : 10;
+        const weight = (c.isHover || c.isFocal) ? 600 : 500;
+        ctx.font = `${weight} ${fontSize}px "Inter Tight", sans-serif`;
+        const text = c.n.title;
+        const metrics = ctx.measureText(text);
+        const padX = 4, padY = 2;
+        const labelY = c.sy + c.sr + 4;
+        const box = {
+          x0: c.sx - metrics.width / 2 - padX,
+          x1: c.sx + metrics.width / 2 + padX,
+          y0: labelY - 1,
+          y1: labelY + fontSize + 2 * padY,
+        };
+        if (c.tier > 0) {
+          let collide = false;
+          for (let k = 0; k < drawn.length; k++) {
+            if (boxesOverlap(drawn[k], box)) { collide = true; break; }
+          }
+          if (collide) continue;
+        }
+        const labelMult = c.isHover || c.isFocal ? 1 : opacityMult;
+        ctx.globalAlpha = labelMult;
+        ctx.fillStyle = hexToRgba(COLORS.paper, c.isHover ? 0.95 : 0.85);
+        ctx.fillRect(box.x0, box.y0, box.x1 - box.x0, box.y1 - box.y0);
+        ctx.fillStyle = c.isHover ? COLORS.accent : COLORS.ink;
+        ctx.fillText(text, c.sx, labelY + padY - 1);
+        ctx.globalAlpha = 1;
+        drawn.push(box);
+      }
+    }
+
+    // --- Hit-testing ----------------------------------------------------
+    function hitTest(sx, sy) {
+      let best = -1, bestRadius = -1;
+      for (let i = 0; i < nodes.length; i++) {
+        const n = nodes[i];
+        if (!n.visible) continue;
+        const nx = modelToScreenX(n.x);
+        const ny = modelToScreenY(n.y);
+        const r = Math.max(4, n.size * view.scale);
+        const dx = nx - sx, dy = ny - sy;
+        if (dx * dx + dy * dy <= r * r && r > bestRadius) { best = i; bestRadius = r; }
+      }
+      return best;
+    }
+    function edgeHitTest(sx, sy, threshold) {
+      if (!edgesVisible) return -1;
+      threshold = threshold ?? 5;
+      let best = -1, bestD = threshold;
+      for (let k = 0; k < edges.length; k++) {
+        if (!showImplicit && implicitEdgeIdx && implicitEdgeIdx.has(k)) continue;
+        const e = edges[k];
+        const a = nodes[e[0]], b = nodes[e[1]];
+        if (!a.visible || !b.visible) continue;
+        const ax = modelToScreenX(a.x), ay = modelToScreenY(a.y);
+        const bx = modelToScreenX(b.x), by = modelToScreenY(b.y);
+        const dx = bx - ax, dy = by - ay;
+        const len2 = dx * dx + dy * dy;
+        if (len2 === 0) continue;
+        let t = ((sx - ax) * dx + (sy - ay) * dy) / len2;
+        if (t < 0) t = 0; else if (t > 1) t = 1;
+        const nx = ax + t * dx, ny = ay + t * dy;
+        const d = Math.hypot(sx - nx, sy - ny);
+        if (d < bestD) { bestD = d; best = k; }
+      }
+      return best;
+    }
+
+    // --- Interactions: mouse, wheel, touch ------------------------------
+    function wireInteractions() {
+      let isPanning = false;
+      let panStart = null;
+      let downAt = null;
+      let lastTapTime = 0;
+      let pinchStart = null; // {dist, scale, midX, midY, mtx, mty}
+
+      function onPointerDown(clientX, clientY) {
+        isPanning = true;
+        panStart = { x: clientX, y: clientY, tx: view.tx, ty: view.ty };
+        downAt = { x: clientX, y: clientY, t: Date.now() };
+        canvas.style.cursor = 'grabbing';
+      }
+      function onPointerUp(clientX, clientY, isTouch) {
+        if (!isPanning) return;
+        isPanning = false;
+        canvas.style.cursor = '';
+        const moved = downAt && (Math.hypot(clientX - downAt.x, clientY - downAt.y) > 5);
+        if (!moved) {
+          // Treat as click. For touch, also detect double-tap = navigate.
+          if (isTouch && downAt) {
+            const now = Date.now();
+            if (now - lastTapTime < 320) {
+              // Double tap → navigate
+              const rect = canvas.getBoundingClientRect();
+              const sx = clientX - rect.left;
+              const sy = clientY - rect.top;
+              const hit = hitTest(sx, sy);
+              if (hit >= 0 && nodes[hit].id !== focalId) {
+                const dir = TYPE_DIRS[nodes[hit].type] || 'pages';
+                window.location.href = `/${dir}/${nodes[hit].id}/`;
+                return;
+              }
+            }
+            lastTapTime = now;
+          }
+          handleClick(clientX, clientY, false /* shift unsupported on touch */);
+        }
+        downAt = null;
+      }
+      function onPointerMove(clientX, clientY) {
+        const rect = canvas.getBoundingClientRect();
+        const sx = clientX - rect.left;
+        const sy = clientY - rect.top;
+        if (isPanning && panStart) {
+          view.tx = panStart.tx + (clientX - panStart.x);
+          view.ty = panStart.ty + (clientY - panStart.y);
+          requestDraw();
+          tooltip.setAttribute('hidden', '');
+          return;
+        }
+        const hit = hitTest(sx, sy);
+        let edgeHit = -1;
+        if (hit < 0) edgeHit = edgeHitTest(sx, sy);
+        if (hit !== hoveredIdx || edgeHit !== hoveredEdge) {
+          hoveredIdx = hit; hoveredEdge = edgeHit;
+          requestDraw();
+        }
+        if (hit >= 0) {
+          canvas.style.cursor = 'pointer';
+          showTooltip(nodes[hit], sx, sy);
+        } else if (edgeHit >= 0) {
+          canvas.style.cursor = 'pointer';
+          const ed = edges[edgeHit];
+          showEdgeTooltip(nodes[ed[0]], nodes[ed[1]], sx, sy);
+        } else {
+          canvas.style.cursor = '';
+          tooltip.setAttribute('hidden', '');
+        }
+      }
+
+      // Mouse
+      canvas.addEventListener('mousedown', (e) => onPointerDown(e.clientX, e.clientY));
+      window.addEventListener('mouseup', (e) => { if (isPanning) onPointerUp(e.clientX, e.clientY, false); });
+      canvas.addEventListener('mousemove', (e) => onPointerMove(e.clientX, e.clientY));
+      canvas.addEventListener('mouseleave', () => {
+        if (hoveredIdx !== -1 || hoveredEdge !== -1) { hoveredIdx = -1; hoveredEdge = -1; requestDraw(); }
+        tooltip.setAttribute('hidden', '');
+      });
+      canvas.addEventListener('wheel', (e) => {
+        e.preventDefault();
+        const rect = canvas.getBoundingClientRect();
+        const sx = e.clientX - rect.left;
+        const sy = e.clientY - rect.top;
+        const factor = e.deltaY < 0 ? 1.15 : 1 / 1.15;
+        zoomAt(sx, sy, factor);
+      }, { passive: false });
+      canvas.addEventListener('dblclick', (e) => {
+        const rect = canvas.getBoundingClientRect();
+        const hit = hitTest(e.clientX - rect.left, e.clientY - rect.top);
+        if (hit >= 0 && nodes[hit].id !== focalId) {
+          window.location.href = `/${TYPE_DIRS[nodes[hit].type] || 'pages'}/${nodes[hit].id}/`;
+        }
+      });
+
+      // Touch — pan, pinch, tap, double-tap. touch-action: none in CSS
+      // prevents the browser from scroll-jacking on canvas drags.
+      canvas.addEventListener('touchstart', (e) => {
+        if (e.touches.length === 1) {
+          const t = e.touches[0];
+          onPointerDown(t.clientX, t.clientY);
+        } else if (e.touches.length === 2) {
+          isPanning = false;
+          const a = e.touches[0], b = e.touches[1];
+          const dx = b.clientX - a.clientX, dy = b.clientY - a.clientY;
+          const dist = Math.hypot(dx, dy);
+          const rect = canvas.getBoundingClientRect();
+          pinchStart = {
+            dist,
+            scale: view.scale,
+            tx: view.tx, ty: view.ty,
+            midX: (a.clientX + b.clientX) / 2 - rect.left,
+            midY: (a.clientY + b.clientY) / 2 - rect.top,
+          };
+        }
+        e.preventDefault();
+      }, { passive: false });
+      canvas.addEventListener('touchmove', (e) => {
+        if (e.touches.length === 2 && pinchStart) {
+          const a = e.touches[0], b = e.touches[1];
+          const dx = b.clientX - a.clientX, dy = b.clientY - a.clientY;
+          const dist = Math.hypot(dx, dy);
+          const ratio = dist / (pinchStart.dist || 1);
+          const newScale = Math.max(0.05, Math.min(20, pinchStart.scale * ratio));
+          // Zoom around pinch midpoint
+          const r = newScale / pinchStart.scale;
+          view.scale = newScale;
+          view.tx = pinchStart.midX - (pinchStart.midX - pinchStart.tx) * r;
+          view.ty = pinchStart.midY - (pinchStart.midY - pinchStart.ty) * r;
+          requestDraw();
+        } else if (e.touches.length === 1) {
+          const t = e.touches[0];
+          onPointerMove(t.clientX, t.clientY);
+        }
+        e.preventDefault();
+      }, { passive: false });
+      canvas.addEventListener('touchend', (e) => {
+        if (pinchStart && e.touches.length < 2) {
+          pinchStart = null;
+        }
+        if (e.changedTouches.length === 1 && e.touches.length === 0) {
+          const t = e.changedTouches[0];
+          onPointerUp(t.clientX, t.clientY, true);
+        }
+      });
+      canvas.addEventListener('touchcancel', () => {
+        isPanning = false; pinchStart = null; downAt = null;
+      });
+
+      function zoomAt(sx, sy, factor) {
+        const newScale = Math.max(0.05, Math.min(20, view.scale * factor));
+        const ratio = newScale / view.scale;
+        view.tx = sx - (sx - view.tx) * ratio;
+        view.ty = sy - (sy - view.ty) * ratio;
+        view.scale = newScale;
+        requestDraw();
+        tooltip.setAttribute('hidden', '');
+      }
+
+      // Controls
+      const twohopBtn = section.querySelector('.net-twohop');
+      twohopBtn.addEventListener('click', () => {
+        twoHop = !twoHop;
+        twohopBtn.setAttribute('aria-pressed', twoHop ? 'true' : 'false');
+        twohopBtn.textContent = twoHop ? '− 2‑hop' : '+ 2‑hop';
+        // Rebuild local neighborhood at new depth, preserving selection
+        // when possible.
+        const prevSelectedIds = new Set([...selectedNodes].map((i) => nodes[i].id));
+        selectedNodes.clear();
+        selectedEdges.clear();
+        buildNeighborhood();
+        for (let i = 0; i < nodes.length; i++) {
+          if (prevSelectedIds.has(nodes[i].id)) selectedNodes.add(i);
+        }
+        recomputeFocus();
+        updateSelectionPanel();
+        applyLayout();
+      });
+
+      const layoutBtn = section.querySelector('.net-layout');
+      let layoutIdx = 0;
+      layoutBtn.addEventListener('click', () => {
+        layoutIdx = (layoutIdx + 1) % LAYOUTS.length;
+        currentLayout = LAYOUTS[layoutIdx].key;
+        layoutBtn.textContent = `Layout: ${LAYOUTS[layoutIdx].label}`;
+        applyLayout();
+        updateForceSliderVisibility();
+      });
+
+      section.querySelector('.net-fit').addEventListener('click', () => {
+        fitToCanvas(); requestDraw();
+      });
+
+      const edgesBtn = section.querySelector('.net-edges');
+      edgesBtn.addEventListener('click', () => {
+        edgesVisible = !edgesVisible;
+        edgesBtn.setAttribute('aria-pressed', edgesVisible ? 'true' : 'false');
+        edgesBtn.textContent = edgesVisible ? 'Hide edges' : 'Show edges';
+        requestDraw();
+      });
+
+      const implicitBtn = section.querySelector('.net-implicit');
+      implicitBtn.addEventListener('click', () => {
+        showImplicit = !showImplicit;
+        implicitBtn.setAttribute('aria-pressed', showImplicit ? 'true' : 'false');
+        implicitBtn.textContent = showImplicit ? '− Inferred' : '+ Inferred';
+        requestDraw();
+      });
+
+      const multiBtn = section.querySelector('.net-multi');
+      multiBtn.addEventListener('click', () => {
+        multiMode = !multiMode;
+        multiBtn.setAttribute('aria-pressed', multiMode ? 'true' : 'false');
+        multiBtn.textContent = multiMode ? 'Multi: on' : 'Multi: off';
+      });
+
+      const fullscreenBtn = section.querySelector('.net-fullscreen');
+      fullscreenBtn.addEventListener('click', () => {
+        const on = section.classList.toggle('fullscreen');
+        fullscreenBtn.setAttribute('aria-pressed', on ? 'true' : 'false');
+        fullscreenBtn.textContent = on ? 'Exit' : 'Fullscreen';
+        document.body.classList.toggle('net-fullscreen-active', on);
+        requestAnimationFrame(() => { resizeCanvas(); fitToCanvas(); requestDraw(); });
+      });
+      document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape' && section.classList.contains('fullscreen')) {
+          section.classList.remove('fullscreen');
+          fullscreenBtn.setAttribute('aria-pressed', 'false');
+          fullscreenBtn.textContent = 'Fullscreen';
+          document.body.classList.remove('net-fullscreen-active');
+          requestAnimationFrame(() => { resizeCanvas(); fitToCanvas(); requestDraw(); });
+        }
+      });
+
+      // Drawer toggles (controls + sliders)
+      section.querySelectorAll('.net-drawer-toggle').forEach((toggle) => {
+        toggle.addEventListener('click', () => {
+          const drawer = toggle.closest('.net-drawer');
+          const collapsed = drawer.classList.toggle('collapsed');
+          toggle.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
+        });
+      });
+
+      // Sliders
+      section.querySelectorAll('.net-slider-input').forEach((input) => {
+        const key = input.dataset.slider;
+        const valEl = section.querySelector(`[data-slider-val="${key}"]`);
+        input.addEventListener('input', () => {
+          const pct = parseInt(input.value, 10);
+          valEl.textContent = pct + '%';
+          if (key === 'opacity') {
+            opacityMult = pct / 100;
+            requestDraw();
+          } else if (key === 'highlight') {
+            highlightStrength = pct / 100;
+            requestDraw();
+          } else if (key === 'force') {
+            // Scale cached positions around model origin (focal sits
+            // there, so this naturally pulls neighbors in/out from the
+            // focal). View stays fitted since we re-fit.
+            const newMult = pct / 100;
+            if (currentLayout === 'force' && cachedForcePositions) {
+              for (let i = 0; i < nodes.length; i++) {
+                nodes[i].x = cachedForcePositions[i][0] * newMult;
+                nodes[i].y = cachedForcePositions[i][1] * newMult;
+              }
+              fitToCanvas();
+              requestDraw();
+            }
+            forceMult = newMult;
+          }
+        });
+      });
+      // Force slider is only meaningful in Force layout; hide otherwise.
+      function updateForceSliderVisibility() {
+        const el = section.querySelector('[data-force-only]');
+        if (el) el.style.display = currentLayout === 'force' ? '' : 'none';
+      }
+      updateForceSliderVisibility();
+
+      // Selection panel buttons
+      panel.querySelector('.gs-deselect').addEventListener('click', () => {
+        selectedNodes.clear(); selectedEdges.clear();
+        recomputeFocus(); updateSelectionPanel(); requestDraw();
+      });
+    }
+
+    function handleClick(clientX, clientY, additive) {
+      const rect = canvas.getBoundingClientRect();
+      const sx = clientX - rect.left;
+      const sy = clientY - rect.top;
+      const hit = hitTest(sx, sy);
+      const useAdditive = additive || multiMode;
+      if (hit < 0) {
+        const edgeHit = edgeHitTest(sx, sy);
+        if (edgeHit >= 0) {
+          if (useAdditive) {
+            if (selectedEdges.has(edgeHit)) selectedEdges.delete(edgeHit);
+            else selectedEdges.add(edgeHit);
+          } else {
+            selectedNodes.clear(); selectedEdges.clear();
+            selectedEdges.add(edgeHit);
+          }
+          recomputeFocus(); updateSelectionPanel(); requestDraw();
+          return;
+        }
+        if (!useAdditive && (selectedNodes.size > 0 || selectedEdges.size > 0)) {
+          selectedNodes.clear(); selectedEdges.clear();
+          recomputeFocus(); updateSelectionPanel(); requestDraw();
+        }
+        return;
+      }
+      if (useAdditive) {
+        if (selectedNodes.has(hit)) selectedNodes.delete(hit);
+        else selectedNodes.add(hit);
+      } else {
+        const wasOnly = selectedNodes.size === 1 && selectedEdges.size === 0 && selectedNodes.has(hit);
+        selectedNodes.clear(); selectedEdges.clear();
+        if (!wasOnly) selectedNodes.add(hit);
+      }
+      recomputeFocus(); updateSelectionPanel(); requestDraw();
+    }
+
+    function updateSelectionPanel() {
+      const goB = panel.querySelector('.gs-go-b');
+      if (goB) goB.setAttribute('hidden', '');
+      const go = panel.querySelector('.gs-go');
+      go.textContent = 'Go to page →';
+      go.removeAttribute('hidden');
+      panel.querySelector('.gs-meta')?.classList?.remove?.('hidden-meta');
+      panel.querySelector('.gs-summary')?.setAttribute('hidden', '');
+
+      const nc = selectedNodes.size, ec = selectedEdges.size;
+      if (nc + ec === 0) { panel.setAttribute('hidden', ''); return; }
+
+      if (nc + ec === 1 && ec === 1) {
+        const k = selectedEdges.values().next().value;
+        const e = edges[k];
+        const a = nodes[e[0]], b = nodes[e[1]];
+        panel.querySelector('.gs-eyebrow').textContent = 'Connection';
+        panel.querySelector('.gs-eyebrow').className = 'gs-eyebrow';
+        panel.querySelector('.gs-title').textContent = `${a.title} ↔ ${b.title}`;
+        panel.querySelector('.gs-count').textContent = '';
+        panel.querySelector('.gs-meta')?.classList?.add?.('hidden-meta');
+        panel.querySelector('.gs-bridge').setAttribute('hidden', '');
+        go.href = `/${TYPE_DIRS[a.type] || 'pages'}/${a.id}/`;
+        go.textContent = `Go to ${a.title} →`;
+        let goB2 = panel.querySelector('.gs-go-b');
+        if (!goB2) {
+          goB2 = document.createElement('a');
+          goB2.className = 'gs-go gs-go-b';
+          go.parentNode.insertBefore(goB2, go.nextSibling);
+        }
+        goB2.href = `/${TYPE_DIRS[b.type] || 'pages'}/${b.id}/`;
+        goB2.textContent = `Go to ${b.title} →`;
+        goB2.removeAttribute('hidden');
+        panel.removeAttribute('hidden');
+        return;
+      }
+      if (nc + ec === 1 && nc === 1) {
+        const i = selectedNodes.values().next().value;
+        const n = nodes[i];
+        panel.querySelector('.gs-eyebrow').textContent = TYPE_LABELS[n.type] || '';
+        panel.querySelector('.gs-eyebrow').className = `gs-eyebrow type-${n.type}`;
+        panel.querySelector('.gs-title').textContent = n.title;
+        panel.querySelector('.gs-count').textContent = n.count.toLocaleString();
+        const br = panel.querySelector('.gs-bridge');
+        if (n.bridgeRank) {
+          panel.querySelector('.gs-bridge-rank').textContent = '#' + n.bridgeRank;
+          br.removeAttribute('hidden');
+        } else br.setAttribute('hidden', '');
+        if (n.isFocal) {
+          go.setAttribute('hidden', '');
+        } else {
+          go.href = `/${TYPE_DIRS[n.type] || 'pages'}/${n.id}/`;
+        }
+        panel.removeAttribute('hidden');
+        return;
+      }
+
+      // Multi
+      function nodeLink(n) {
+        const href = `/${TYPE_DIRS[n.type] || 'pages'}/${n.id}/`;
+        return `<a href="${href}" class="gs-summary-link type-${n.type}">${escapeHtml(n.title)}</a>`;
+      }
+      const pieces = [];
+      for (const i of selectedNodes) pieces.push(nodeLink(nodes[i]));
+      for (const k of selectedEdges) {
+        const e = edges[k];
+        pieces.push(`${nodeLink(nodes[e[0]])}<span class="gs-summary-link-sep">↔</span>${nodeLink(nodes[e[1]])}`);
+      }
+      const MAX = 8;
+      let html = pieces.slice(0, MAX).join(', ');
+      if (pieces.length > MAX) html += `<span class="gs-summary-more">, +${pieces.length - MAX} more</span>`;
+      panel.querySelector('.gs-eyebrow').textContent = 'Multi-select';
+      panel.querySelector('.gs-eyebrow').className = 'gs-eyebrow';
+      const parts = [];
+      if (nc) parts.push(`${nc} ${nc === 1 ? 'entity' : 'entities'}`);
+      if (ec) parts.push(`${ec} ${ec === 1 ? 'connection' : 'connections'}`);
+      panel.querySelector('.gs-title').textContent = parts.join(' · ');
+      panel.querySelector('.gs-count').textContent = '';
+      panel.querySelector('.gs-meta')?.classList?.add?.('hidden-meta');
+      panel.querySelector('.gs-bridge').setAttribute('hidden', '');
+      const sum = panel.querySelector('.gs-summary');
+      sum.innerHTML = html;
+      sum.removeAttribute('hidden');
+      go.setAttribute('hidden', '');
+      panel.removeAttribute('hidden');
+    }
+
+    function showTooltip(node, sx, sy) {
+      const bits = [
+        '<div class="gt-pair"><span>' + escapeHtml(node.title) + '</span></div>',
+        '<div class="gt-meta">' + escapeHtml(TYPE_LABELS[node.type] || node.type),
+        ' · ' + node.count.toLocaleString() + ' mentions',
+        node.bridgeRank ? ' · bridge #' + node.bridgeRank : '',
+        '</div>',
+      ];
+      tooltip.innerHTML = bits.join('');
+      tooltip.removeAttribute('hidden');
+      const sr = shell.getBoundingClientRect();
+      const maxX = sr.width - tooltip.offsetWidth - 8;
+      tooltip.style.left = Math.min(Math.max(8, sx + 14), maxX) + 'px';
+      tooltip.style.top = Math.max(8, sy - tooltip.offsetHeight - 10) + 'px';
+    }
+    function showEdgeTooltip(a, b, sx, sy) {
+      tooltip.innerHTML =
+        '<div class="gt-pair"><span>' + escapeHtml(a.title) + '</span> ' +
+        '<span class="gt-link">&mdash;</span> <span>' + escapeHtml(b.title) + '</span></div>' +
+        '<div class="gt-meta">connection · click to pin</div>';
+      tooltip.removeAttribute('hidden');
+      const sr = shell.getBoundingClientRect();
+      const maxX = sr.width - tooltip.offsetWidth - 8;
+      tooltip.style.left = Math.min(Math.max(8, sx + 14), maxX) + 'px';
+      tooltip.style.top = Math.max(8, sy - tooltip.offsetHeight - 10) + 'px';
+    }
+  })();
+</script>

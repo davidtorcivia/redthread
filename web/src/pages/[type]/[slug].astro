@@ -1,8 +1,8 @@
 ---
 import Base from '../../layouts/Base.astro';
 import Backlinks from '../../components/Backlinks.astro';
-import Graph from '../../components/Graph.astro';
 import HiddenConnections from '../../components/HiddenConnections.astro';
+import NetworkGraph from '../../components/NetworkGraph.astro';
 import PathWidget from '../../components/PathWidget.astro';
 import RelatedGrid from '../../components/RelatedGrid.astro';
 import TableOfContents from '../../components/TableOfContents.astro';
@@ -176,7 +176,7 @@ const ogType = entity.type === 'person' ? 'profile' : 'article';
 
     <PathWidget fromId={entity.id} fromTitle={entity.title} />
 
-    <Graph id={entity.id} title={entity.title} />
+    <NetworkGraph id={entity.id} title={entity.title} />
 
     <Backlinks id={entity.id} />
   </article>

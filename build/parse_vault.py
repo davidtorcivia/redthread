@@ -1151,13 +1151,13 @@ def write_outputs(out_dir: Path, entities: list[dict[str, Any]],
             encoding="utf-8",
         )
 
-    # Per-entity neighborhood data: lazy-loaded by the graph widget on each
-    # entity page. One small JSON per entity beats one 10MB monolith because
-    # the graph only renders for users who scroll to it.
+    # Per-entity neighborhood JSONs are no longer emitted — NetworkGraph
+    # BFS-walks the shared adjacency.json client-side. If `neighborhoods`
+    # is passed (e.g. by an old caller), still write them; otherwise
+    # actively clean up any stale dir from a prior build.
+    ng_dir = out_dir / "api" / "neighborhood"
     if neighborhoods is not None:
-        ng_dir = out_dir / "api" / "neighborhood"
         ng_dir.mkdir(parents=True, exist_ok=True)
-        # Clean stale files so removed entities don't leave behind ghosts
         for old in ng_dir.glob("*.json"):
             if old.stem not in neighborhoods:
                 old.unlink()
@@ -1166,6 +1166,10 @@ def write_outputs(out_dir: Path, entities: list[dict[str, Any]],
                 json.dumps(data, ensure_ascii=False, separators=(",", ":"), default=_json_default),
                 encoding="utf-8",
             )
+    elif ng_dir.exists():
+        # Wipe leftovers from prior parser versions.
+        import shutil
+        shutil.rmtree(ng_dir, ignore_errors=True)
 
 
 # ---------- main ----------
@@ -1312,8 +1316,12 @@ def main() -> int:
         "parse_seconds": round(time.time() - t0, 2),
     }
 
-    neighborhoods = build_neighborhoods(entities, edges)
-    write_outputs(args.out, entities, slug_index, edges, stats, related, neighborhoods, adjacency)
+    # Per-entity neighborhood JSONs were emitted in an earlier iteration
+    # for the Cytoscape-based Graph component. That's been replaced by
+    # NetworkGraph, which BFS-walks the shared adjacency.json client-side
+    # — no per-entity files needed. Pass None so write_outputs skips
+    # generating them.
+    write_outputs(args.out, entities, slug_index, edges, stats, related, None, adjacency)
 
     print(f"[done] {len(entities)} entities, {len(edges)} edges "
           f"({stats['resolved_edges']} resolved, {stats['unresolved_edges']} unresolved) "
