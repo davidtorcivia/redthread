@@ -2,37 +2,25 @@
 #
 #   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
 #
-# Adds:
-#   • restart: unless-stopped on the web container so it survives reboots
-#   • Cloudflare Tunnel sidecar exposing the site without opening a host
-#     port. The web container binds only to the internal compose network;
-#     cloudflared reaches it at http://web:80 and Cloudflare routes your
-#     public hostname to it via your Zero Trust tunnel config.
+# Differences from the base:
+#   • restart: unless-stopped so the container survives reboots
+#   • Host port bound to 127.0.0.1 instead of 0.0.0.0 — the site is
+#     only reachable through whatever you have fronting it on this
+#     host (your existing cloudflared, nginx, Caddy, etc.). Public
+#     interfaces stay closed.
+#   • Port number comes from $PORT in your .env file (default 8080)
+#     so you can point cloudflared at whatever port you've designated.
 #
-# Configure your tunnel:
-#   1. Zero Trust dashboard → Access → Tunnels → Create a tunnel
-#   2. Copy the tunnel token
-#   3. On the server, write `.env` next to this file:
-#        CLOUDFLARE_TUNNEL_TOKEN=eyJh...
-#   4. In the dashboard, add a public hostname for the tunnel routing
-#      your domain → http://web:80
+# .env in this directory (next to the compose files), 600 / gitignored:
 #
-# .env should be 600 / gitignored. The token is the entire auth for the
-# tunnel; treat it like a password.
+#   PORT=8080
+#
+# Then in your cloudflared config / Zero Trust tunnel:
+#
+#   public hostname: your.domain.com → http://localhost:8080
 
 services:
   web:
     restart: unless-stopped
-    # Drop the host port binding from the base compose file — only the
-    # cloudflared sidecar talks to web, over the internal compose network.
-    ports: !reset []
-
-  cloudflared:
-    image: cloudflare/cloudflared:latest
-    container_name: info-web-tunnel
-    restart: unless-stopped
-    command: tunnel --no-autoupdate run --token ${CLOUDFLARE_TUNNEL_TOKEN}
-    depends_on:
-      web:
-        condition: service_healthy
-    # No published ports — outbound-only connection to Cloudflare's edge.
+    ports: !reset
+      - "127.0.0.1:${PORT:-8080}:80"

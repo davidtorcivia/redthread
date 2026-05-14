@@ -134,50 +134,44 @@ pip install -r redthread/build/requirements.txt
 cd redthread
 SITE_URL=https://your.domain.com VAULT_PATH=/srv/info-web/vault ./build.sh
 
-# Production compose: localhost-only binding + Cloudflare Tunnel sidecar
-echo 'CLOUDFLARE_TUNNEL_TOKEN=eyJh...' > .env
+# Production compose: localhost-only binding on a configurable port
+echo 'PORT=8080' > .env
 chmod 600 .env
 docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
 
-# Verify locally (the web container; Cloudflare routes the public domain)
-docker compose exec cloudflared cloudflared tunnel info
+# Verify locally
+curl -I http://127.0.0.1:8080/
 ```
 
 `SITE_URL` matters: it's baked into the canonical URLs, Open Graph
 tags, sitemap.xml, and robots.txt.
 
-### Exposing via Cloudflare Tunnel
+### Exposing the site (Cloudflare Tunnel, reverse proxy, etc.)
 
-`docker-compose.prod.yml` runs a `cloudflared` sidecar that holds an
-outbound connection to Cloudflare's edge. **No host port is exposed.**
+The prod overlay binds the container to **`127.0.0.1:$PORT`** —
+public network interfaces stay closed. Point whatever you use to
+front the server at that port.
 
-Setup:
+Cloudflare Tunnel (the common case here):
 
-1. **Zero Trust dashboard → Access → Tunnels → Create a tunnel.** Name
-   it whatever you like. Copy the tunnel token Cloudflare gives you.
-2. In the same tunnel config, add a **public hostname**:
-   `your.domain.com → http://web:80` (yes, the literal Docker service
-   name — cloudflared resolves it via the internal compose network).
-3. On the server, drop the token in `_web/.env`:
+1. In your existing `cloudflared` config or the Zero Trust dashboard,
+   add a public hostname routing `your.domain.com → http://localhost:8080`
+   (substitute whatever `PORT` value you set).
+2. Confirm the tunnel is healthy in the dashboard.
+3. Hit the domain — should land on the homepage.
 
-   ```
-   CLOUDFLARE_TUNNEL_TOKEN=eyJhbGciOiJIUzI1NiI...
-   ```
+Other fronts (Caddy, nginx-proxy, Traefik, plain SSH tunnel) work the
+same way: point them at `127.0.0.1:$PORT`.
 
-   `.env` is gitignored; treat the token like a password.
-4. Start with both compose files:
+To change the port without rebuilding, edit `.env` and rerun:
 
-   ```bash
-   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
-   ```
-
-5. Verify in the Cloudflare dashboard that the tunnel shows as
-   **Healthy**. Hit your domain — should land on the homepage.
+```bash
+docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+```
 
 The base `docker-compose.yml` is still the dev/local mode (binds
-`0.0.0.0:8080`). The prod overlay drops the host port binding entirely
-so the only path in is through Cloudflare. Restart-on-failure is set
-on both containers.
+`0.0.0.0:8080` on all interfaces). The prod overlay restricts that
+to loopback only and adds `restart: unless-stopped`.
 
 ### Auto-rebuild on vault push
 
