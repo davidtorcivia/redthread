@@ -270,6 +270,43 @@ redthread/
 └── config.example.json
 ```
 
+## Security
+
+The build is hardened against supply-chain attacks that come in via
+freshly-published malicious releases on npm or PyPI (a recurring
+pattern: maintainer account compromised → bad version published →
+downstream installs pull it within hours).
+
+Defenses, in layers:
+
+- **Pinned manifests.** `build/requirements.txt` uses `==` exact
+  versions, not `>=`. `web/package.json` is paired with a committed
+  `package-lock.json`.
+- **Strict lockfile install.** The Dockerfile runs `npm ci`, which
+  fails the build if `package-lock.json` is missing, out of sync, or
+  references unexpected versions. No silent upgrades.
+- **7-day release-age gate.** `renovate.json` sets `minimumReleaseAge:
+  "7 days"` for every ecosystem. Renovate will not open an update PR
+  until a version has been public for at least a week — long enough
+  that compromised releases are usually yanked or flagged before they
+  can land in this repo. Astro itself is held back 14 days.
+- **No npm audit telemetry during build.** `npm ci --no-audit
+  --no-fund` skips the registry round-trips that aren't needed inside
+  a sealed build.
+- **Vulnerability alerts bypass the age gate.** Renovate's
+  `vulnerabilityAlerts` block lets security-critical patches through
+  without the 7-day wait.
+
+What this does *not* defend against: a malicious version that's been
+public for longer than 7 days without being caught, or a compromise of
+an already-pinned version's tarball on the registry. For higher
+assurance, mirror dependencies to a private registry / Verdaccio /
+JFrog and build from there.
+
+Found something? Open an issue on
+[the repo](https://github.com/davidtorcivia/redthread/issues) or
+email the address in `git log`.
+
 ## License
 
 MIT — see [LICENSE](LICENSE). The build pipeline is open; the vault

@@ -1,5 +1,9 @@
-pyyaml>=6.0
-markdown-it-py>=3.0
-python-frontmatter>=1.1
-networkx>=3.2
-numpy>=1.26
+# Pinned to exact versions to defend against supply-chain attacks via
+# newly-published malicious releases. Update via Renovate (see
+# renovate.json) which delays version bumps until each dep has been
+# public for at least 7 days.
+pyyaml==6.0.2
+markdown-it-py==3.0.0
+python-frontmatter==1.1.0
+networkx==3.4.2
+numpy==2.2.4

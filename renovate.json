@@ -1,0 +1,46 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["config:recommended"],
+
+  "//": "Supply-chain defense: refuse to open a PR bumping any dependency unless that version has been public for at least 7 days. Window catches the typical 'maintainer account compromised, malicious release published' incident before adoption.",
+  "minimumReleaseAge": "7 days",
+
+  "//1": "Pin instead of using ranges. Lockfile + pinned manifests means every install is reproducible byte-for-byte.",
+  "rangeStrategy": "pin",
+
+  "//2": "Roll groups of related deps together so update PRs stay reviewable.",
+  "packageRules": [
+    {
+      "matchManagers": ["npm"],
+      "matchUpdateTypes": ["minor", "patch"],
+      "groupName": "npm minor + patch"
+    },
+    {
+      "matchManagers": ["pip_requirements"],
+      "matchUpdateTypes": ["minor", "patch"],
+      "groupName": "python minor + patch"
+    },
+    {
+      "matchUpdateTypes": ["major"],
+      "//": "Major bumps need a human eye on them. No grouping, no auto-merge.",
+      "automerge": false,
+      "dependencyDashboardApproval": true
+    },
+    {
+      "matchDepNames": ["astro"],
+      "//": "Astro's release cadence is fast; widen the age gate to 14 days for the framework itself.",
+      "minimumReleaseAge": "14 days"
+    }
+  ],
+
+  "//3": "Lockfile maintenance — keep transitive deps fresh-but-aged.",
+  "lockFileMaintenance": {
+    "enabled": true,
+    "schedule": ["before 5am on monday"]
+  },
+
+  "//4": "Vulnerability alerts still bypass minimumReleaseAge — security patches shouldn't wait.",
+  "vulnerabilityAlerts": {
+    "enabled": true
+  }
+}

@@ -23,8 +23,13 @@ RUN python /work/_web/build/parse_vault.py \
 FROM node:22-alpine AS web
 
 WORKDIR /app/_web/web
-COPY _web/web/package.json _web/web/package-lock.json* ./
-RUN npm ci --no-audit --no-fund 2>/dev/null || npm install --no-audit --no-fund
+COPY _web/web/package.json _web/web/package-lock.json ./
+# Strict lockfile install — `npm ci` fails the build if the lockfile is
+# missing or stale, rather than silently pulling new versions. Combined
+# with the pinned requirements.txt and renovate.json's 7-day release-age
+# minimum, this means nothing fresh from the npm/PyPI registries can
+# enter the build without an explicit, age-gated update commit.
+RUN npm ci --no-audit --no-fund
 
 COPY _web/web ./
 COPY --from=parser /work/_web/data /app/_web/data
