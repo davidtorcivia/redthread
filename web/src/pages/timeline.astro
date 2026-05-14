@@ -6,26 +6,74 @@ import {
   hrefFor,
   TYPE_LABELS,
 } from '../lib/data.ts';
-import type { Entity } from '../lib/types.ts';
+import type { Entity, EntityType } from '../lib/types.ts';
 
-// Bucket by decade. Sparse data renders as wide gaps; that's honest.
+// Bucket by decade, then by year within the decade. Sparse data renders as
+// wide gaps; that's honest. Shared years collapse under a single year label.
 const dated = entitiesWithDates();
-const grouped: { decade: number; items: { entity: Entity; year: number }[] }[] = [];
-const byDecade = new Map<number, { entity: Entity; year: number }[]>();
+type Item = { entity: Entity; year: number };
+type YearGroup = { year: number; items: Item[] };
+type DecadeGroup = { decade: number; years: YearGroup[] };
+
+const byDecade = new Map<number, Map<number, Item[]>>();
 for (const e of dated) {
   const y = primaryYear(e)!;
   const dec = Math.floor(y / 10) * 10;
-  const arr = byDecade.get(dec) ?? [];
+  let years = byDecade.get(dec);
+  if (!years) {
+    years = new Map();
+    byDecade.set(dec, years);
+  }
+  const arr = years.get(y) ?? [];
   arr.push({ entity: e, year: y });
-  byDecade.set(dec, arr);
+  years.set(y, arr);
 }
-const decades = Array.from(byDecade.keys()).sort((a, b) => a - b);
-for (const d of decades) {
-  const items = byDecade.get(d)!.sort((a, b) => a.year - b.year || a.entity.title.localeCompare(b.entity.title));
-  grouped.push({ decade: d, items });
-}
+
+// Sort newest decade and newest year first so the timeline reads present →
+// past as the reader scrolls down. The jump nav at the top mirrors that order.
+const grouped: DecadeGroup[] = Array.from(byDecade.keys())
+  .sort((a, b) => b - a)
+  .map((dec) => {
+    const years = byDecade.get(dec)!;
+    const yearGroups: YearGroup[] = Array.from(years.keys())
+      .sort((a, b) => b - a)
+      .map((year) => ({
+        year,
+        items: years
+          .get(year)!
+          .sort((a, b) => a.entity.title.localeCompare(b.entity.title)),
+      }));
+    return { decade: dec, years: yearGroups };
+  });
+
 const total = dated.length;
-const totalAll = entitiesWithDates().length; // same; reserve for future swaps
+
+const typeCounts = new Map<EntityType, number>();
+for (const e of dated) {
+  typeCounts.set(e.type, (typeCounts.get(e.type) ?? 0) + 1);
+}
+const typesInUse: EntityType[] = Array.from(typeCounts.keys()).sort(
+  (a, b) =>
+    (typeCounts.get(b)! - typeCounts.get(a)!) ||
+    TYPE_LABELS[a].localeCompare(TYPE_LABELS[b]),
+);
+
+// Render a lifespan / span next to the title when an entity has two endpoints
+// (born/died for people, start/end for orgs/programs). A single-year `date`
+// is already covered by the year column, so we skip it.
+function yearOf(s?: string): number | null {
+  if (!s) return null;
+  const m = s.match(/^(-?\d{1,4})/);
+  return m ? parseInt(m[1], 10) : null;
+}
+function rangeFor(e: Entity): string | null {
+  // Only show a range when we have both endpoints; open-ended spans add noise.
+  const a = yearOf(e.dates.born) ?? yearOf(e.dates.start);
+  const b = yearOf(e.dates.died) ?? yearOf(e.dates.end);
+  if (a == null || b == null) return null;
+  if (a === b) return null;
+  return `${a}–${b}`;
+}
 ---
 <Base
   title="Timeline — The Info Web"
@@ -42,22 +90,112 @@ const totalAll = entitiesWithDates().length; // same; reserve for future swaps
   </header>
 
   <section class="browse-body">
-    {grouped.map((g) => (
-      <section class="tl-decade">
-        <h2 class="tl-decade-label">{g.decade}s</h2>
-        <ol class="tl-list">
-          {g.items.map((x) => (
-            <li class={`tl-item type-${x.entity.type}`}>
-              <span class="tl-year">{x.year}</span>
-              <span class="tl-type">{TYPE_LABELS[x.entity.type]}</span>
-              <a class="tl-title" href={hrefFor({ id: x.entity.id, type: x.entity.type })}>
-                {x.entity.title}
-              </a>
-              {x.entity.summary && <span class="tl-summary">{x.entity.summary}</span>}
-            </li>
+    {typesInUse.length > 1 && (
+      <div class="tl-filters" data-tl-filters>
+        <span class="tl-filters-label">Show</span>
+        <div class="tl-filters-chips">
+          {typesInUse.map((t) => (
+            <button
+              type="button"
+              class={`net-chip active type-${t}`}
+              data-tl-type={t}
+              aria-pressed="true"
+            >
+              <span class="net-chip-name">{TYPE_LABELS[t]}</span>
+              <span class="net-chip-count">{typeCounts.get(t)}</span>
+            </button>
           ))}
-        </ol>
-      </section>
-    ))}
+        </div>
+        <button
+          type="button"
+          class="net-chip tl-summary-toggle"
+          data-tl-summaries
+          aria-pressed="false"
+          title="Expand or collapse summaries"
+        >
+          Full summaries
+        </button>
+      </div>
+    )}
+
+    {grouped.length > 1 && (
+      <nav class="tl-decade-nav" aria-label="Jump to decade">
+        <span class="tl-decade-nav-label">Jump</span>
+        <ul class="tl-decade-nav-list">
+          {grouped.map((g) => (
+            <li><a href={`#d-${g.decade}`}>{g.decade}s</a></li>
+          ))}
+        </ul>
+      </nav>
+    )}
+
+    <div class="tl-body" data-tl-body>
+      {grouped.map((g) => (
+        <section class="tl-decade" id={`d-${g.decade}`}>
+          <h2 class="tl-decade-label">{g.decade}s</h2>
+          <ol class="tl-list">
+            {g.years.map((yg) => (
+              <li class="tl-year-cluster">
+                <span class="tl-year">{yg.year}</span>
+                <ul class="tl-cluster-items">
+                  {yg.items.map(({ entity }) => {
+                    const range = rangeFor(entity);
+                    return (
+                      <li class={`tl-item type-${entity.type}`} data-tl-type={entity.type}>
+                        <span class="tl-type">{TYPE_LABELS[entity.type]}</span>
+                        <div class="tl-title-row">
+                          <a class="tl-title" href={hrefFor({ id: entity.id, type: entity.type })}>
+                            {entity.title}
+                          </a>
+                          {range && <span class="tl-range">{range}</span>}
+                        </div>
+                        {entity.summary && <span class="tl-summary">{entity.summary}</span>}
+                      </li>
+                    );
+                  })}
+                </ul>
+              </li>
+            ))}
+          </ol>
+        </section>
+      ))}
+    </div>
   </section>
 </Base>
+
+<script is:inline>
+  (() => {
+    const filters = document.querySelector('[data-tl-filters]');
+    if (!filters) return;
+    const chips = filters.querySelectorAll('[data-tl-type]');
+    const items = document.querySelectorAll('.tl-item[data-tl-type]');
+    const hidden = new Set();
+    const apply = () => {
+      items.forEach((item) => {
+        item.classList.toggle('tl-hidden', hidden.has(item.dataset.tlType));
+      });
+    };
+    chips.forEach((chip) => {
+      chip.addEventListener('click', () => {
+        const t = chip.dataset.tlType;
+        const wasActive = chip.classList.contains('active');
+        chip.classList.toggle('active');
+        chip.setAttribute('aria-pressed', wasActive ? 'false' : 'true');
+        if (wasActive) hidden.add(t);
+        else hidden.delete(t);
+        apply();
+      });
+    });
+
+    const summariesBtn = document.querySelector('[data-tl-summaries]');
+    const body = document.querySelector('[data-tl-body]');
+    if (summariesBtn && body) {
+      summariesBtn.addEventListener('click', () => {
+        const wasActive = summariesBtn.classList.contains('active');
+        summariesBtn.classList.toggle('active');
+        summariesBtn.setAttribute('aria-pressed', wasActive ? 'false' : 'true');
+        body.classList.toggle('tl-summaries-full');
+      });
+    }
+  })();
+</script>

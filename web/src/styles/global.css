@@ -2158,6 +2158,12 @@ body.graph-fullscreen-active { overflow: hidden; }
 .net-chip.type-place::before       { background: var(--t-place); }
 .net-chip:not(.active) { opacity: 0.4; }
 .net-chip:hover { background: var(--card); color: var(--ink); }
+.net-chip-count {
+  font-size: 0.65rem;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  margin-left: 0.1rem;
+}
 /* Selection panel reuses .graph-selection styles via the shared class. */
 .network-article .net-selection { left: 0.6rem; bottom: 0.6rem; }
 /* Fullscreen for the network shell — same pattern as graph-section. */
@@ -2402,41 +2408,114 @@ body.net-fullscreen-active { overflow: hidden; }
   .path-widget .pw-go { width: 100%; }
 }
 
-/* Timeline — chronological grouped list. Sparse until the date backfill
-   lands; the empty-state copy on the page handles that gracefully. */
-.tl-decade { margin: 2.2rem 0; }
-.tl-decade-label {
+/* Timeline — chronological grouped list. Items sharing a year stack under
+   one year label; chips at the top filter by entity type. Sparse data renders
+   as wide gaps; the empty-state copy on the page handles a totally empty set. */
+.tl-filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 0.7rem;
+  margin: 1.4rem 0 1.4rem;
+}
+.tl-filters-label {
   font-family: var(--sans);
-  font-size: 0.78rem;
-  font-weight: 700;
+  font-size: 0.7rem;
   text-transform: uppercase;
   letter-spacing: 0.14em;
+  color: var(--muted);
+  font-weight: 700;
+}
+.tl-filters-chips { display: flex; flex-wrap: wrap; gap: 0.35rem 0.45rem; }
+.tl-summary-toggle { margin-left: auto; }
+@media (max-width: 600px) {
+  .tl-summary-toggle { margin-left: 0; }
+}
+
+/* Decade jump nav — a quick-pick strip of every decade with data, so readers
+   don't have to scroll a few centuries to land on the slice they want. */
+.tl-decade-nav {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 0.4rem 0.7rem;
+  margin: 0 0 1.6rem;
+  padding-bottom: 0.9rem;
+  border-bottom: 1px solid var(--line);
+}
+.tl-decade-nav-label {
+  font-family: var(--sans);
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  color: var(--muted);
+  font-weight: 700;
+}
+.tl-decade-nav-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.15rem 0.55rem;
+}
+.tl-decade-nav-list a {
+  font-family: var(--sans);
+  font-variant-numeric: tabular-nums;
+  font-size: 0.82rem;
+  color: var(--ink-2);
+  text-decoration: none;
+  background: none;
+  padding: 0.05rem 0.15rem;
+  border-radius: 3px;
+}
+.tl-decade-nav-list a:hover { color: var(--accent); background: var(--paper-2); }
+
+.tl-decade { margin: 2.2rem 0; scroll-margin-top: 1rem; }
+.tl-decade-label {
+  font-family: var(--sans);
+  font-size: 1.05rem;
+  font-weight: 700;
+  letter-spacing: 0.01em;
   color: var(--accent);
   margin: 0 0 0.8rem;
   padding-bottom: 0.4rem;
   border-bottom: 1px solid var(--line);
 }
 .tl-list { list-style: none; padding: 0; margin: 0; }
-.tl-item {
+.tl-year-cluster {
   display: grid;
-  grid-template-columns: 4rem auto 1fr;
-  grid-template-areas:
-    "year type    title"
-    "year .       summary";
-  align-items: baseline;
+  grid-template-columns: 4rem 1fr;
   column-gap: 0.9rem;
-  row-gap: 0.15rem;
   padding: 0.55rem 0;
   border-bottom: 1px dotted var(--line);
 }
-.tl-item:last-child { border-bottom: none; }
+.tl-year-cluster:last-child { border-bottom: none; }
 .tl-year {
-  grid-area: year;
   font-family: var(--sans);
   font-variant-numeric: tabular-nums;
   font-weight: 700;
   font-size: 0.95rem;
   color: var(--ink-2);
+  align-self: start;
+}
+.tl-cluster-items {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+.tl-item {
+  display: grid;
+  grid-template-columns: 6.5rem 1fr;
+  grid-template-areas:
+    "type  title"
+    ".     summary";
+  align-items: baseline;
+  column-gap: 0.9rem;
+  row-gap: 0.15rem;
 }
 .tl-type {
   grid-area: type;
@@ -2446,15 +2525,25 @@ body.net-fullscreen-active { overflow: hidden; }
   letter-spacing: 0.1em;
   font-weight: 600;
   color: var(--muted);
+  align-self: baseline;
+  text-align: right;
 }
-.tl-item.type-person      .tl-type { color: var(--t-person); }
+.tl-item.type-person       .tl-type { color: var(--t-person); }
 .tl-item.type-organization .tl-type { color: var(--t-organization); }
-.tl-item.type-program     .tl-type { color: var(--t-program); }
-.tl-item.type-event       .tl-type { color: var(--t-event); }
-.tl-item.type-concept     .tl-type { color: var(--t-concept); }
-.tl-item.type-place       .tl-type { color: var(--t-place); }
-.tl-title {
+.tl-item.type-program      .tl-type { color: var(--t-program); }
+.tl-item.type-event        .tl-type { color: var(--t-event); }
+.tl-item.type-concept      .tl-type { color: var(--t-concept); }
+.tl-item.type-place        .tl-type { color: var(--t-place); }
+.tl-item.type-source       .tl-type { color: var(--t-source); }
+.tl-title-row {
   grid-area: title;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  column-gap: 0.7rem;
+  row-gap: 0.1rem;
+}
+.tl-title {
   font-family: var(--serif);
   font-size: 1.02rem;
   font-weight: 600;
@@ -2462,6 +2551,13 @@ body.net-fullscreen-active { overflow: hidden; }
   background: none;
 }
 .tl-title:hover { color: var(--accent); }
+.tl-range {
+  font-family: var(--sans);
+  font-variant-numeric: tabular-nums;
+  font-size: 0.78rem;
+  color: var(--muted);
+  letter-spacing: 0.02em;
+}
 .tl-summary {
   grid-area: summary;
   font-family: var(--serif);
@@ -2469,6 +2565,26 @@ body.net-fullscreen-active { overflow: hidden; }
   color: var(--muted);
   line-height: 1.4;
   max-width: 42rem;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.tl-body.tl-summaries-full .tl-summary {
+  display: block;
+  -webkit-line-clamp: unset;
+  overflow: visible;
+  text-overflow: clip;
+}
+
+.tl-item.tl-hidden { display: none; }
+.tl-year-cluster:not(:has(.tl-item:not(.tl-hidden))) { display: none; }
+.tl-decade:not(:has(.tl-item:not(.tl-hidden))) { display: none; }
+
+@media (max-width: 600px) {
+  .tl-year-cluster { grid-template-columns: 3rem 1fr; column-gap: 0.6rem; }
+  .tl-item { grid-template-columns: 5rem 1fr; column-gap: 0.6rem; }
 }
 
 /* Tag cloud — flat grid of tag chips on /tags/, count baked in. */
