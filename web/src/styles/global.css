@@ -545,11 +545,10 @@ footer.site .to-top { font-size: 0.75rem; }
   }
 }
 
-/* Changelog page — a dense list, so it gets a slightly wider frame
-   than entity prose to give the date/type/category header line room
-   to breathe without forcing the title onto a second visual row. */
+/* Changelog page — width matches an entity page's body prose so the
+   list reads at the same scanning measure as a long-form entry. */
 .changelog-article {
-  max-width: 60rem;
+  max-width: var(--measure);
   margin: 0 auto;
   padding: 3rem 1.5rem 2rem;
 }
@@ -627,7 +626,6 @@ footer.site .to-top { font-size: 0.75rem; }
   color: var(--muted);
   line-height: 1.5;
   margin: 0.3rem 0 0;
-  max-width: 42rem;
 }
 
 /* Body prose — longform journal feel */
