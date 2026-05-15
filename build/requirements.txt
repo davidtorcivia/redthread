@@ -7,3 +7,7 @@ markdown-it-py==3.0.0
 python-frontmatter==1.1.0
 networkx==3.4.2
 numpy==2.2.4
+# networkx.spring_layout uses scipy's sparse-matrix solver under the hood.
+# Without it, spring_layout silently falls back to a grid (visible bug:
+# /network/ shows a grid no matter what the layout button claims).
+scipy==1.17.1

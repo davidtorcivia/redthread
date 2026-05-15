@@ -3,7 +3,7 @@ import Base from '../layouts/Base.astro';
 import { activity, hrefFor, renderInlineMd, TYPE_LABELS } from '../lib/data.ts';
 import type { EntityType } from '../lib/types.ts';
 
-const CHANGELOG_LIMIT = 25;
+const CHANGELOG_LIMIT = 50;
 const all = activity();
 const entries = all.slice(0, CHANGELOG_LIMIT);
 const hiddenCount = Math.max(0, all.length - entries.length);

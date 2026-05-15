@@ -545,9 +545,11 @@ footer.site .to-top { font-size: 0.75rem; }
   }
 }
 
-/* Changelog page — reuse the entity-article frame, then a tidy list. */
+/* Changelog page — a dense list, so it gets a slightly wider frame
+   than entity prose to give the date/type/category header line room
+   to breathe without forcing the title onto a second visual row. */
 .changelog-article {
-  max-width: var(--measure-wide);
+  max-width: 60rem;
   margin: 0 auto;
   padding: 3rem 1.5rem 2rem;
 }

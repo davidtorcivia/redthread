@@ -961,12 +961,11 @@ def compute_layout_positions(adjacency: dict[str, Any]) -> list[list[float]]:
             if j > i:  # undirected — add each pair once
                 g.add_edge(i, j)
 
-    # Spring layout uses numpy + scipy under the hood for the sparse-matrix
-    # solver. They're installed locally (where the canonical positions are
-    # baked into web/public/adjacency.json) but skipped in the Docker
-    # builder to keep the image lean. We fall back to a grid in that case;
-    # the local positions ship with the image either way since the COPY
-    # picks up web/public from the host.
+    # spring_layout uses scipy's sparse-matrix solver. If scipy isn't
+    # available it raises ImportError at call time and we fall back to a
+    # readable grid so the build still succeeds — but the /network/ page
+    # will visibly be a grid rather than a force layout. Keep scipy in
+    # requirements.txt.
     try:
         pos = nx.spring_layout(
             g,
