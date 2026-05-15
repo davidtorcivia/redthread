@@ -80,12 +80,16 @@ if (locations.length > 0) jsonLd.location = locations.length === 1 ? locations[0
 if (entity.tags?.length) jsonLd.keywords = entity.tags.map(String).join(', ');
 
 const ogType = entity.type === 'person' ? 'profile' : 'article';
+// Per-entity OG card path mirrors the entity page URL — easy to predict
+// and matches the route in src/pages/og/[type]/[slug].png.ts.
+const ogImage = `/og/${TYPE_DIRS[entity.type]}/${entity.id}.png`;
 ---
 <Base
   title={`${entity.title} — The Info Web`}
   description={entity.summary ?? undefined}
   bodyClass={`entity type-${entity.type}`}
   ogType={ogType}
+  ogImage={ogImage}
   jsonLd={jsonLd}
 >
   <article

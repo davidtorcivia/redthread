@@ -9,7 +9,12 @@
     "preview": "astro preview"
   },
   "dependencies": {
+    "@resvg/resvg-js": "^2.6.2",
     "astro": "^5.0.0",
-    "pagefind": "^1.5.2"
+    "pagefind": "^1.5.2",
+    "satori": "^0.26.0"
+  },
+  "devDependencies": {
+    "@types/node": "^25.8.0"
   }
 }

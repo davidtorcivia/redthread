@@ -10,6 +10,9 @@ _web/data/
 _web/web/node_modules/
 _web/web/dist/
 _web/web/.astro/
+# Design-preview output (not needed inside the image; OG cards are
+# generated at Astro build time into web/dist/og/).
+_web/web/scripts/og-preview/out/
 
 # Dev / VCS / OS
 .git/

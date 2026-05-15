@@ -10,6 +10,13 @@ interface Props {
   jsonLd?: Record<string, unknown> | null;
   /** Set true for utility pages (e.g. /random/) we don't want crawlers indexing. */
   noindex?: boolean;
+  /**
+   * Relative path of the OG image for this page (e.g. "/og/people/marc-dutroux.png").
+   * Falls back to the site-wide default card. The path is resolved against
+   * Astro.site so crawlers see an absolute URL — required by Facebook,
+   * preferred by everyone else.
+   */
+  ogImage?: string;
 }
 const {
   title,
@@ -18,6 +25,7 @@ const {
   ogType = 'website',
   jsonLd = null,
   noindex = false,
+  ogImage = '/og/site.png',
 } = Astro.props;
 
 // Canonical URL is resolved from Astro's `site` config + the current path.
@@ -26,6 +34,13 @@ const {
 const canonical = Astro.site
   ? new URL(Astro.url.pathname, Astro.site).href
   : Astro.url.pathname;
+
+// OG image absolute URL. Falls back to the relative path when site isn't
+// set (dev). Slack/Facebook require absolute URLs; Twitter accepts both
+// but normalizes anyway.
+const ogImageUrl = Astro.site
+  ? new URL(ogImage, Astro.site).href
+  : ogImage;
 
 // Optional analytics snippet. Set ANALYTICS_SRC + ANALYTICS_ID in the build
 // environment and a script tag gets injected into <head>. Defaults match
@@ -48,19 +63,27 @@ const analyticsEnabled = Boolean(analyticsSrc && analyticsId);
     <link rel="canonical" href={canonical} />
 
     {/* Open Graph — used by Slack, Discord, iMessage, Facebook, etc. when
-        a link to this page is pasted. */}
+        a link to this page is pasted. The og:image is generated at build
+        time per entity (see src/pages/og/[type]/[slug].png.ts); browse
+        pages fall through to /og/site.png. */}
     <meta property="og:site_name" content="The Info Web" />
     <meta property="og:title" content={title} />
     {description && <meta property="og:description" content={description} />}
     <meta property="og:url" content={canonical} />
     <meta property="og:type" content={ogType} />
     <meta property="og:locale" content="en_US" />
+    <meta property="og:image" content={ogImageUrl} />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content={title} />
 
-    {/* Twitter card metadata. summary (not summary_large_image) because
-        we don't currently emit per-entity OG images. */}
-    <meta name="twitter:card" content="summary" />
+    {/* Twitter card — summary_large_image because every page emits a
+        1200x630 card. */}
+    <meta name="twitter:card" content="summary_large_image" />
     <meta name="twitter:title" content={title} />
     {description && <meta name="twitter:description" content={description} />}
+    <meta name="twitter:image" content={ogImageUrl} />
+    <meta name="twitter:image:alt" content={title} />
 
     {jsonLd && (
       <script type="application/ld+json" set:html={JSON.stringify(jsonLd)} is:inline />

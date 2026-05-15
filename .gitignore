@@ -12,6 +12,14 @@ web/dist/
 web/.astro/
 web/src/content/generated/
 
+# Content-addressed OG-card cache. Persisted across builds so unchanged
+# entities don't re-render through satori+resvg. Safe to delete — next
+# build just rebuilds whatever's missing.
+web/.og-cache/
+
+# Local preview output for OG card design work.
+web/scripts/og-preview/out/
+
 # Files copied into Astro public/ by the build scripts (regenerated)
 web/public/previews.json
 web/public/adjacency.json
