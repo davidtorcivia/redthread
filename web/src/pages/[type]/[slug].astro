@@ -140,9 +140,20 @@ const ogImage = `/og/${TYPE_DIRS[entity.type]}/${entity.id}.png`;
           <a
             class="bridge-badge"
             href={`/bridges/#br-${entity.id}`}
-            title={`This entry sits on more shortest-paths through the vault than most. Network rank #${entity.bridge_rank}. Click for the full list and explanation.`}
+            title={`Bridge #${entity.bridge_rank}. This entry's neighbors span ${entity.community_span ?? 'multiple'} distinct community clusters — a low-degree connector between otherwise-separate parts of the network. Click for the full Bridges list.`}
           >
             Bridge <span class="bridge-rank">#{entity.bridge_rank}</span>
+          </a>
+        </span>
+      )}
+      {entity.hub_rank && (
+        <span class="meta-item">
+          <a
+            class="bridge-badge hub-badge"
+            href={`/bridges/#hu-${entity.id}`}
+            title={`Hub #${entity.hub_rank}. High weighted PageRank — heavily mentioned and mentioned by other heavily-mentioned entries. Click for the full Hubs list.`}
+          >
+            Hub <span class="bridge-rank">#{entity.hub_rank}</span>
           </a>
         </span>
       )}

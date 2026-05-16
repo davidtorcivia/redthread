@@ -44,10 +44,25 @@ export interface Entity {
   wikilinks: Wikilink[];
   mention_count: number;
   page_density: number;
-  /** Top-50 bridge entity by betweenness centrality. Lower rank = stronger bridge. */
+  /** Top-50 bridge entity. Bridge = neighborhood-community-span entropy
+   *  (Louvain communities). Lower rank = stronger bridge — a node whose
+   *  neighbors span many distant clusters, regardless of degree. */
   bridge_rank?: number;
-  /** Normalized betweenness centrality score in [0, 1]. Pairs with bridge_rank. */
+  /** Bridge score: H(neighbor-community-distribution) · log(1 + k). */
   bridge_score?: number;
+  /** Number of distinct Louvain communities present in the 1-hop
+   *  neighborhood. Companion to bridge_rank. */
+  community_span?: number;
+  /** Top-50 hub entity by weighted PageRank (co-occurrence-weighted).
+   *  Lower rank = stronger hub. The famous, well-evidenced central
+   *  nodes — distinct from Bridge, which is structural connectivity. */
+  hub_rank?: number;
+  /** PageRank score in roughly [0, 1] (sums to 1 across all nodes). */
+  hub_score?: number;
+  /** Louvain community id assigned to this entity. Stable within a
+   *  build given the fixed seed, but may shift between builds when the
+   *  underlying graph changes. */
+  community_id?: number;
   /**
    * Date fields populated from frontmatter when present. All values are
    * normalized to strings ("YYYY" or "YYYY-MM-DD") regardless of how

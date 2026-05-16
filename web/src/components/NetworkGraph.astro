@@ -63,6 +63,7 @@ const { id, title } = Astro.props;
       </div>
       <div class="gs-meta"><span class="gs-count"></span> mentions across the vault</div>
       <div class="gs-bridge" hidden>Bridge entity (rank <span class="gs-bridge-rank"></span>)</div>
+      <div class="gs-hub" hidden>Hub entity (rank <span class="gs-hub-rank"></span>)</div>
       <div class="gs-summary" hidden></div>
       <div class="gs-actions">
         <a class="gs-go" href="#">Go to page &rarr;</a>
@@ -289,12 +290,16 @@ const { id, title } = Astro.props;
         const br = adjacencyData.bridges?.[String(globalIdx)];
         const bridgeRank = br ? (typeof br === 'object' ? br.rank : br) : 0;
         const bridgeScore = br && typeof br === 'object' ? br.score : 0;
+        const hu = adjacencyData.hubs?.[String(globalIdx)];
+        const hubRank = hu ? (typeof hu === 'object' ? hu.rank : hu) : 0;
+        const hubScore = hu && typeof hu === 'object' ? hu.score : 0;
         nodes.push({
           id: adjacencyData.ids[globalIdx],
           title: adjacencyData.titles[globalIdx],
           type: adjacencyData.types[globalIdx],
           count: adjacencyData.mentions[globalIdx] || 0,
           bridgeRank, bridgeScore,
+          hubRank, hubScore,
           color: COLORS[adjacencyData.types[globalIdx]] || COLORS.muted,
           hop,
           globalIdx,
@@ -1194,6 +1199,7 @@ const { id, title } = Astro.props;
         panel.querySelector('.gs-count').textContent = '';
         panel.querySelector('.gs-meta')?.classList?.add?.('hidden-meta');
         panel.querySelector('.gs-bridge').setAttribute('hidden', '');
+      panel.querySelector('.gs-hub').setAttribute('hidden', '');
         go.href = `/${TYPE_DIRS[a.type] || 'pages'}/${a.id}/`;
         go.textContent = `Go to ${a.title} →`;
         let goB2 = panel.querySelector('.gs-go-b');
@@ -1220,6 +1226,11 @@ const { id, title } = Astro.props;
           panel.querySelector('.gs-bridge-rank').textContent = '#' + n.bridgeRank;
           br.removeAttribute('hidden');
         } else br.setAttribute('hidden', '');
+        const hu = panel.querySelector('.gs-hub');
+        if (n.hubRank) {
+          panel.querySelector('.gs-hub-rank').textContent = '#' + n.hubRank;
+          hu.removeAttribute('hidden');
+        } else hu.setAttribute('hidden', '');
         if (n.isFocal) {
           go.setAttribute('hidden', '');
         } else {
@@ -1252,6 +1263,7 @@ const { id, title } = Astro.props;
       panel.querySelector('.gs-count').textContent = '';
       panel.querySelector('.gs-meta')?.classList?.add?.('hidden-meta');
       panel.querySelector('.gs-bridge').setAttribute('hidden', '');
+      panel.querySelector('.gs-hub').setAttribute('hidden', '');
       const sum = panel.querySelector('.gs-summary');
       sum.innerHTML = html;
       sum.removeAttribute('hidden');
@@ -1265,6 +1277,7 @@ const { id, title } = Astro.props;
         '<div class="gt-meta">' + escapeHtml(TYPE_LABELS[node.type] || node.type),
         ' · ' + node.count.toLocaleString() + ' mentions',
         node.bridgeRank ? ' · bridge #' + node.bridgeRank : '',
+        node.hubRank ? ' · hub #' + node.hubRank : '',
         '</div>',
       ];
       tooltip.innerHTML = bits.join('');

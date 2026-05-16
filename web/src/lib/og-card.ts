@@ -151,6 +151,7 @@ export interface CardInput {
   tags: string[];
   mention_count: number;
   bridge_rank?: number;
+  hub_rank?: number;
 }
 
 export function cardInputs(entity: Entity): CardInput {
@@ -170,6 +171,7 @@ export function cardInputs(entity: Entity): CardInput {
     tags: (entity.tags ?? []).slice(0, 3),
     mention_count: entity.mention_count ?? 0,
     bridge_rank: entity.bridge_rank,
+    hub_rank: entity.hub_rank,
   };
 }
 
@@ -268,6 +270,7 @@ export function renderCard(entity: CardInput): Node {
           locations.length > 0 ? MetaChip('Location', locations.slice(0, 2).join(', ')) : null,
           entity.mention_count > 0 ? MetaChip('Mentions', String(entity.mention_count)) : null,
           entity.bridge_rank ? MetaChip('Bridge', `#${entity.bridge_rank}`, COLORS.accent) : null,
+          entity.hub_rank ? MetaChip('Hub', `#${entity.hub_rank}`, COLORS.accent) : null,
           tags.length > 0 ? MetaChip('Tags', tags.slice(0, 3).map(prettyTag).join(' · ')) : null,
         ),
 

@@ -853,13 +853,12 @@ def build_adjacency(
             if (i, j) not in explicit_pairs:
                 implicit_only_pairs.append([i, j])
 
-    # Bridge ranks are sparse (only top 50 set) — emit as a dict keyed by
-    # node index. Keeps the JSON small even when bridges grow.
-    bridges = {
-        str(i): e["bridge_rank"]
-        for i, e in enumerate(entities)
-        if e.get("bridge_rank")
-    }
+    # Bridge + Hub ranks are sparse (only top 50 each). Emit as dicts
+    # keyed by node index; the runtime population happens in main()
+    # after this initial build_adjacency call, so leave them empty here
+    # and the re-emit at the end of main() fills them in.
+    bridges: dict[str, Any] = {}
+    hubs: dict[str, Any] = {}
 
     return {
         "ids": ids,
@@ -868,65 +867,216 @@ def build_adjacency(
         "adj": adj,
         "mentions": mentions,
         "bridges": bridges,
+        "hubs": hubs,
         "implicitPairs": implicit_only_pairs,
     }
 
 
-def compute_betweenness(adj: list[list[int]]) -> list[float]:
-    """Brandes' algorithm for unweighted-graph betweenness centrality.
+def _pair_weights(
+    entities: list[dict[str, Any]],
+    edges: list[dict[str, Any]],
+) -> dict[tuple[str, str], int]:
+    """Aggregate per-pair undirected edge weight: how many times each pair
+    co-occurs across the vault. Explicit wikilinks count once per edge
+    (each is one authored mention); implicit NER edges already carry a
+    `count` field for repeated surface-form hits on a page.
 
-    Returns a list parallel to `adj` with per-node bridge scores in
-    [0, 1] (normalized for undirected graphs).
-
-    Complexity: O(V * (V + E)). For this vault (~1,811 nodes, ~28k
-    edges) that's about 50M operations — runs in roughly 20 seconds
-    in pure Python on a modern laptop. Acceptable for a once-per-build
-    pass; we'd switch to sampling if the vault grew an order of
-    magnitude.
+    Used by both the Hub (PageRank) and Bridge (community-entropy) scoring
+    so the two metrics see the same underlying graph weighting.
     """
-    n = len(adj)
-    cb = [0.0] * n
-    if n < 3:
-        return cb
+    valid: set[str] = {e["id"] for e in entities}
+    pair_w: dict[tuple[str, str], int] = defaultdict(int)
+    for edge in edges:
+        s = edge.get("source")
+        t = edge.get("target_id")
+        if not s or not t or s == t:
+            continue
+        if s not in valid or t not in valid:
+            continue
+        kind = edge.get("kind", "explicit")
+        w = edge.get("count", 1) if kind == "implicit" else 1
+        a, b = (s, t) if s < t else (t, s)
+        pair_w[(a, b)] += w
+    return pair_w
 
-    from collections import deque
 
-    for s in range(n):
-        # Single-source BFS, tracking predecessor DAG + shortest-path counts.
-        stack: list[int] = []
-        pred: list[list[int]] = [[] for _ in range(n)]
-        sigma = [0] * n
-        sigma[s] = 1
-        dist = [-1] * n
-        dist[s] = 0
-        queue = deque([s])
-        while queue:
-            v = queue.popleft()
-            stack.append(v)
-            dv = dist[v]
-            sv = sigma[v]
-            for w in adj[v]:
-                if dist[w] < 0:
-                    queue.append(w)
-                    dist[w] = dv + 1
-                if dist[w] == dv + 1:
-                    sigma[w] += sv
-                    pred[w].append(v)
-        # Back-accumulate dependency scores.
-        delta = [0.0] * n
-        while stack:
-            w = stack.pop()
-            dw = delta[w]
-            sw = sigma[w]
-            for v in pred[w]:
-                delta[v] += (sigma[v] / sw) * (1.0 + dw)
-            if w != s:
-                cb[w] += delta[w]
+def _build_weighted_graph(
+    entities: list[dict[str, Any]],
+    pair_w: dict[tuple[str, str], int],
+):
+    """Construct a single weighted networkx Graph reused by Hub PageRank
+    and Bridge Louvain. Returns (graph, id_list) — id_list is parallel
+    to entity insertion order so callers can map back to entity records.
+    """
+    import networkx as nx  # noqa: WPS433
+    g = nx.Graph()
+    ids = [e["id"] for e in entities]
+    g.add_nodes_from(ids)
+    for (a, b), w in pair_w.items():
+        g.add_edge(a, b, weight=w)
+    return g, ids
 
-    # Each shortest path is counted from both endpoints in an undirected
-    # graph, so halve. Then normalize by the maximum-possible pair count.
-    scale = 1.0 / ((n - 1) * (n - 2))
-    return [c * scale for c in cb]
+
+def compute_hub_scores(
+    entities: list[dict[str, Any]],
+    pair_w: dict[tuple[str, str], int],
+    top_n: int = 50,
+) -> dict[str, dict[str, Any]]:
+    """Hub = PageRank over the co-occurrence-weighted graph.
+
+    Why PageRank instead of degree/eigenvector:
+      - Degree is too shallow — a connection to a hub counts the same as
+        one to an obscurity.
+      - Eigenvector centrality is degenerate on disconnected components
+        and on dangling 1-mention nodes; PageRank's damping (0.85) handles
+        both gracefully.
+      - Co-occurrence weighting means an entity mentioned 50× alongside
+        other heavily-mentioned entities scores higher than one
+        name-checked once on a hub's page — exactly the intuition behind
+        "famous, central, well-evidenced".
+
+    Returns {entity_id: {score, rank}} for the top_n by score.
+    """
+    if len(entities) < 3:
+        return {}
+    try:
+        import networkx as nx  # noqa: WPS433
+    except ImportError:
+        sys.stderr.write("[hubs] networkx not installed; skipping PageRank\n")
+        return {}
+    g, _ = _build_weighted_graph(entities, pair_w)
+    # damping=0.85 is the standard Brin/Page default. tol/maxiter at
+    # networkx defaults converge in well under a second at this scale.
+    pr = nx.pagerank(g, alpha=0.85, weight="weight")
+    ranked = sorted(pr.items(), key=lambda kv: -kv[1])[:top_n]
+    out: dict[str, dict[str, Any]] = {}
+    for rank, (eid, score) in enumerate(ranked, start=1):
+        if score <= 0:
+            break
+        out[eid] = {"score": score, "rank": rank}
+    return out
+
+
+def compute_bridge_scores(
+    entities: list[dict[str, Any]],
+    pair_w: dict[tuple[str, str], int],
+    top_n: int = 50,
+) -> tuple[dict[str, dict[str, Any]], dict[str, int]]:
+    """Bridge = degree-normalized neighborhood-community-span entropy.
+
+    Algorithm:
+      1. Detect communities with weighted Louvain (deterministic seed).
+      2. For each node v with neighbors N(v), degree d = |N(v)|:
+           p_c   = fraction of N(v) in community c
+           H(v)  = -Σ p_c · log(p_c)            (Shannon entropy)
+           k(v)  = |distinct communities in N(v)|
+           score = H(v) · log(1 + k(v)) / sqrt(d)
+
+    Why degree-normalize:
+      Without dividing by sqrt(d), high-degree hubs (the US, the CIA)
+      dominate the ranking because they touch every community trivially
+      — having 500 neighbors guarantees you span every cluster. That's
+      exactly the noise we're trying to demote: those entities are
+      already obvious.
+
+      sqrt(d) (rather than log(d) or d) gives the right balance:
+        - log(d) doesn't penalize hubs hard enough (US still ranks high)
+        - d penalizes too hard (a degree-2 noise node beats real bridges)
+        - sqrt(d) is the IR/TF-IDF standard for frequency normalization
+          and lands the ideal-bridge profile (mid-degree, distributed
+          neighbors across many distant communities) at the top of the
+          list — exactly the entities a researcher would otherwise miss.
+
+      The log(1 + k) factor rewards spanning MANY communities over just
+      a few, breaking ties between equal-entropy candidates.
+
+    Returns ({entity_id: {score, rank, community_id, community_span}},
+             {entity_id: community_id} for ALL nodes).
+    """
+    if len(entities) < 3:
+        return {}, {}
+    try:
+        from networkx.algorithms.community import louvain_communities
+    except ImportError:
+        sys.stderr.write("[bridges] networkx unavailable; skipping community detection\n")
+        return {}, {}
+
+    g, _ = _build_weighted_graph(entities, pair_w)
+
+    # seed=42 matches compute_layout_positions; rankings stay stable
+    # across rebuilds when the underlying graph is unchanged.
+    # resolution=1.0 is the standard modularity weight; raising it
+    # produces more, smaller communities (and would inflate every
+    # node's bridge_score). Leave at default unless we tune later.
+    communities = louvain_communities(g, weight="weight", resolution=1.0, seed=42)
+
+    community_of: dict[str, int] = {}
+    for cid, members in enumerate(communities):
+        for node in members:
+            community_of[node] = cid
+
+    # Eligibility floors. Below these, sqrt(d) normalization elevates
+    # "bridges-by-proximity" — stubs whose single page happens to wikilink
+    # entities across many communities, inheriting a real bridge's reach
+    # without doing any spanning themselves (e.g. a journalist whose only
+    # role is writing one story about a real bridge).
+    #
+    # The compound rule keeps low-mention entries that have built up
+    # cross-context evidence (Hanssen mention=1 deg=16 stays; he shows up
+    # in multiple narratives even with only one dedicated page) while
+    # cutting low-mention low-degree stubs (Pam MacLean mention=1 deg=6
+    # — a real reporter, but not a real bridge).
+    MIN_DEGREE_ABS = 6   # hard floor: below this, entropy maxes too easily
+    MIN_DEG_FOR_SINGLE_MENTION = 10
+    mentions_by_id = {e["id"]: e.get("mention_count", 0) for e in entities}
+
+    def eligible(node: str, d: int) -> bool:
+        if d < MIN_DEGREE_ABS:
+            return False
+        m = mentions_by_id.get(node, 0)
+        if m >= 2:
+            return True
+        if m >= 1 and d >= MIN_DEG_FOR_SINGLE_MENTION:
+            return True
+        return False
+
+    import math
+    scores: dict[str, dict[str, Any]] = {}
+    for node in g.nodes():
+        neighbors = list(g.neighbors(node))
+        d = len(neighbors)
+        if not eligible(node, d):
+            continue
+        bucket: dict[int, int] = defaultdict(int)
+        for nbr in neighbors:
+            bucket[community_of.get(nbr, -1)] += 1
+        total = float(d)
+        h = 0.0
+        for c_count in bucket.values():
+            p = c_count / total
+            if p > 0:
+                h -= p * math.log(p)
+        k = len(bucket)
+        if k < 2:
+            continue
+        # Degree normalization (sqrt) flips the ranking from "huge hubs
+        # that touch every cluster" to "mid-degree connectors whose
+        # neighbors span surprisingly distant clusters" — the
+        # researcher-facing signal that betweenness-style metrics miss.
+        score = h * math.log(1 + k) / math.sqrt(d)
+        scores[node] = {
+            "score": score,
+            "community_id": community_of.get(node, -1),
+            "community_span": k,
+        }
+
+    ranked = sorted(scores.items(), key=lambda kv: -kv[1]["score"])[:top_n]
+    out: dict[str, dict[str, Any]] = {}
+    for rank, (eid, payload) in enumerate(ranked, start=1):
+        if payload["score"] <= 0:
+            break
+        out[eid] = {**payload, "rank": rank}
+    return out, community_of
 
 
 def compute_layout_positions(adjacency: dict[str, Any]) -> list[list[float]]:
@@ -1234,35 +1384,43 @@ def main() -> int:
         e["mention_count"] = mention_count.get(e["id"], 0)
         e["page_density"] = page_density.get(e["id"], 0)
 
-    # Adjacency + betweenness centrality. Adjacency feeds the client-side
-    # path finder; centrality identifies bridge nodes — entities that
-    # connect otherwise-separate clusters. Researchers care about bridges
-    # because they're usually the most non-obvious links in a network.
+    # Adjacency feeds the client-side path finder + the full /network/
+    # canvas. Hub + Bridge scores split the old "bridges" idea into two
+    # complementary signals: Hubs (PageRank — the famous, well-evidenced
+    # central nodes) and Bridges (community-span entropy — low-degree
+    # connectors between otherwise-separate clusters that researchers
+    # would otherwise miss).
     adjacency = build_adjacency(entities, edges)
-    print(f"[parse] computing betweenness centrality ({len(adjacency['adj'])} nodes)...")
-    t_bc = time.time()
-    bc = compute_betweenness(adjacency["adj"])
-    print(f"[parse] betweenness done in {round(time.time() - t_bc, 1)}s")
+    pair_w = _pair_weights(entities, edges)
 
-    # Identify top-50 bridge entities. Below the cutoff, the score is noisy
-    # enough that adding a "Bridge" badge would devalue the signal.
-    BRIDGE_TOP_N = 50
-    ranked = sorted(enumerate(bc), key=lambda x: -x[1])[:BRIDGE_TOP_N]
-    bridge_rank: dict[str, int] = {}
-    bridge_score: dict[str, float] = {}
-    for rank, (idx, score) in enumerate(ranked, start=1):
-        if score <= 0:
-            break
-        eid = adjacency["ids"][idx]
-        bridge_rank[eid] = rank
-        bridge_score[eid] = score
+    print(f"[parse] computing Hub PageRank ({len(adjacency['adj'])} nodes)...")
+    t_hubs = time.time()
+    hubs = compute_hub_scores(entities, pair_w, top_n=50)
+    print(f"[parse] hubs done in {round(time.time() - t_hubs, 2)}s")
 
-    # Attach bridge_rank + bridge_score to entities (mention_count was
-    # already attached above, before build_adjacency).
+    print(f"[parse] detecting communities + Bridge entropy...")
+    t_br = time.time()
+    bridges, community_of = compute_bridge_scores(entities, pair_w, top_n=50)
+    print(f"[parse] bridges done in {round(time.time() - t_br, 2)}s "
+          f"({len(set(community_of.values()))} communities)")
+
+    # Attach the four new fields to each entity record. mention_count was
+    # already attached above, before build_adjacency.
     for e in entities:
-        if e["id"] in bridge_rank:
-            e["bridge_rank"] = bridge_rank[e["id"]]
-            e["bridge_score"] = bridge_score[e["id"]]
+        eid = e["id"]
+        if eid in hubs:
+            e["hub_rank"] = hubs[eid]["rank"]
+            e["hub_score"] = hubs[eid]["score"]
+        if eid in bridges:
+            payload = bridges[eid]
+            e["bridge_rank"] = payload["rank"]
+            e["bridge_score"] = payload["score"]
+            e["community_span"] = payload["community_span"]
+        # Every node gets a community_id so downstream tools can use the
+        # partition even outside the top-50 bridge list (e.g. coloring
+        # the network view by community in a future iteration).
+        if eid in community_of:
+            e["community_id"] = community_of[eid]
 
     # Pre-compute a force-directed layout so the /network/ view renders
     # instantly with a meaningful spatial arrangement. Running spring_layout
@@ -1273,12 +1431,26 @@ def main() -> int:
     adjacency["positions"] = compute_layout_positions(adjacency)
     print(f"[parse] layout done in {round(time.time() - t_layout, 1)}s")
 
-    # Re-emit bridges with score alongside rank so the /bridges/ page and
-    # the network selection panel can show both.
+    # Re-emit bridges + hubs with score alongside rank so the /bridges/
+    # page and the network selection panel can show both. Keys are
+    # stringified node indices; the frontend already handles the
+    # `{rank, score}` shape via NetworkGraph.astro / network.astro.
     adjacency["bridges"] = {
-        str(i): {"rank": bridge_rank[adjacency["ids"][i]], "score": bridge_score[adjacency["ids"][i]]}
+        str(i): {
+            "rank": bridges[adjacency["ids"][i]]["rank"],
+            "score": bridges[adjacency["ids"][i]]["score"],
+            "span": bridges[adjacency["ids"][i]]["community_span"],
+        }
         for i in range(len(adjacency["ids"]))
-        if adjacency["ids"][i] in bridge_rank
+        if adjacency["ids"][i] in bridges
+    }
+    adjacency["hubs"] = {
+        str(i): {
+            "rank": hubs[adjacency["ids"][i]]["rank"],
+            "score": hubs[adjacency["ids"][i]]["score"],
+        }
+        for i in range(len(adjacency["ids"]))
+        if adjacency["ids"][i] in hubs
     }
 
     type_counts = Counter(e["type"] for e in entities)

@@ -379,9 +379,11 @@ footer.site .to-top { font-size: 0.75rem; }
   font-size: 0.7rem;
   margin-right: 0.1rem;
 }
-/* Bridge badge — only shown on entities that rank in the network's top 50
-   for betweenness centrality. Gold to match the gold ring on bridge nodes
-   in the graph viz. Links to /bridges/ for the full ranking + explanation. */
+/* Bridge + Hub badges — top-50 in either ranking. Same pill shape so they
+   visually pair when an entry is both. Bridge keeps the gold (community
+   spanner — the rare, interesting signal); Hub uses the accent (PageRank
+   — the famous, central signal). Links to /bridges/ which auto-selects
+   the right view from the URL hash. */
 .entity-meta a.bridge-badge {
   display: inline-flex;
   align-items: center;
@@ -408,6 +410,14 @@ footer.site .to-top { font-size: 0.75rem; }
   font-weight: 600;
   letter-spacing: 0;
   opacity: 0.85;
+}
+.entity-meta a.bridge-badge.hub-badge {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+.entity-meta a.bridge-badge.hub-badge:hover {
+  background: var(--accent);
+  color: var(--paper);
 }
 
 .entity-meta a.tag,
@@ -1283,6 +1293,14 @@ body.graph-fullscreen-active { overflow: hidden; }
   letter-spacing: 0.04em;
 }
 .graph-selection .gs-bridge-rank { color: var(--ink-2); }
+.graph-selection .gs-hub {
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--accent);
+  margin-bottom: 0.45rem;
+  letter-spacing: 0.04em;
+}
+.graph-selection .gs-hub-rank { color: var(--ink-2); }
 .graph-selection .gs-summary {
   font-family: var(--serif);
   font-size: 0.85rem;
@@ -2356,6 +2374,72 @@ body.net-fullscreen-active { overflow: hidden; }
   font-style: italic;
   color: var(--muted);
 }
+
+/* Bridges/Hubs view toggle. Two pill-style tabs above the explainer +
+   list. Inactive tab is muted; active tab gets the gold accent border. */
+.br-toggle {
+  display: inline-flex;
+  gap: 0.25rem;
+  margin: 1.5rem 0 0.5rem;
+  padding: 0.25rem;
+  background: var(--paper-2);
+  border-radius: 999px;
+}
+.br-tab {
+  appearance: none;
+  background: transparent;
+  border: none;
+  padding: 0.5rem 1.1rem;
+  font-family: var(--sans);
+  font-size: 0.78rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+  cursor: pointer;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  transition: color 0.15s ease, background 0.15s ease;
+}
+.br-tab:hover { color: var(--ink-2); }
+.br-tab.is-active {
+  color: var(--ink);
+  background: var(--paper);
+  box-shadow: 0 0 0 1px var(--line), 0 1px 2px rgba(0, 0, 0, 0.05);
+}
+.br-tab-count {
+  font-variant-numeric: tabular-nums;
+  font-weight: 500;
+  font-size: 0.72rem;
+  color: var(--muted-2);
+  background: var(--paper);
+  padding: 0.05rem 0.4rem;
+  border-radius: 999px;
+}
+.br-tab.is-active .br-tab-count {
+  background: var(--paper-2);
+  color: var(--ink-2);
+}
+
+/* Bridge-row community span chip + cross-list "also a Hub #N" link.
+   Both sit in .br-head alongside the type/category/mentions row. */
+.br-span {
+  color: var(--muted-2);
+  font-variant-numeric: tabular-nums;
+  font-style: italic;
+  cursor: help;
+}
+.br-also {
+  color: var(--gold);
+  font-weight: 600;
+  text-decoration: none;
+  font-variant-numeric: tabular-nums;
+  background: none;
+  background-image: none;
+}
+.br-also:hover { text-decoration: underline; }
 
 /* Path widget — small "Find a path from X to …" block on entity pages.
    Reuses .path-input / .path-go / .path-chain so a single set of styles

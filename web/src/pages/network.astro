@@ -93,6 +93,7 @@ const total = entities().length;
         </div>
         <div class="gs-meta"><span class="gs-count"></span> mentions across the vault</div>
         <div class="gs-bridge" hidden>Bridge entity (rank <span class="gs-bridge-rank"></span>)</div>
+        <div class="gs-hub" hidden>Hub entity (rank <span class="gs-hub-rank"></span>)</div>
         <div class="gs-summary" hidden></div>
         <div class="gs-actions">
           <a class="gs-go" href="#">Go to page &rarr;</a>
@@ -173,7 +174,8 @@ const total = entities().length;
       // --- Renderer state -------------------------------------------------
       const COLORS = readColors();
       /** @type {{id:string,title:string,type:string,x:number,y:number,size:number,
-                  color:string,bridgeRank:number,bridgeScore:number,count:number,
+                  color:string,bridgeRank:number,bridgeScore:number,
+                  hubRank:number,hubScore:number,count:number,
                   visible:boolean}[]} */
       let nodes = [];
       /** @type {[number,number][]} pairs of node indices */
@@ -832,6 +834,9 @@ const total = entities().length;
           const isBridge = br != null;
           const bridgeRank = isBridge ? (typeof br === 'object' ? br.rank : br) : 0;
           const bridgeScore = isBridge && typeof br === 'object' ? br.score : 0;
+          const hu = data.hubs?.[String(i)];
+          const hubRank = hu ? (typeof hu === 'object' ? hu.rank : hu) : 0;
+          const hubScore = hu && typeof hu === 'object' ? hu.score : 0;
           const p = rawForcePositions
             ? [rawForcePositions[i][0] * baselineScale, rawForcePositions[i][1] * baselineScale]
             : [Math.random() * 3000, Math.random() * 3000];
@@ -845,6 +850,8 @@ const total = entities().length;
             color: COLORS[data.types[i]] || COLORS.muted,
             bridgeRank,
             bridgeScore,
+            hubRank,
+            hubScore,
             count: data.mentions[i] || 0,
             visible: true,
           });
@@ -1316,6 +1323,7 @@ const total = entities().length;
           panel.querySelector('.gs-count').textContent = '';
           panel.querySelector('.gs-meta')?.classList?.add?.('hidden-meta');
           panel.querySelector('.gs-bridge').setAttribute('hidden', '');
+          panel.querySelector('.gs-hub').setAttribute('hidden', '');
           go.href = `/${TYPE_DIRS[a.type] || 'pages'}/${a.id}/`;
           go.textContent = `Go to ${a.title} →`;
           let goB2 = panel.querySelector('.gs-go-b');
@@ -1344,6 +1352,11 @@ const total = entities().length;
             panel.querySelector('.gs-bridge-rank').textContent = '#' + n.bridgeRank;
             br.removeAttribute('hidden');
           } else br.setAttribute('hidden', '');
+          const hu = panel.querySelector('.gs-hub');
+          if (n.hubRank) {
+            panel.querySelector('.gs-hub-rank').textContent = '#' + n.hubRank;
+            hu.removeAttribute('hidden');
+          } else hu.setAttribute('hidden', '');
           go.href = `/${TYPE_DIRS[n.type] || 'pages'}/${n.id}/`;
           panel.removeAttribute('hidden');
           return;
@@ -1410,6 +1423,7 @@ const total = entities().length;
           '<div class="gt-meta">' + escapeHtml(TYPE_LABELS[node.type] || node.type),
           ' · ' + node.count.toLocaleString() + ' mentions',
           node.bridgeRank ? ' · bridge #' + node.bridgeRank : '',
+        node.hubRank ? ' · hub #' + node.hubRank : '',
           '</div>',
         ];
         tooltip.innerHTML = bits.join('');

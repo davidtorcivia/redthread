@@ -1,68 +1,134 @@
 ---
 import Base from '../layouts/Base.astro';
-import { bridgeEntities, hrefFor, renderInlineMd, TYPE_LABELS } from '../lib/data.ts';
+import { bridgeEntities, hubEntities, hrefFor, renderInlineMd, TYPE_LABELS } from '../lib/data.ts';
 
-const all = bridgeEntities();
-const top = all[0];
-// Used to scale the relative-strength bars on each row so the rank-1
-// entity's bar runs the full width and everyone else is in proportion.
-const topScore = all[0]?.bridge_score ?? 1;
-// Median rank-1 mention count is a useful frame for understanding what
-// "bridge" means in this vault. We hint at it inline rather than rely on
-// the reader to interpolate.
-const mentionsTop = all.slice(0, 10).map((e) => e.mention_count).sort((a, b) => a - b);
-const medianTopMentions = mentionsTop.length
-  ? mentionsTop[Math.floor(mentionsTop.length / 2)]
-  : 0;
+const bridges = bridgeEntities();
+const hubs = hubEntities();
+
+// Bar scaling: each list normalizes to its own #1 score so the
+// strongest entry in each view fills the bar.
+const topBridgeScore = bridges[0]?.bridge_score ?? 1;
+const topHubScore = hubs[0]?.hub_score ?? 1;
+
+// Median rank-1 mention count is a useful frame for understanding
+// what each metric surfaces. Bridges should skew low (the whole point
+// of the metric is to surface low-mention connectors); Hubs should
+// skew high (PageRank rewards well-evidenced central nodes).
+function medianMentions(list: typeof bridges): number {
+  if (list.length === 0) return 0;
+  const xs = list.slice(0, 10).map((e) => e.mention_count).sort((a, b) => a - b);
+  return xs[Math.floor(xs.length / 2)];
+}
+const medianBridgeMentions = medianMentions(bridges);
+const medianHubMentions = medianMentions(hubs);
+
+// Cross-reference maps so each row can show "also appears in the
+// other list at rank #N" — the most interesting entities sit on both.
+const hubRankOf = new Map(hubs.map((e) => [e.id, e.hub_rank!]));
+const bridgeRankOf = new Map(bridges.map((e) => [e.id, e.bridge_rank!]));
 ---
 <Base
-  title="Bridge entities — The Info Web"
-  description="Entities that hold otherwise-separate parts of the network together, ranked by betweenness centrality."
+  title="Bridges & Hubs — The Info Web"
+  description="Two complementary frames on what holds the network together: Bridges (low-degree connectors between distant clusters) and Hubs (the famous, well-evidenced central nodes)."
 >
   <article class="bridges-article">
     <div class="entity-eyebrow">
       <span>Tools</span>
     </div>
-    <h1 class="entity-title">Bridge entities</h1>
+    <h1 class="entity-title">Structure</h1>
     <p class="entity-dek">
-      The {all.length} entries that hold the network together. If you removed any of these,
-      the rest of the vault would fall into more disconnected pieces.
+      Two complementary lenses on the network. <strong>Bridges</strong> surface
+      the low-degree connectors that span otherwise-distant clusters — usually
+      the most overlooked entries. <strong>Hubs</strong> surface the famous,
+      well-evidenced central nodes — usually the most obvious. Some entries
+      appear in both.
     </p>
 
-    <section class="br-explain">
+    <div class="br-toggle" role="tablist" aria-label="Structure view">
+      <button class="br-tab is-active" data-view="bridges" role="tab" aria-selected="true">
+        Bridges <span class="br-tab-count">{bridges.length}</span>
+      </button>
+      <button class="br-tab" data-view="hubs" role="tab" aria-selected="false">
+        Hubs <span class="br-tab-count">{hubs.length}</span>
+      </button>
+    </div>
+
+    <section class="br-explain" data-view="bridges">
       <h2 class="br-heading">What's a bridge?</h2>
       <p>
-        Most entries connect tightly within their own neighborhood — a Cold-War politician
-        mostly co-occurs with other Cold-War politicians; a parapsychology researcher mostly
-        co-occurs with other parapsychology researchers. A <strong>bridge</strong> is an
-        entry that sits between those neighborhoods, mentioned by people on both sides who
-        otherwise wouldn't share a page.
+        Most entries connect tightly within their own neighborhood — a Cold-War
+        politician mostly co-occurs with other Cold-War politicians; a
+        parapsychology researcher mostly co-occurs with other parapsychology
+        researchers. A <strong>bridge</strong> is an entry whose neighbors are
+        spread across many of those neighborhoods at once.
       </p>
       <p>
-        These are ranked by <em>betweenness centrality</em>: for every pair of entries in
-        the vault, we compute the shortest chain of connections between them, then count
-        how often each entry shows up <em>inside</em> those chains. An entry on a lot of
-        chains is a bridge.
+        Ranked by <em>degree-normalized community-span entropy</em>: we
+        partition the vault into clusters with weighted Louvain modularity,
+        then for each entry measure how diverse its 1-hop neighborhood is
+        across those clusters — divided by √degree so high-degree hubs
+        (which trivially touch every cluster) don't dominate. Score =
+        H(p) · log(1 + k) / √d, where p is the fraction of neighbors in
+        each community, k is the count of distinct communities present,
+        and d is the entry's total connection count.
       </p>
       <p>
-        Why care? Bridges are often the most interesting nodes for a researcher to investigate.
-        A high-mention entity (CIA, Reagan) is famous and obvious. A high-bridge entity with
-        modest mention count — <a href="/organizations/bank-of-credit-and-commerce-international/">BCCI</a>,
-        <a href="/people/ari-ben-menashe/">Ari Ben-Menashe</a> — is the connective tissue
-        you'd otherwise miss. The median top-10 bridge in this vault has just {medianTopMentions} mentions.
+        Why degree-normalize? A bridge can be a 4-mention obscurity — what
+        matters is <em>which</em> 4 it links. Someone who connects an
+        Iran-Contra figure to a Belgian organized-crime figure is
+        investigative gold even if they're barely mentioned. Without the
+        √d divisor the list is just "places and major orgs" all over
+        again — exactly the obvious entries researchers don't need a
+        ranking to find. The median top-10 bridge in this vault has just
+        {medianBridgeMentions} mentions.
       </p>
       <p class="br-footer-note">
-        Computed with Brandes' algorithm against the full link graph (explicit wikilinks
-        plus NER-inferred mentions). Recomputed on every build.
+        Computed against the full link graph (explicit wikilinks plus
+        NER-inferred mentions, weighted by co-occurrence count). Eligibility
+        floor: at least 6 connections, plus either 2+ vault mentions or
+        10+ connections — designed to keep real low-mention connectors
+        (an FBI double agent with one dedicated page but cross-narrative
+        reach) while cutting "bridges-by-proximity" (a journalist whose
+        only role is writing one story about a real bridge). Recomputed
+        on every build with a fixed Louvain seed so rankings stay stable
+        unless the underlying graph changes.
       </p>
     </section>
 
-    <section class="br-list-section">
-      <h2 class="br-heading">Ranked</h2>
+    <section class="br-explain" data-view="hubs" hidden>
+      <h2 class="br-heading">What's a hub?</h2>
+      <p>
+        A <strong>hub</strong> is a node that sits at the center of the
+        attention graph — heavily mentioned, and mentioned by other
+        well-mentioned entities. The CIAs, Reagans, and KGBs of this vault.
+        Useful as anchors for navigation, but rarely surprising.
+      </p>
+      <p>
+        Ranked by <em>weighted PageRank</em>: an entry is a hub if it's
+        connected to other hubs, with edge weight from co-occurrence count.
+        Damping factor 0.85 (the Brin/Page default), so each entry's score
+        reflects the inflow from its weighted neighborhood plus a small
+        baseline from the random-jump component.
+      </p>
+      <p>
+        Hub overlaps with Bridge for the genuinely backbone entities — those
+        appear in both lists with a small chip showing their other rank. The
+        median top-10 hub in this vault has {medianHubMentions} mentions
+        (compare {medianBridgeMentions} for bridges).
+      </p>
+      <p class="br-footer-note">
+        Computed against the same weighted graph as the Bridge metric, so
+        the two are directly comparable. Recomputed on every build.
+      </p>
+    </section>
+
+    <section class="br-list-section" data-view="bridges">
+      <h2 class="br-heading">Bridges, ranked</h2>
       <ol class="br-list">
-        {all.map((e) => {
+        {bridges.map((e) => {
           const score = e.bridge_score ?? 0;
-          const barWidth = topScore > 0 ? Math.round((score / topScore) * 100) : 0;
+          const barWidth = topBridgeScore > 0 ? Math.round((score / topBridgeScore) * 100) : 0;
+          const alsoHub = hubRankOf.get(e.id);
           return (
             <li class={`br-row type-${e.type}`} id={`br-${e.id}`}>
               <div class="br-rank-col">
@@ -73,10 +139,20 @@ const medianTopMentions = mentionsTop.length
                   <span class="br-type">{TYPE_LABELS[e.type]}</span>
                   {e.category && <span class="br-cat">{e.category}</span>}
                   <span class="br-mentions">{e.mention_count.toLocaleString()} mentions</span>
+                  {e.community_span && (
+                    <span class="br-span" title="Distinct Louvain communities present in this entry's 1-hop neighborhood — the higher, the more disparate clusters it links.">
+                      spans {e.community_span} communities
+                    </span>
+                  )}
+                  {alsoHub && (
+                    <a class="br-also" href={`#hu-${e.id}`} title="Also a top hub — high PageRank as well as high community-span. The structural backbones of the vault.">
+                      also Hub #{alsoHub}
+                    </a>
+                  )}
                 </div>
                 <a class="br-title" href={hrefFor({ id: e.id, type: e.type })}>{e.title}</a>
                 {e.summary && <p class="br-summary" set:html={renderInlineMd(e.summary)} />}
-                <div class="br-score-row" title={`Betweenness centrality: ${score.toFixed(5)} — share of the vault's shortest-path traffic that routes through this entity.`}>
+                <div class="br-score-row" title={`Bridge score: ${score.toFixed(4)} — neighborhood entropy times log(1 + community span).`}>
                   <div class="br-score-bar" aria-hidden="true">
                     <div class="br-score-fill" style={`width: ${barWidth}%`}></div>
                   </div>
@@ -90,11 +166,97 @@ const medianTopMentions = mentionsTop.length
       </ol>
     </section>
 
-    {top && (
-      <p class="br-cta">
-        See how any two entities chain together — try the <a href="/path/">path finder</a>,
-        or explore the <a href="/network/">full network</a>.
-      </p>
-    )}
+    <section class="br-list-section" data-view="hubs" hidden>
+      <h2 class="br-heading">Hubs, ranked</h2>
+      <ol class="br-list">
+        {hubs.map((e) => {
+          const score = e.hub_score ?? 0;
+          const barWidth = topHubScore > 0 ? Math.round((score / topHubScore) * 100) : 0;
+          const alsoBridge = bridgeRankOf.get(e.id);
+          return (
+            <li class={`br-row type-${e.type}`} id={`hu-${e.id}`}>
+              <div class="br-rank-col">
+                <span class="br-rank-num">{e.hub_rank!.toString().padStart(2, '0')}</span>
+              </div>
+              <div class="br-body">
+                <div class="br-head">
+                  <span class="br-type">{TYPE_LABELS[e.type]}</span>
+                  {e.category && <span class="br-cat">{e.category}</span>}
+                  <span class="br-mentions">{e.mention_count.toLocaleString()} mentions</span>
+                  {alsoBridge && (
+                    <a class="br-also" href={`#br-${e.id}`} title="Also a top bridge — both a hub and a community-spanner. Structural backbone.">
+                      also Bridge #{alsoBridge}
+                    </a>
+                  )}
+                </div>
+                <a class="br-title" href={hrefFor({ id: e.id, type: e.type })}>{e.title}</a>
+                {e.summary && <p class="br-summary" set:html={renderInlineMd(e.summary)} />}
+                <div class="br-score-row" title={`Hub score: ${score.toFixed(5)} — weighted PageRank, share of the network's stationary attention that lands on this entry.`}>
+                  <div class="br-score-bar" aria-hidden="true">
+                    <div class="br-score-fill" style={`width: ${barWidth}%`}></div>
+                  </div>
+                  <span class="br-score-val">{score.toFixed(5)}</span>
+                  <span class="br-score-rel">{barWidth}% of #1</span>
+                </div>
+              </div>
+            </li>
+          );
+        })}
+      </ol>
+    </section>
+
+    <p class="br-cta">
+      See how any two entities chain together — try the <a href="/path/">path finder</a>,
+      or explore the <a href="/network/">full network</a>.
+    </p>
   </article>
+
+  <script is:inline>
+    // View toggle: swap visible <section data-view="..."> blocks based on
+    // which tab is active. Uses hidden attr (rather than display:none in
+    // CSS) so screen readers + browser find-in-page skip the inactive
+    // panel cleanly. Also syncs the URL hash so a deep-linked anchor
+    // (#br-foo or #hu-foo) auto-selects the matching view.
+    (function () {
+      const tabs = document.querySelectorAll('.br-tab');
+      const sections = document.querySelectorAll('[data-view]');
+
+      function setView(view) {
+        tabs.forEach((t) => {
+          const active = t.getAttribute('data-view') === view;
+          t.classList.toggle('is-active', active);
+          t.setAttribute('aria-selected', active ? 'true' : 'false');
+        });
+        sections.forEach((s) => {
+          const match = s.getAttribute('data-view') === view;
+          if (match) s.removeAttribute('hidden');
+          else s.setAttribute('hidden', '');
+        });
+      }
+
+      tabs.forEach((t) => {
+        t.addEventListener('click', () => setView(t.getAttribute('data-view')));
+      });
+
+      // Auto-select view from URL hash so /bridges/#hu-cia lands on Hubs
+      // and scrolls into view, rather than showing Bridges and silently
+      // missing the anchor.
+      function applyHashView() {
+        const h = window.location.hash;
+        if (h.startsWith('#hu-')) setView('hubs');
+        else if (h.startsWith('#br-')) setView('bridges');
+        // Re-trigger the browser's anchor scroll after we've unhidden
+        // the right panel; otherwise the target was hidden when the
+        // browser first tried to focus it.
+        if (h && (h.startsWith('#hu-') || h.startsWith('#br-'))) {
+          requestAnimationFrame(() => {
+            const el = document.querySelector(h);
+            if (el) el.scrollIntoView({ block: 'start' });
+          });
+        }
+      }
+      applyHashView();
+      window.addEventListener('hashchange', applyHashView);
+    })();
+  </script>
 </Base>
