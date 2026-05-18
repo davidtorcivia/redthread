@@ -251,7 +251,16 @@ def _extract_location(fm: dict[str, Any]) -> list[str]:
 def parse_file(path: Path, vault_root: Path, type_map: dict[str, str]) -> dict[str, Any] | None:
     """Return an entity record, or None if the file is unparseable."""
     try:
-        post = frontmatter.load(path)
+        # Strip any leading BOMs before parsing. The frontmatter library
+        # only recognizes `---` as a delimiter at byte 0, so a single
+        # stray BOM silently turns the entire metadata block into body
+        # text. A handful of vault files have *two* BOMs back-to-back
+        # (likely from being re-saved through an editor that re-prepends
+        # one), so we loop instead of relying on utf-8-sig.
+        text = path.read_text(encoding="utf-8")
+        while text.startswith("﻿"):
+            text = text[1:]
+        post = frontmatter.loads(text)
     except Exception as e:
         sys.stderr.write(f"[warn] frontmatter parse failed: {path} ({e})\n")
         return None
