@@ -170,6 +170,11 @@ const { id, title } = Astro.props;
     function modelToScreenX(x) { return x * view.scale + view.tx; }
     function modelToScreenY(y) { return y * view.scale + view.ty; }
 
+    // Second-hop nodes render at this fraction of the first-hop opacity so
+    // the 1-hop ring stays the visual emphasis when 2-hop is enabled. Hovered
+    // / selected / focal nodes ignore this and pop to full.
+    const HOP2_OPACITY = 0.6;
+
     let drawScheduled = false;
     function requestDraw() {
       if (drawScheduled) return;
@@ -712,7 +717,8 @@ const { id, title } = Astro.props;
         const inFocus = !focusNodes || focusNodes.has(i);
         const fadeAlpha = 0.55 - (0.55 - 0.08) * highlightStrength;
         const base = isMain ? 1 : (inFocus ? 0.7 : fadeAlpha);
-        ctx.globalAlpha = isMain ? base : base * opacityMult;
+        const hopMult = (n.hop === 2 && !isMain) ? HOP2_OPACITY : 1;
+        ctx.globalAlpha = (isMain ? base : base * opacityMult) * hopMult;
         ctx.fillStyle = n.color;
         ctx.beginPath();
         ctx.arc(sx, sy, sr, 0, Math.PI * 2);
@@ -806,7 +812,8 @@ const { id, title } = Astro.props;
           if (collide) continue;
         }
         const labelMult = c.isHover || c.isFocal ? 1 : opacityMult;
-        ctx.globalAlpha = labelMult;
+        const labelHop = (c.n.hop === 2 && !c.isHover && !c.isFocal) ? HOP2_OPACITY : 1;
+        ctx.globalAlpha = labelMult * labelHop;
         ctx.fillStyle = hexToRgba(COLORS.paper, c.isHover ? 0.95 : 0.85);
         ctx.fillRect(box.x0, box.y0, box.x1 - box.x0, box.y1 - box.y0);
         ctx.fillStyle = c.isHover ? COLORS.accent : COLORS.ink;
