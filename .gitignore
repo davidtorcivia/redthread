@@ -12,6 +12,10 @@ web/node_modules/
 web/dist/
 web/.astro/
 web/src/content/generated/
+# Same artifacts but at app/ root — happen when npm/astro gets run from
+# this directory instead of app/web/. Harmless either way.
+node_modules/
+.astro/
 
 # Content-addressed OG-card cache. Persisted across builds so unchanged
 # entities don't re-render through satori+resvg. Safe to delete — next
