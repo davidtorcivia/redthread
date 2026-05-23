@@ -51,6 +51,12 @@ const analyticsId = import.meta.env.ANALYTICS_ID as string | undefined;
 const analyticsIdAttr =
   (import.meta.env.ANALYTICS_ID_ATTR as string | undefined) || 'data-website-id';
 const analyticsEnabled = Boolean(analyticsSrc && analyticsId);
+
+// Cache-busting version for shared JSON payloads (adjacency.json,
+// previews.json). Stamped onto every fetch + preload as ?v=…; see
+// build.sh for how it's computed (sha1 of the two JSON files).
+// Falls back to 'dev' for local runs that don't go through build.sh.
+const V = (import.meta.env.PUBLIC_BUILD_ID as string | undefined) || 'dev';
 ---
 <!doctype html>
 <html lang="en">
@@ -95,7 +101,10 @@ const analyticsEnabled = Boolean(analyticsSrc && analyticsId);
     {/* Preload the shared adjacency map so the per-entity NetworkGraph
         widget on every entity page (and /network/, /path/) starts with
         the data already in cache. ~250KB, served compressed. */}
-    <link rel="preload" as="fetch" href="/adjacency.json" crossorigin="anonymous" />
+    <link rel="preload" as="fetch" href={`/adjacency.json?v=${V}`} crossorigin="anonymous" />
+    {/* Exposes the build version to every is:inline fetch site so they
+        can append ?v=… without each one needing its own define:vars. */}
+    <script is:inline define:vars={{ V }}>window.__V = V;</script>
 
     {analyticsEnabled && (
       <script
@@ -178,7 +187,7 @@ const analyticsEnabled = Boolean(analyticsSrc && analyticsId);
         function loadAll() {
           if (previews) return Promise.resolve(previews);
           if (previewsPromise) return previewsPromise;
-          previewsPromise = fetch('/previews.json')
+          previewsPromise = fetch('/previews.json?v=' + window.__V)
             .then((r) => (r.ok ? r.json() : null))
             .then((d) => { previews = d || {}; return previews; })
             .catch(() => { previews = {}; return previews; });

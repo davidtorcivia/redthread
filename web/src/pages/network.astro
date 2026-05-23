@@ -813,7 +813,7 @@ const total = entities().length;
         loadBtn.textContent = 'Loading data…';
         let data;
         try {
-          const r = await fetch('/adjacency.json');
+          const r = await fetch('/adjacency.json?v=' + window.__V);
           if (!r.ok) throw new Error('fetch failed');
           data = await r.json();
         } catch (err) {

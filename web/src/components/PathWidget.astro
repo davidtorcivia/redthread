@@ -114,7 +114,7 @@ const widgetId = `pw-${fromId}`;
     function loadAdjacency() {
       if (window._adjacency) return Promise.resolve(window._adjacency);
       if (window._adjacencyP) return window._adjacencyP;
-      window._adjacencyP = fetch('/adjacency.json')
+      window._adjacencyP = fetch('/adjacency.json?v=' + window.__V)
         .then((r) => (r.ok ? r.json() : Promise.reject()))
         .then((d) => {
           d.idToIdx = new Map();

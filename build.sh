@@ -40,6 +40,15 @@ cp -f "$script_dir/data/adjacency.json" "$script_dir/web/public/adjacency.json"
 # Clean up any stale per-entity neighborhood JSONs from older builds.
 rm -rf "$script_dir/web/public/api/neighborhood"
 
+# Cache-buster for the shared JSON payloads. We hash their content and
+# stamp the result into ?v=… on every fetch + preload. Same content →
+# same hash → browsers reuse their cached copy; vault change → new hash
+# → fresh download. Without this, browsers serve stale adjacency.json
+# after a rebuild and entity pages report "not in the network".
+PUBLIC_BUILD_ID="$(cat "$script_dir/web/public/adjacency.json" "$script_dir/web/public/previews.json" | sha1sum | cut -c1-8)"
+export PUBLIC_BUILD_ID
+echo "[build] cache version: $PUBLIC_BUILD_ID"
+
 # 2. Build Astro + Pagefind
 cd "$script_dir/web"
 if [[ ! -d node_modules ]]; then

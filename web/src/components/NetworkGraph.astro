@@ -216,7 +216,7 @@ const { id, title } = Astro.props;
         // Browser will reuse the cached copy if /network/ or another
         // entity page already loaded it.
         if (!window._netAdj) {
-          const r = await fetch('/adjacency.json');
+          const r = await fetch('/adjacency.json?v=' + window.__V);
           if (!r.ok) throw new Error('fetch failed');
           window._netAdj = await r.json();
         }

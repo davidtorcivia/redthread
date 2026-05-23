@@ -198,7 +198,7 @@ const pool = entities().map((e) => ({
         if (adjacency) return Promise.resolve(adjacency);
         if (adjacencyPromise) return adjacencyPromise;
         status.textContent = 'Loading network…';
-        adjacencyPromise = fetch('/adjacency.json')
+        adjacencyPromise = fetch('/adjacency.json?v=' + window.__V)
           .then((r) => (r.ok ? r.json() : Promise.reject(new Error('fetch failed'))))
           .then((d) => {
             adjacency = d;
