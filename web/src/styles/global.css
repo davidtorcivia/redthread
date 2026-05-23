@@ -2945,31 +2945,55 @@ body.net-fullscreen-active { overflow: hidden; }
   grid-column: 1;
   grid-row: 2;
   display: flex;
-  gap: 0.5rem;
-  justify-content: flex-start;
+  gap: 0.25rem;
+  justify-content: center;
   margin-top: 0.4rem;
   padding-bottom: 0.5rem;
 }
+/* 28×28 hit target with an 8px visual dot drawn via ::before. Sized
+   per WCAG 2.5.5 minimum (24×24) plus a bit for finger comfort.
+   Background and border on the button itself are transparent so the
+   tap area is invisible — only the inner pseudo-element shows. */
 .fc-dot {
   appearance: none;
-  border: 1px solid var(--line);
   background: transparent;
+  border: 0;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  cursor: pointer;
+  position: relative;
+  border-radius: 50%;
+}
+.fc-dot::before {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
   width: 8px;
   height: 8px;
-  padding: 0;
+  border: 1px solid var(--line);
   border-radius: 50%;
-  cursor: pointer;
+  transform: translate(-50%, -50%);
   transition: background-color 150ms ease, border-color 150ms ease, transform 150ms ease;
 }
-.fc-dot:hover { border-color: var(--accent); }
-.fc-dot.is-active {
+.fc-dot:hover::before { border-color: var(--accent); }
+.fc-dot.is-active::before {
   background: var(--accent);
   border-color: var(--accent);
-  transform: scale(1.15);
+  transform: translate(-50%, -50%) scale(1.15);
 }
 .fc-dot:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
+}
+
+/* Inside the cycle, drop the per-card bottom rule — it sits between
+   the card and the dots, looking like a divider between them. The
+   .home-section gap below already separates In Focus from what follows. */
+.featured-cycle .featured-card {
+  border-bottom: 0;
+  padding-bottom: 0.5rem;
 }
 
 .featured-card {
