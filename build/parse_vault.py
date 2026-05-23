@@ -755,11 +755,13 @@ def render_html(entities: list[dict[str, Any]], slug_index: dict[str, str]) -> N
     for e in entities:
         # Strip embeds (we don't render media in Phase 0)
         pre = EMBED.sub("", e["body_md"])
-        rendered = rewrite(md.render(pre))
+        rendered = autolink_urls(rewrite(md.render(pre)))
         e["body_html"], e["toc"] = _process_headings(rendered)
         # Render footnote text as inline markdown too — italics, links, etc.
+        # Footnotes are usually citation strings with a trailing source URL,
+        # so the autolink pass matters most here.
         for fn in e["footnotes"]:
-            fn["html"] = rewrite(md.renderInline(fn["text"]))
+            fn["html"] = autolink_urls(rewrite(md.renderInline(fn["text"])))
 
 
 def _process_headings(html: str) -> tuple[str, list[dict[str, Any]]]:
@@ -790,6 +792,51 @@ def _rewrite_outside_code(text: str, wl_repl, fn_repl) -> str:
     text = WIKILINK_HTML.sub(wl_repl, text)
     text = FN_REF.sub(fn_repl, text)
     return text
+
+
+# Bare http(s) URLs in prose. We do not include `<` or `>` so we never
+# match URLs that are already inside an HTML attribute. Quote chars and
+# whitespace also terminate. Run after the markdown renderer so we don't
+# fight with explicit `[text](url)` constructs.
+_BARE_URL_RE = re.compile(r'\bhttps?://[^\s<>"\'`)]+', re.IGNORECASE)
+# Punctuation that's almost always sentence terminator rather than part
+# of a URL — stripped from the matched URL and re-emitted as plain text.
+_URL_TRAILING_PUNCT = ".,;:!?)]}'\""
+
+
+def _autolink_one(match: re.Match) -> str:
+    url = match.group(0)
+    trail = ""
+    while url and url[-1] in _URL_TRAILING_PUNCT:
+        trail = url[-1] + trail
+        url = url[:-1]
+    if not url:
+        return trail
+    # Balance unmatched closing parens (URLs with `(`...`)` like Wikipedia
+    # routinely include them; URLs that end in `)` without a `(` are
+    # almost always the closing paren of surrounding prose).
+    if url.endswith(")") and url.count("(") < url.count(")"):
+        trail = ")" + trail
+        url = url[:-1]
+    safe = url.replace('"', "%22")
+    return f'<a href="{safe}" rel="noopener noreferrer" target="_blank">{url}</a>{trail}'
+
+
+def autolink_urls(html: str) -> str:
+    """Wrap bare http(s) URLs in <a> tags. Skips text already inside an
+    anchor so we don't double-wrap markdown's explicit [text](url) links.
+    Stand-in for markdown-it's `linkify` extension, which silently no-ops
+    when the optional `linkify-it-py` package isn't installed."""
+    parts = re.split(r"(<a\b[^>]*>.*?</a>|<[^>]+>)", html, flags=re.DOTALL | re.IGNORECASE)
+    out: list[str] = []
+    for part in parts:
+        if not part:
+            continue
+        if part.startswith("<"):
+            out.append(part)  # tag or full anchor — leave alone
+        else:
+            out.append(_BARE_URL_RE.sub(_autolink_one, part))
+    return "".join(out)
 
 
 # ---------- io ----------
