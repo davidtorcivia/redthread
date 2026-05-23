@@ -6,10 +6,16 @@ import type { EntityType } from '../lib/types.ts';
 const total = entities().length;
 const headlineTypes: EntityType[] = ['person', 'organization', 'program', 'event', 'concept', 'place'];
 
-// Featured: highest-mentioned program or event (more story-shaped than a person)
-const featuredPool = [...entitiesByType('program'), ...entitiesByType('event')]
-  .sort((a, b) => (b.mention_count ?? 0) - (a.mention_count ?? 0));
-const featured = featuredPool[0];
+// "In focus" rotation. Curated list of entity slugs — the homepage
+// cycles through whichever of these are present in the vault. Add or
+// reorder freely; missing slugs are skipped silently so renames don't
+// break the homepage. Order = display order.
+const featuredIds = [
+  'promis',
+  'the-com',
+];
+const byId = new Map(entities().map((e) => [e.id, e]));
+const featuredList = featuredIds.map((id) => byId.get(id)).filter(Boolean) as ReturnType<typeof entities>;
 
 // Hubs by type — top 8 most-mentioned in each
 const peopleHubs = topHubs(8, 'person');
@@ -35,16 +41,97 @@ const counts = headlineTypes.map((t) => ({
     </p>
   </section>
 
-  {featured && (
+  {featuredList.length > 0 && (
     <section class="home-section">
       <h2 class="section-heading">In focus</h2>
-      <div class="featured-card">
-        <div class="fc-eyebrow">{TYPE_LABELS[featured.type]} · {featured.category ?? 'Featured'}</div>
-        <a href={hrefFor(featured)} class="fc-title">{featured.title}</a>
-        {featured.summary && <p class="fc-dek" set:html={renderInlineMd(featured.summary)} />}
-        <div class="fc-meta">Referenced on {featured.mention_count.toLocaleString()} pages</div>
+      <div
+        class="featured-cycle"
+        data-cycle-interval="7000"
+        aria-live="polite"
+        aria-roledescription="carousel"
+      >
+        {featuredList.map((e, i) => (
+          <article
+            class={`featured-card fc-slide${i === 0 ? ' is-active' : ''}`}
+            data-cycle-slide={i}
+            aria-hidden={i === 0 ? 'false' : 'true'}
+          >
+            <div class="fc-eyebrow">{TYPE_LABELS[e.type]} · {e.category ?? 'Featured'}</div>
+            <a href={hrefFor(e)} class="fc-title">{e.title}</a>
+            {e.summary && <p class="fc-dek" set:html={renderInlineMd(e.summary)} />}
+            <div class="fc-meta">Referenced on {e.mention_count.toLocaleString()} pages</div>
+          </article>
+        ))}
+        {featuredList.length > 1 && (
+          <div class="fc-dots" role="tablist" aria-label="In focus selector">
+            {featuredList.map((e, i) => (
+              <button
+                type="button"
+                role="tab"
+                class={`fc-dot${i === 0 ? ' is-active' : ''}`}
+                data-cycle-target={i}
+                aria-selected={i === 0 ? 'true' : 'false'}
+                aria-label={`Show: ${e.title}`}
+              ></button>
+            ))}
+          </div>
+        )}
       </div>
     </section>
+  )}
+
+  {featuredList.length > 1 && (
+    <script is:inline>
+      (function () {
+        const cycle = document.querySelector('.featured-cycle');
+        if (!cycle) return;
+        const slides = Array.from(cycle.querySelectorAll('.fc-slide'));
+        const dots = Array.from(cycle.querySelectorAll('.fc-dot'));
+        if (slides.length < 2) return;
+        const interval = Number(cycle.dataset.cycleInterval) || 7000;
+        // Respect users who've asked the OS to reduce motion — they get
+        // the dots for manual nav, no auto-advance.
+        const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+        let i = 0;
+        let timer = null;
+
+        function show(next) {
+          if (next === i) return;
+          slides[i].classList.remove('is-active');
+          slides[i].setAttribute('aria-hidden', 'true');
+          dots[i] && dots[i].classList.remove('is-active');
+          dots[i] && dots[i].setAttribute('aria-selected', 'false');
+          i = (next + slides.length) % slides.length;
+          slides[i].classList.add('is-active');
+          slides[i].setAttribute('aria-hidden', 'false');
+          dots[i] && dots[i].classList.add('is-active');
+          dots[i] && dots[i].setAttribute('aria-selected', 'true');
+        }
+        function advance() { show(i + 1); }
+        function start() { stop(); if (!reduce) timer = setInterval(advance, interval); }
+        function stop() { if (timer) { clearInterval(timer); timer = null; } }
+
+        dots.forEach((dot) => {
+          dot.addEventListener('click', () => {
+            show(Number(dot.dataset.cycleTarget));
+            start(); // reset the auto-advance window after a manual pick
+          });
+        });
+        // Pause on hover/focus so a reader isn't yanked off mid-sentence.
+        cycle.addEventListener('mouseenter', stop);
+        cycle.addEventListener('mouseleave', start);
+        cycle.addEventListener('focusin', stop);
+        cycle.addEventListener('focusout', start);
+        // Pause while the tab is hidden — avoids burning CPU on bg tabs
+        // and means the cycle resumes from where the user last saw it.
+        document.addEventListener('visibilitychange', () => {
+          if (document.hidden) stop(); else start();
+        });
+
+        start();
+      })();
+    </script>
   )}
 
   <section class="home-section">

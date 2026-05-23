@@ -2916,6 +2916,62 @@ body.net-fullscreen-active { overflow: hidden; }
   margin-bottom: 1.5rem;
 }
 
+/* Wrapper for the "In focus" rotation. All slides stack at the same
+   grid cell; we crossfade between them by toggling .is-active. Height
+   is set by the tallest slide so the page doesn't reflow each cycle. */
+.featured-cycle {
+  position: relative;
+  display: grid;
+}
+.featured-cycle > .fc-slide {
+  grid-column: 1;
+  grid-row: 1;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 450ms ease, visibility 0s linear 450ms;
+  pointer-events: none;
+}
+.featured-cycle > .fc-slide.is-active {
+  opacity: 1;
+  visibility: visible;
+  transition: opacity 450ms ease, visibility 0s;
+  pointer-events: auto;
+}
+@media (prefers-reduced-motion: reduce) {
+  .featured-cycle > .fc-slide { transition: none; }
+}
+
+.fc-dots {
+  grid-column: 1;
+  grid-row: 2;
+  display: flex;
+  gap: 0.5rem;
+  justify-content: flex-start;
+  margin-top: 0.4rem;
+  padding-bottom: 0.5rem;
+}
+.fc-dot {
+  appearance: none;
+  border: 1px solid var(--line);
+  background: transparent;
+  width: 8px;
+  height: 8px;
+  padding: 0;
+  border-radius: 50%;
+  cursor: pointer;
+  transition: background-color 150ms ease, border-color 150ms ease, transform 150ms ease;
+}
+.fc-dot:hover { border-color: var(--accent); }
+.fc-dot.is-active {
+  background: var(--accent);
+  border-color: var(--accent);
+  transform: scale(1.15);
+}
+.fc-dot:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
 .featured-card {
   position: relative;
   display: grid;
