@@ -5,6 +5,7 @@ config.json
 data/*.json
 data/*.jsonl
 data/api/
+data/md/
 
 # Astro build artifacts
 web/node_modules/
@@ -24,6 +25,18 @@ web/scripts/og-preview/out/
 web/public/previews.json
 web/public/adjacency.json
 web/public/api/
+# Per-entity markdown companions for LLM consumption — one .md per
+# entity, written by parse_vault → copied here by build.sh.
+web/public/people/*.md
+web/public/organizations/*.md
+web/public/programs/*.md
+web/public/events/*.md
+web/public/concepts/*.md
+web/public/places/*.md
+web/public/sources/*.md
+web/public/meta/*.md
+web/public/misc/*.md
+web/public/pages/*.md
 
 # Python
 __pycache__/

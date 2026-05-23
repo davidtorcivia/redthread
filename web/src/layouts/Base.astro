@@ -17,6 +17,19 @@ interface Props {
    * preferred by everyone else.
    */
   ogImage?: string;
+  /**
+   * Emit a <link rel="preload"> for /adjacency.json. Opt-in: only set on
+   * pages that actually fetch it (entity detail pages, /network/, /path/).
+   * Listing/browse pages skip the preload so they don't pull ~150 KB of
+   * graph data the user never touches.
+   */
+  preloadAdjacency?: boolean;
+  /**
+   * Path to a clean-markdown companion for this page (e.g. /people/foo.md).
+   * Emitted as <link rel="alternate" type="text/markdown"> so LLM tools
+   * fetch source markdown instead of having to parse the rendered HTML.
+   */
+  alternateMd?: string;
 }
 const {
   title,
@@ -26,6 +39,8 @@ const {
   jsonLd = null,
   noindex = false,
   ogImage = '/og/site.png',
+  preloadAdjacency = false,
+  alternateMd,
 } = Astro.props;
 
 // Canonical URL is resolved from Astro's `site` config + the current path.
@@ -97,11 +112,20 @@ const V = (import.meta.env.PUBLIC_BUILD_ID as string | undefined) || 'dev';
 
     <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' fill='%23f7f2e7'/%3E%3Ctext y='.85em' x='8' font-family='Georgia,serif' font-size='86' font-weight='600' fill='%2394322a'%3EI%3C/text%3E%3C/svg%3E" />
     <link href="/pagefind/pagefind-ui.css" rel="stylesheet" />
-    <script src="/pagefind/pagefind-ui.js" is:inline></script>
-    {/* Preload the shared adjacency map so the per-entity NetworkGraph
-        widget on every entity page (and /network/, /path/) starts with
-        the data already in cache. ~250KB, served compressed. */}
-    <link rel="preload" as="fetch" href={`/adjacency.json?v=${V}`} crossorigin="anonymous" />
+    {/* defer: ~120KB of search UI no longer blocks first paint. Pagefind
+        only runs when the user opens search, but deferring still ensures
+        window.PagefindUI is defined before our DOMContentLoaded init()
+        below — no race on the first ⌘K. */}
+    <script src="/pagefind/pagefind-ui.js" defer is:inline></script>
+    {preloadAdjacency && (
+      /* Shared adjacency map for the NetworkGraph widget on entity pages
+         and the /network/ + /path/ tools. ~150 KB gzipped. Only preloaded
+         where it'll actually be fetched — listing pages skip it. */
+      <link rel="preload" as="fetch" href={`/adjacency.json?v=${V}`} crossorigin="anonymous" />
+    )}
+    {alternateMd && (
+      <link rel="alternate" type="text/markdown" href={alternateMd} title="Source markdown" />
+    )}
     {/* Exposes the build version to every is:inline fetch site so they
         can append ?v=… without each one needing its own define:vars. */}
     <script is:inline define:vars={{ V }}>window.__V = V;</script>
@@ -237,10 +261,16 @@ const V = (import.meta.env.PUBLIC_BUILD_ID as string | undefined) || 'dev';
         }
         function render(data, link) {
           const el = ensurePop();
-          const rels = (data.related || []).slice(0, 4).map((r) => {
+          // related is a bare ID list — look up each neighbour's title/type
+          // from the previews map we already loaded. Skips items that aren't
+          // in the map (rare; could happen mid-rebuild when a related entity
+          // is removed before its referents catch up).
+          const rels = (data.related || []).slice(0, 4).map((id) => {
+            const r = previews && previews[id];
+            if (!r) return null;
             const dir = TYPE_DIRS[r.type] || 'pages';
-            return '<a href="/' + dir + '/' + r.id + '/">' + esc(r.title) + '</a>';
-          }).join(' · ');
+            return '<a href="/' + dir + '/' + id + '/">' + esc(r.title) + '</a>';
+          }).filter(Boolean).join(' · ');
           const type = data.type ? data.type.charAt(0).toUpperCase() + data.type.slice(1) : '';
           el.innerHTML =
             '<div class="hp-eyebrow">' + esc(type) +

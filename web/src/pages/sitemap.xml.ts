@@ -20,6 +20,9 @@ export const GET: APIRoute = ({ site }) => {
   type Url = { loc: string; lastmod?: string; changefreq?: string; priority?: string };
   const urls: Url[] = [
     { loc: '/',          changefreq: 'weekly',  priority: '1.0' },
+    { loc: '/network/',  changefreq: 'weekly',  priority: '0.8' },
+    { loc: '/path/',     changefreq: 'monthly', priority: '0.7' },
+    { loc: '/bridges/',  changefreq: 'weekly',  priority: '0.7' },
     { loc: '/tags/',     changefreq: 'weekly',  priority: '0.7' },
     { loc: '/timeline/', changefreq: 'weekly',  priority: '0.7' },
     { loc: '/changelog/',changefreq: 'daily',   priority: '0.5' },

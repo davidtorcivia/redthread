@@ -1235,6 +1235,79 @@ def build_neighborhoods(
     return out
 
 
+_TYPE_TO_DIR = {
+    "person": "people",
+    "organization": "organizations",
+    "program": "programs",
+    "event": "events",
+    "concept": "concepts",
+    "place": "places",
+    "source": "sources",
+    "meta": "meta",
+    "misc": "misc",
+    "page": "pages",
+}
+
+
+def _rewrite_wikilinks_to_md(body: str, slug_index: dict[str, str],
+                              id_to_type: dict[str, str]) -> str:
+    """Turn [[Target]] and [[Target|Display]] into [Display](/dir/slug/).
+    Unresolved targets degrade to bare display text — no broken links."""
+    def replace(m: re.Match) -> str:
+        target = m.group(1).strip()
+        display = (m.group(2) or "").strip() or target
+        section = ""
+        if "#" in target:
+            target, section = target.split("#", 1)
+            target = target.strip()
+        target_id = slug_index.get(normalize_target(target))
+        if not target_id:
+            return display
+        t_type = id_to_type.get(target_id, "page")
+        href = f"/{_TYPE_TO_DIR.get(t_type, 'pages')}/{target_id}/"
+        if section:
+            href += f"#{slugify(section)}"
+        # Escape ] in display so we don't accidentally close the link
+        safe_display = display.replace("]", r"\]")
+        return f"[{safe_display}]({href})"
+    return WIKILINK.sub(replace, body)
+
+
+def write_entity_markdown(out_dir: Path, entities: list[dict[str, Any]],
+                          slug_index: dict[str, str]) -> None:
+    """Emit one cleaned .md per entity under out_dir/md/<type-dir>/<slug>.md.
+    build.sh copies these into web/public/, so the live URL is
+    /<type-dir>/<slug>.md sitting beside the HTML at /<type-dir>/<slug>/.
+    Format: original frontmatter + body with wikilinks rewritten to
+    absolute site URLs + footnote definitions appended at the bottom.
+    These files are what LLM tools (Claude, Perplexity, etc.) prefer
+    over the JS-heavy HTML rendering."""
+    md_root = out_dir / "md"
+    md_root.mkdir(parents=True, exist_ok=True)
+    id_to_type = {e["id"]: e["type"] for e in entities}
+
+    for e in entities:
+        type_dir = _TYPE_TO_DIR.get(e["type"], "pages")
+        target_dir = md_root / type_dir
+        target_dir.mkdir(parents=True, exist_ok=True)
+
+        body = _rewrite_wikilinks_to_md(e.get("body_md") or "", slug_index, id_to_type)
+        # Re-attach footnote definitions at the end. extract_footnotes
+        # stripped them so the body could be rendered cleanly; for the
+        # markdown export we want them back so the file stands alone.
+        fns = e.get("footnotes") or []
+        if fns:
+            body = body.rstrip() + "\n\n" + "\n".join(
+                f"[^{n['id']}]: {n['text']}" for n in fns
+            ) + "\n"
+
+        # Reuse the frontmatter library to round-trip metadata — gives us
+        # YAML output identical in shape to the vault source, including
+        # block-style lists for `tags` and `aliases`.
+        post = frontmatter.Post(body, **(e.get("frontmatter") or {}))
+        (target_dir / f"{e['id']}.md").write_bytes(frontmatter.dumps(post).encode("utf-8") + b"\n")
+
+
 def write_outputs(out_dir: Path, entities: list[dict[str, Any]],
                   slug_index: dict[str, str], edges: list[dict[str, Any]],
                   stats: dict[str, Any],
@@ -1242,6 +1315,9 @@ def write_outputs(out_dir: Path, entities: list[dict[str, Any]],
                   neighborhoods: dict[str, dict[str, Any]] | None = None,
                   adjacency: dict[str, Any] | None = None) -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
+
+    write_entity_markdown(out_dir, entities, slug_index)
+
 
     (out_dir / "entities.json").write_text(_dump(entities), encoding="utf-8")
     (out_dir / "slug_index.json").write_text(_dump(slug_index), encoding="utf-8")
@@ -1269,17 +1345,21 @@ def write_outputs(out_dir: Path, entities: list[dict[str, Any]],
     )
 
     # Single slim-record map for hover previews. Loaded once by the browser
-    # on first hover, then cached in memory. ~100KB gzipped at this scale.
+    # on first hover, then cached in memory.
+    #
+    # `related` is emitted as a bare list of IDs (not full {id,title,type}
+    # objects) because every related entity already has its own entry in
+    # this same map — the client just does previews[id] to look up the
+    # title and type at render time. Cuts the file by ~30% (related is
+    # the dominant field), with no UI regression.
     previews = {
         e["id"]: {
             "title": e["title"],
             "type": e["type"],
             "category": e["category"],
             "summary": e["summary"],
-            "mention_count": e.get("mention_count", 0),
             "related": [
-                {"id": r["id"], "title": r["title"], "type": r["type"]}
-                for r in (related or {}).get(e["id"], [])[:5]
+                r["id"] for r in (related or {}).get(e["id"], [])[:5]
             ],
         }
         for e in entities

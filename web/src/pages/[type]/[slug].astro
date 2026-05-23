@@ -83,6 +83,10 @@ const ogType = entity.type === 'person' ? 'profile' : 'article';
 // Per-entity OG card path mirrors the entity page URL — easy to predict
 // and matches the route in src/pages/og/[type]/[slug].png.ts.
 const ogImage = `/og/${TYPE_DIRS[entity.type]}/${entity.id}.png`;
+// LLM tools auto-discover the clean-markdown companion via rel=alternate.
+// The .md sits beside the HTML directory (e.g. /people/foo.md next to
+// /people/foo/) and is emitted by parse_vault → build.sh copies into public/.
+const mdHref = `/${TYPE_DIRS[entity.type]}/${entity.id}.md`;
 ---
 <Base
   title={`${entity.title} — The Info Web`}
@@ -91,6 +95,8 @@ const ogImage = `/og/${TYPE_DIRS[entity.type]}/${entity.id}.png`;
   ogType={ogType}
   ogImage={ogImage}
   jsonLd={jsonLd}
+  preloadAdjacency
+  alternateMd={mdHref}
 >
   <article
     class="entity-article"

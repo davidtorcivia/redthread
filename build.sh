@@ -37,6 +37,18 @@ mkdir -p "$script_dir/web/public"
 cp -f "$script_dir/data/previews.json" "$script_dir/web/public/previews.json"
 cp -f "$script_dir/data/adjacency.json" "$script_dir/web/public/adjacency.json"
 
+# Per-entity .md companions: parse_vault writes them under data/md/<dir>/
+# and we lay them down beside the HTML in public/<dir>/<slug>.md. LLM
+# tools auto-discover these via the rel="alternate" link in the HTML head.
+# Remove the previous set first so renamed/deleted entities don't leave
+# orphan .md files behind.
+for d in people organizations programs events concepts places sources meta misc pages; do
+  find "$script_dir/web/public/$d" -maxdepth 1 -name '*.md' -type f -delete 2>/dev/null || true
+done
+if [[ -d "$script_dir/data/md" ]]; then
+  cp -rf "$script_dir/data/md/." "$script_dir/web/public/"
+fi
+
 # Clean up any stale per-entity neighborhood JSONs from older builds.
 rm -rf "$script_dir/web/public/api/neighborhood"
 
@@ -57,5 +69,18 @@ if [[ ! -d node_modules ]]; then
 fi
 echo "[build] (2/2) building site..."
 npm run build
+
+# Pagefind ships several alternate UIs alongside the one we use
+# (pagefind-ui.js). The component-ui (~217 KB), modular-ui (~150 KB),
+# and highlight (~10 KB) bundles are never loaded by this site, so we
+# drop them from dist to keep the deploy lean. The core (pagefind.js,
+# pagefind-worker.js, pagefind-entry.json, *.pf_meta) and the index/
+# fragment/ filter/ directories must stay — pagefind-ui.js pulls them
+# in at runtime.
+echo "[build] pruning unused pagefind bundles..."
+pf="$script_dir/web/dist/pagefind"
+rm -f "$pf/pagefind-component-ui.js" "$pf/pagefind-component-ui.css" \
+      "$pf/pagefind-modular-ui.js"   "$pf/pagefind-modular-ui.css"   \
+      "$pf/pagefind-highlight.js"
 
 echo "[build] done -> $script_dir/web/dist"
