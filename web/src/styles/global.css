@@ -186,6 +186,10 @@ header.site nav a {
   letter-spacing: 0.05em;
 }
 header.site nav a:hover { color: var(--ink); background: none; }
+/* Tool links + their label only appear in the mobile dropdown (see the
+   max-width media query). The desktop bar stays the six entity types. */
+header.site nav .nav-tool,
+header.site nav .nav-group-label { display: none; }
 header.site .spacer { flex: 1; }
 
 /* Hamburger button — hidden on desktop, visible on mobile. Three-line
@@ -2182,6 +2186,78 @@ body.graph-fullscreen-active { overflow: hidden; }
   font-variant-numeric: tabular-nums;
   margin-left: 0.1rem;
 }
+
+/* ---- Network legend ----------------------------------------------------
+   Static, collapsible key beneath the graph. Decodes the canvas's visual
+   encodings (type colour, node size, edge kind, bridge ring) that have no
+   on-screen label. Native <details>, so no JS. */
+.net-legend {
+  max-width: var(--measure-wide);
+  margin: 1.2rem auto 0;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--card);
+  font-family: var(--sans);
+  font-size: 0.82rem;
+}
+.net-legend > summary {
+  cursor: pointer;
+  padding: 0.7rem 1rem;
+  font-weight: 600;
+  color: var(--ink-2);
+  list-style: none;
+  user-select: none;
+}
+.net-legend > summary::-webkit-details-marker { display: none; }
+.net-legend > summary::before { content: '▸ '; color: var(--muted-2); }
+.net-legend[open] > summary::before { content: '▾ '; }
+.net-legend[open] > summary { border-bottom: 1px solid var(--line); }
+.net-legend-body {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr));
+  gap: 1.1rem 1.6rem;
+  padding: 1rem;
+}
+.nl-group-label {
+  display: block;
+  font-size: 0.66rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--muted-2);
+  margin-bottom: 0.55rem;
+}
+.nl-types { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: 1fr 1fr; gap: 0.35rem 0.9rem; }
+.nl-types li { display: flex; align-items: center; gap: 0.45rem; color: var(--ink-2); }
+.nl-row { display: flex; align-items: center; gap: 0.5rem; margin: 0 0 0.45rem; color: var(--ink-2); line-height: 1.35; }
+.nl-row:last-child { margin-bottom: 0; }
+.nl-dot { width: 0.7rem; height: 0.7rem; border-radius: 50%; background: var(--muted); flex: none; }
+.nl-dot.t-person { background: var(--t-person); }
+.nl-dot.t-organization { background: var(--t-organization); }
+.nl-dot.t-program { background: var(--t-program); }
+.nl-dot.t-event { background: var(--t-event); }
+.nl-dot.t-concept { background: var(--t-concept); }
+.nl-dot.t-place { background: var(--t-place); }
+.nl-dot-sm { width: 0.4rem; height: 0.4rem; }
+.nl-dot-lg { width: 0.9rem; height: 0.9rem; }
+.nl-line {
+  display: inline-block;
+  width: 1.7rem;
+  height: 0;
+  border-top: 2px solid var(--accent-soft);
+  flex: none;
+}
+.nl-line.dashed { border-top-style: dashed; }
+.nl-ring {
+  width: 0.85rem;
+  height: 0.85rem;
+  border-radius: 50%;
+  box-sizing: border-box;
+  flex: none;
+}
+.nl-ring.gold { border: 2px solid var(--gold); }
+.nl-ring.accent { border: 3px solid var(--accent); }
+
 /* Selection panel reuses .graph-selection styles via the shared class. */
 .network-article .net-selection { left: 0.6rem; bottom: 0.6rem; }
 /* Fullscreen for the network shell — same pattern as graph-section. */
@@ -3617,6 +3693,20 @@ body.net-fullscreen-active { overflow: hidden; }
     letter-spacing: 0.06em;
   }
   header.site nav a:last-child { border-bottom: none; }
+  /* Reveal the tool links in the dropdown, grouped under an "Explore"
+     label so they read as a distinct section from the entity types. */
+  header.site nav .nav-tool { display: block; }
+  header.site nav .nav-group-label {
+    display: block;
+    padding: 0.85rem 0.2rem 0.35rem;
+    font-family: var(--sans);
+    font-size: 0.66rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: var(--muted-2);
+    border-bottom: 1px solid var(--line);
+  }
   header.site .spacer { display: none; }
   header.site .search-trigger {
     padding: 0.25rem 0.55rem;

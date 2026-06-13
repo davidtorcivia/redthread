@@ -79,6 +79,30 @@ if (dates.end && (entity.type === 'event' || entity.type === 'program')) {
 if (locations.length > 0) jsonLd.location = locations.length === 1 ? locations[0] : locations;
 if (entity.tags?.length) jsonLd.keywords = entity.tags.map(String).join(', ');
 
+// Fully-qualified url/image — schema.org consumers and knowledge-graph
+// crawlers want absolute URLs, not the site-relative paths the <head> uses.
+const dir = TYPE_DIRS[entity.type];
+if (Astro.site) {
+  jsonLd.url = new URL(`/${dir}/${entity.id}/`, Astro.site).href;
+  jsonLd.image = new URL(`/og/${dir}/${entity.id}.png`, Astro.site).href;
+}
+// Publication signals. frontmatter.created/updated are the authored dates;
+// mtime (file last-change) is a safe fallback for dateModified.
+const fm = entity.frontmatter as Record<string, unknown>;
+if (typeof fm.created === 'string' && fm.created) jsonLd.datePublished = fm.created;
+const modified = (typeof fm.updated === 'string' && fm.updated) || entity.mtime;
+if (modified) jsonLd.dateModified = modified;
+// Aliases → alternateName: lets crawlers and LLMs merge an entity with its
+// other names (e.g. "Ostpolitik" / "Eastern Policy") instead of duplicating.
+if (Array.isArray(fm.aliases) && fm.aliases.length > 0) {
+  jsonLd.alternateName = fm.aliases.length === 1 ? fm.aliases[0] : fm.aliases;
+}
+// Topics as schema.org Things — richer for knowledge graphs than the flat
+// keywords string (which we keep for plain search engines).
+if (entity.tags?.length) {
+  jsonLd.about = entity.tags.map((t) => ({ '@type': 'Thing', name: String(t) }));
+}
+
 const ogType = entity.type === 'person' ? 'profile' : 'article';
 // Per-entity OG card path mirrors the entity page URL — easy to predict
 // and matches the route in src/pages/og/[type]/[slug].png.ts.
@@ -97,6 +121,10 @@ const mdHref = `/${TYPE_DIRS[entity.type]}/${entity.id}.md`;
   jsonLd={jsonLd}
   preloadAdjacency
   alternateMd={mdHref}
+  breadcrumbs={[
+    { name: typePlural, item: typeHref },
+    { name: entity.title, item: `/${dir}/${entity.id}/` },
+  ]}
 >
   <article
     class="entity-article"

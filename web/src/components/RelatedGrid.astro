@@ -22,7 +22,7 @@ const items = related(id).slice(0, limit);
               {r.via.map((v, i) => (
                 <>
                   {i > 0 && <span class="rc-via-sep"> · </span>}
-                  <a class="rc-via-link" href={hrefFor({ id: v.id, type: v.type })}>{v.title}</a>
+                  <a class="rc-via-link" href={hrefFor({ id: v.id, type: v.type })} data-preview>{v.title}</a>
                 </>
               ))}
             </div>

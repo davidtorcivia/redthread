@@ -30,6 +30,13 @@ interface Props {
    * fetch source markdown instead of having to parse the rendered HTML.
    */
   alternateMd?: string;
+  /**
+   * Breadcrumb trail for this page, root-first, e.g.
+   * [{name:'People', item:'/people/'}, {name:'Marc Dutroux', item:'/people/marc-dutroux/'}].
+   * Emitted as schema.org BreadcrumbList. "Home" is prepended automatically.
+   * Omit on the homepage and standalone tools.
+   */
+  breadcrumbs?: { name: string; item: string }[];
 }
 const {
   title,
@@ -41,6 +48,7 @@ const {
   ogImage = '/og/site.png',
   preloadAdjacency = false,
   alternateMd,
+  breadcrumbs,
 } = Astro.props;
 
 // Canonical URL is resolved from Astro's `site` config + the current path.
@@ -72,6 +80,52 @@ const analyticsEnabled = Boolean(analyticsSrc && analyticsId);
 // build.sh for how it's computed (sha1 of the two JSON files).
 // Falls back to 'dev' for local runs that don't go through build.sh.
 const V = (import.meta.env.PUBLIC_BUILD_ID as string | undefined) || 'dev';
+
+// Site-wide identity (WebSite + Organization), emitted on every page so
+// crawlers and LLMs have a stable publisher to attribute and a consistent
+// description of the whole archive. Tagline kept in lockstep with the one
+// in llms.txt.ts and the homepage description.
+const siteHome = Astro.site ? new URL('/', Astro.site).href : '/';
+const siteSchema = {
+  '@context': 'https://schema.org',
+  '@graph': [
+    {
+      '@type': 'WebSite',
+      '@id': `${siteHome}#website`,
+      url: siteHome,
+      name: 'The Info Web',
+      description:
+        'A research vault on intelligence operations, parapsychology, government programs, and the parapolitical record.',
+      inLanguage: 'en-US',
+      publisher: { '@id': `${siteHome}#org` },
+    },
+    {
+      '@type': 'Organization',
+      '@id': `${siteHome}#org`,
+      name: 'The Info Web',
+      url: siteHome,
+      ...(Astro.site ? { logo: new URL('/og/site.png', Astro.site).href } : {}),
+    },
+  ],
+};
+
+// BreadcrumbList — only when a page passes a trail. "Home" is prepended,
+// and each item is absolutized against the site so crawlers get full URLs.
+const crumbItems = breadcrumbs?.length
+  ? [{ name: 'Home', item: '/' }, ...breadcrumbs]
+  : null;
+const breadcrumbSchema = crumbItems
+  ? {
+      '@context': 'https://schema.org',
+      '@type': 'BreadcrumbList',
+      itemListElement: crumbItems.map((b, i) => ({
+        '@type': 'ListItem',
+        position: i + 1,
+        name: b.name,
+        item: Astro.site ? new URL(b.item, Astro.site).href : b.item,
+      })),
+    }
+  : null;
 ---
 <!doctype html>
 <html lang="en">
@@ -108,6 +162,10 @@ const V = (import.meta.env.PUBLIC_BUILD_ID as string | undefined) || 'dev';
 
     {jsonLd && (
       <script type="application/ld+json" set:html={JSON.stringify(jsonLd)} is:inline />
+    )}
+    <script type="application/ld+json" set:html={JSON.stringify(siteSchema)} is:inline />
+    {breadcrumbSchema && (
+      <script type="application/ld+json" set:html={JSON.stringify(breadcrumbSchema)} is:inline />
     )}
 
     <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' fill='%23f7f2e7'/%3E%3Ctext y='.85em' x='8' font-family='Georgia,serif' font-size='86' font-weight='600' fill='%2394322a'%3EI%3C/text%3E%3C/svg%3E" />
@@ -160,6 +218,15 @@ const V = (import.meta.env.PUBLIC_BUILD_ID as string | undefined) || 'dev';
           <a href="/events/">Events</a>
           <a href="/concepts/">Concepts</a>
           <a href="/places/">Places</a>
+          {/* Tool links — hidden on desktop (they live in the footer there),
+              surfaced inside the mobile dropdown so phones can reach them
+              without hunting through the tiny footer. See .nav-tool in CSS. */}
+          <span class="nav-group-label" aria-hidden="true">Explore</span>
+          <a class="nav-tool" href="/network/">Network</a>
+          <a class="nav-tool" href="/path/">Path</a>
+          <a class="nav-tool" href="/bridges/">Bridges</a>
+          <a class="nav-tool" href="/tags/">Tags</a>
+          <a class="nav-tool" href="/timeline/">Timeline</a>
         </nav>
         <span class="spacer"></span>
         <button class="search-trigger" id="search-open" type="button" aria-label="Open search (Command-K)">
@@ -303,8 +370,13 @@ const V = (import.meta.env.PUBLIC_BUILD_ID as string | undefined) || 'dev';
           clearTimeout(hideTimer);
           hideTimer = setTimeout(() => { if (pop) pop.classList.remove('visible'); }, 180);
         }
+        // Wikilinks in body prose, plus opted-in links elsewhere (backlinks,
+        // related "via" chains) tagged with [data-preview]. Both resolve to
+        // /<type>/<slug>/ URLs so the same slugFromHref + previews.json lookup
+        // serves them; links whose slug isn't in previews.json just no-op.
+        const PREVIEW_SEL = 'a.wikilink:not(.unresolved), a[data-preview]';
         document.addEventListener('mouseover', (e) => {
-          const link = e.target.closest && e.target.closest('a.wikilink:not(.unresolved)');
+          const link = e.target.closest && e.target.closest(PREVIEW_SEL);
           if (!link || link === currentLink) return;
           currentLink = link;
           clearTimeout(openTimer);
@@ -317,7 +389,7 @@ const V = (import.meta.env.PUBLIC_BUILD_ID as string | undefined) || 'dev';
           }, 320);
         });
         document.addEventListener('mouseout', (e) => {
-          const link = e.target.closest && e.target.closest('a.wikilink');
+          const link = e.target.closest && e.target.closest(PREVIEW_SEL);
           if (!link) return;
           if (e.relatedTarget && (
               e.relatedTarget.closest && e.relatedTarget.closest('.hover-preview')

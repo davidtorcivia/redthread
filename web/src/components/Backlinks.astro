@@ -13,7 +13,7 @@ const links = backlinks(id).sort((a, b) => a.source_title.localeCompare(b.source
     <ul class="hc-list">
       {links.map((b) => (
         <li class={`hc-item type-${b.source_type}`}>
-          <a href={hrefFor({ id: b.source_id, type: b.source_type })}>
+          <a href={hrefFor({ id: b.source_id, type: b.source_type })} data-preview>
             <span class="hc-eyebrow">{TYPE_LABELS[b.source_type]}</span>
             <span class="hc-title">{b.source_title}</span>
           </a>

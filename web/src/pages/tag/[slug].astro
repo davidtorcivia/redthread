@@ -46,10 +46,36 @@ for (const [t, items] of Object.entries(byType)) {
     });
   }
 }
+
+// Type breakdown in the description so a tag with 23 people + 8 events reads
+// differently from one with 5 concepts — better snippets, and LLMs can tell
+// what kind of tag this is at a glance.
+const breakdown = groups
+  .map((g) => {
+    const noun = g.items.length === 1 ? TYPE_LABELS[g.type] : g.label;
+    return `${g.items.length} ${noun.toLowerCase()}`;
+  })
+  .join(', ');
+const description = `${count.toLocaleString()} entr${count === 1 ? 'y' : 'ies'} tagged ${tag}${breakdown ? ` — ${breakdown}` : ''}.`;
+const collectionSchema = {
+  '@context': 'https://schema.org',
+  '@type': 'CollectionPage',
+  name: `#${tag} — The Info Web`,
+  description,
+  url: Astro.site ? new URL(`/tag/${slug}/`, Astro.site).href : `/tag/${slug}/`,
+  ...(Astro.site ? { isPartOf: { '@id': `${new URL('/', Astro.site).href}#website` } } : {}),
+  mainEntity: { '@type': 'ItemList', numberOfItems: count },
+};
+const breadcrumbs = [
+  { name: 'Tags', item: '/tags/' },
+  { name: `#${tag}`, item: `/tag/${slug}/` },
+];
 ---
 <Base
   title={`#${tag} — The Info Web`}
-  description={`Entries tagged ${tag}.`}
+  description={description}
+  jsonLd={collectionSchema}
+  breadcrumbs={breadcrumbs}
 >
   <header class="browse-header">
     <div class="kicker">

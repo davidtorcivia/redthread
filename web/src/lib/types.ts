@@ -44,6 +44,9 @@ export interface Entity {
   wikilinks: Wikilink[];
   mention_count: number;
   page_density: number;
+  /** File modification time (ISO 8601), emitted by parse_vault. Used as a
+   *  dateModified fallback in schema.org and for sitemap lastmod. */
+  mtime?: string;
   /** Top-50 bridge entity. Bridge = neighborhood-community-span entropy
    *  (Louvain communities). Lower rank = stronger bridge — a node whose
    *  neighbors span many distant clusters, regardless of degree. */
