@@ -14,7 +14,7 @@
  * that hit a cached file never pull them into memory.
  */
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync, writeFileSync, readdirSync, unlinkSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync, readdirSync, unlinkSync, utimesSync, statSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
 import type { CardInput } from './og-card.ts';
@@ -80,6 +80,13 @@ export async function renderOrCache(input: CardInput): Promise<{ png: Buffer; ha
   touched.add(hash);
   const file = resolve(cacheDir, `${hash}.png`);
   if (existsSync(file)) {
+    // Bump mtime so the cross-process prune (see pruneCache) can tell this
+    // card is still reachable this build. Astro renders OG endpoints in a
+    // separate module graph from the astro:build:done integration, so the
+    // in-memory `touched` set isn't visible there — mtime is the shared
+    // signal. A write (cache miss, below) sets mtime implicitly.
+    const now = new Date();
+    try { utimesSync(file, now, now); } catch { /* ignore */ }
     return { png: readFileSync(file), hash, hit: true };
   }
 
@@ -99,16 +106,29 @@ export async function renderOrCache(input: CardInput): Promise<{ png: Buffer; ha
 }
 
 /**
- * Delete any cached PNG that was not touched during this build. Should
- * be called from astro:build:done (see astro.config.mjs integration).
- * Safe to call from a dev server too — it just no-ops the manifest.
+ * Delete cached PNGs that this build didn't reach (orphans from deleted or
+ * renamed entities). Called from astro:build:done (see astro.config.mjs).
+ *
+ * `sinceMs` is the build's start time. Because astro:build:done runs in a
+ * different module instance than the page renderers, the in-memory `touched`
+ * set is empty there — so when sinceMs is given we prune by file mtime
+ * instead: renderOrCache stamps every card it serves (hit or miss) with the
+ * current time, so any cache file older than build start is unreachable.
+ * Called with no argument (same-instance, e.g. a test), it uses `touched`.
  */
-export function pruneCache(): { kept: number; pruned: number } {
+export function pruneCache(sinceMs?: number): { kept: number; pruned: number } {
   let kept = 0, pruned = 0;
   for (const file of readdirSync(cacheDir)) {
     if (!file.endsWith('.png')) continue;
-    const hash = file.slice(0, -4);
-    if (touched.has(hash)) { kept++; continue; }
+    let keep: boolean;
+    if (sinceMs != null) {
+      let mtimeMs = 0;
+      try { mtimeMs = statSync(resolve(cacheDir, file)).mtimeMs; } catch { /* gone */ }
+      keep = mtimeMs >= sinceMs;
+    } else {
+      keep = touched.has(file.slice(0, -4));
+    }
+    if (keep) { kept++; continue; }
     try { unlinkSync(resolve(cacheDir, file)); pruned++; } catch { /* ignore */ }
   }
   return { kept, pruned };
