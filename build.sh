@@ -83,4 +83,16 @@ rm -f "$pf/pagefind-component-ui.js" "$pf/pagefind-component-ui.css" \
       "$pf/pagefind-modular-ui.js"   "$pf/pagefind-modular-ui.css"   \
       "$pf/pagefind-highlight.js"
 
+# Precompress text assets so nginx (gzip_static on) serves a max-level .gz
+# without recompressing per request. Skips already-compressed binaries
+# (PNG/woff) and tiny files where the gzip header outweighs the savings.
+# -k keeps the original for clients that don't send Accept-Encoding: gzip;
+# Astro empties dist/ each build, so no stale .gz survive a rename/delete.
+echo "[build] precompressing text assets (gzip_static)..."
+find "$script_dir/web/dist" -type f \
+  \( -name '*.html' -o -name '*.css'  -o -name '*.js'  -o -name '*.json' \
+     -o -name '*.xml' -o -name '*.svg' -o -name '*.txt' -o -name '*.md' \) \
+  -size +1024c -print0 \
+  | xargs -0 -r -P 4 gzip -9 -kf
+
 echo "[build] done -> $script_dir/web/dist"
