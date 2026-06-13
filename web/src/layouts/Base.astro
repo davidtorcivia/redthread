@@ -136,6 +136,7 @@ const breadcrumbSchema = crumbItems
     {description && <meta name="description" content={description} />}
     {noindex && <meta name="robots" content="noindex, nofollow" />}
     <link rel="canonical" href={canonical} />
+    <link rel="alternate" type="application/atom+xml" title="The Info Web — Changelog" href="/feed.xml" />
 
     {/* Open Graph — used by Slack, Discord, iMessage, Facebook, etc. when
         a link to this page is pasted. The og:image is generated at build
@@ -260,7 +261,13 @@ const breadcrumbSchema = crumbItems
       </div>
     </div>
 
-    <script is:inline>
+    {/* Processed (not is:inline) so Astro bundles this ~260-line block into
+        one hashed, long-cached _astro/*.js shared across every page, instead
+        of duplicating it into all ~3,400 HTML files. Runs after parse as a
+        deferred module; reads window.__V (set by the inline script above)
+        and self-heals if PagefindUI isn't ready yet (init() guards + retries
+        on first open). */}
+    <script>
       // ---------- Hover previews on wikilinks ----------
       (function () {
         if (!window.matchMedia('(hover: hover)').matches) return;
@@ -492,8 +499,11 @@ const breadcrumbSchema = crumbItems
         modal.addEventListener('mousedown', (e) => {
           if (e.target === modal) closeModal();
         });
+        // ⌘K on Mac, Ctrl+K elsewhere. We deliberately accept either modifier
+        // so the shortcut works cross-platform (was metaKey-only, locking out
+        // Windows/Linux). Alt excluded so Alt-combos don't false-trigger.
         document.addEventListener('keydown', (e) => {
-          if (e.metaKey && !e.ctrlKey && !e.altKey && e.key.toLowerCase() === 'k') {
+          if ((e.metaKey || e.ctrlKey) && !e.altKey && e.key.toLowerCase() === 'k') {
             e.preventDefault();
             if (modal.classList.contains('open')) closeModal();
             else openModal();
@@ -501,6 +511,16 @@ const breadcrumbSchema = crumbItems
             closeModal();
           }
         });
+
+        // Match the visible hint to the platform — Mac shows ⌘ K, everyone
+        // else Ctrl K — so the kbd badge isn't lying to non-Mac users.
+        if (trigger) {
+          const isMac = /Mac|iPhone|iPad|iPod/.test(navigator.platform || navigator.userAgent || '');
+          if (!isMac) {
+            const kbd = trigger.querySelector('kbd');
+            if (kbd) kbd.textContent = 'Ctrl K';
+          }
+        }
 
         // Eager init AFTER wiring the click — Pagefind mounts its DOM at
         // page-load so the input exists when the modal opens (avoids the

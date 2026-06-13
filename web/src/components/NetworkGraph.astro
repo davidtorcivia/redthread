@@ -73,6 +73,42 @@ const { id, title } = Astro.props;
 
     <div class="graph-tooltip net-tooltip" hidden></div>
   </div>
+
+  {/* Same key as the full /network/ graph — node colour/size, edge kind,
+      bridge ring. Native <details>, collapsed by default. */}
+  <details class="net-legend">
+    <summary>Legend — how to read this graph</summary>
+    <div class="net-legend-body">
+      <div class="nl-group">
+        <span class="nl-group-label">Node colour — type</span>
+        <ul class="nl-types">
+          <li><span class="nl-dot t-person"></span>People</li>
+          <li><span class="nl-dot t-organization"></span>Organizations</li>
+          <li><span class="nl-dot t-program"></span>Programs</li>
+          <li><span class="nl-dot t-event"></span>Events</li>
+          <li><span class="nl-dot t-concept"></span>Concepts</li>
+          <li><span class="nl-dot t-place"></span>Places</li>
+        </ul>
+      </div>
+      <div class="nl-group">
+        <span class="nl-group-label">Node size</span>
+        <p class="nl-row">
+          <span class="nl-dot nl-dot-sm"></span><span class="nl-dot nl-dot-lg"></span>
+          Larger = more mentions across the vault.
+        </p>
+      </div>
+      <div class="nl-group">
+        <span class="nl-group-label">Connections</span>
+        <p class="nl-row"><span class="nl-line"></span> Explicit link (wikilink between entries).</p>
+        <p class="nl-row"><span class="nl-line dashed"></span> Inferred connection (name co-mention) — toggle with “Inferred”.</p>
+      </div>
+      <div class="nl-group">
+        <span class="nl-group-label">Highlights</span>
+        <p class="nl-row"><span class="nl-ring gold"></span> Gold ring — a bridge entity linking distant clusters.</p>
+        <p class="nl-row"><span class="nl-ring accent"></span> Accent ring — your current selection.</p>
+      </div>
+    </div>
+  </details>
 </section>
 
 <script is:inline define:vars={{ focalId: id, focalTitle: title }}>

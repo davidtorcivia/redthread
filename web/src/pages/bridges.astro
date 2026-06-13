@@ -235,16 +235,24 @@ const bridgeRankOf = new Map(bridges.map((e) => [e.id, e.bridge_rank!]));
       }
 
       tabs.forEach((t) => {
-        t.addEventListener('click', () => setView(t.getAttribute('data-view')));
+        t.addEventListener('click', () => {
+          const view = t.getAttribute('data-view');
+          setView(view);
+          // Persist the active tab in the URL (replaceState, no history
+          // spam) so a reload or shared link restores it instead of always
+          // snapping back to Bridges.
+          history.replaceState(null, '', '#' + view);
+        });
       });
 
       // Auto-select view from URL hash so /bridges/#hu-cia lands on Hubs
       // and scrolls into view, rather than showing Bridges and silently
-      // missing the anchor.
+      // missing the anchor. Plain #hubs / #bridges markers (written by the
+      // tab clicks above) select the view without an entity scroll target.
       function applyHashView() {
         const h = window.location.hash;
-        if (h.startsWith('#hu-')) setView('hubs');
-        else if (h.startsWith('#br-')) setView('bridges');
+        if (h === '#hubs' || h.startsWith('#hu-')) setView('hubs');
+        else if (h === '#bridges' || h.startsWith('#br-')) setView('bridges');
         // Re-trigger the browser's anchor scroll after we've unhidden
         // the right panel; otherwise the target was hidden when the
         // browser first tried to focus it.
