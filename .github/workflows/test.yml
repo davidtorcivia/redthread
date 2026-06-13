@@ -1,0 +1,25 @@
+name: tests
+
+# Parser correctness gate. The vault parser has no runtime to catch a bad
+# deploy — a broken commit just renders wrong data that "builds" fine — so
+# these run on every push that touches it. Scoped to build/** to stay fast.
+on:
+  push:
+    paths:
+      - 'build/**'
+      - '.github/workflows/test.yml'
+  pull_request:
+    paths:
+      - 'build/**'
+
+jobs:
+  parser:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      # Install the pinned runtime deps so import-time breakage is caught too.
+      - run: pip install -r build/requirements.txt
+      - run: python -m unittest discover -s build -p 'test_*.py' --verbose
