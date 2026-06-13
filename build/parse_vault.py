@@ -310,7 +310,20 @@ def parse_file(path: Path, vault_root: Path, type_map: dict[str, str]) -> dict[s
 
 
 def build_slug_index(entities: list[dict[str, Any]]) -> dict[str, str]:
-    """Map normalized title → entity id. Last-write-wins on collisions (logged)."""
+    """Map normalized title AND frontmatter alias → entity id, for resolving
+    explicit [[wikilinks]]. Two passes so a real title always beats another
+    entity's alias:
+
+      1. titles  — last-write-wins on title↔title collisions (logged).
+      2. aliases — fill only keys no title already claimed. This mirrors
+         Obsidian, where `[[CIA]]` resolves to "Central Intelligence Agency"
+         via its `aliases:` list. An alias claimed by two different entities
+         is dropped as ambiguous (left unresolved) rather than silently
+         pointing at whichever we happened to see last.
+
+    Without the alias pass, alias-targeted wikilinks render as `unresolved`
+    even though the page exists — e.g. [[CIA]], [[MKULTRA]], [[Gladio]].
+    """
     idx: dict[str, str] = {}
     collisions: list[tuple[str, str, str]] = []
     for e in entities:
@@ -322,6 +335,34 @@ def build_slug_index(entities: list[dict[str, Any]]) -> dict[str, str]:
         sys.stderr.write(f"[warn] {len(collisions)} title collisions; first few:\n")
         for k, a, b in collisions[:5]:
             sys.stderr.write(f"  {k!r}: {a} ↔ {b}\n")
+
+    title_keys = set(idx)
+    alias_claims: dict[str, set[str]] = {}
+    for e in entities:
+        fm_aliases = e.get("frontmatter", {}).get("aliases") or []
+        if isinstance(fm_aliases, str):
+            fm_aliases = [fm_aliases]
+        if not isinstance(fm_aliases, list):
+            continue
+        for a in fm_aliases:
+            if not isinstance(a, str):
+                continue
+            key = normalize_target(a)
+            if not key or key in title_keys:
+                continue  # titles win; a redundant self-alias is a no-op
+            alias_claims.setdefault(key, set()).add(e["id"])
+    added = ambiguous = 0
+    for key, eids in alias_claims.items():
+        if len(eids) == 1:
+            idx[key] = next(iter(eids))
+            added += 1
+        else:
+            ambiguous += 1
+    if added or ambiguous:
+        sys.stderr.write(
+            f"[info] slug index: +{added} alias keys resolved, "
+            f"{ambiguous} ambiguous alias(es) skipped\n"
+        )
     return idx
 
 
@@ -1135,7 +1176,9 @@ def compute_bridge_scores(
     return out, community_of
 
 
-def compute_layout_positions(adjacency: dict[str, Any]) -> list[list[float]]:
+def compute_layout_positions(
+    adjacency: dict[str, Any], cache_path: "Path | None" = None
+) -> list[list[float]]:
     """Pre-compute a force-directed layout for the full network so the
     browser renders instantly with positions baked in. Running fcose on
     1.8k nodes / 12k edges in the browser takes 20+ seconds and pegs a
@@ -1149,6 +1192,31 @@ def compute_layout_positions(adjacency: dict[str, Any]) -> list[list[float]]:
     normalized [0, 1000]^2 space — the client scales to the canvas.
     """
     n = len(adjacency["ids"])
+
+    # The layout is a pure function of node identity/order + edges + the fixed
+    # solver params below (seed=42), so an unchanged graph — an app-only
+    # rebuild, a --force, or local iteration — can skip the ~8s spring solve.
+    # The usual content-change rebuild alters the graph and misses, as it
+    # should. Bump LAYOUT_CACHE_VERSION if the solver params below change.
+    LAYOUT_CACHE_VERSION = "spring:k=1/sqrt(n),it=50,seed=42,v1"
+    cache_key = None
+    if cache_path is not None:
+        import hashlib  # local, like networkx below — keeps top imports lean
+        h = hashlib.sha256()
+        h.update(LAYOUT_CACHE_VERSION.encode())
+        h.update(json.dumps(adjacency["ids"], separators=(",", ":")).encode())
+        h.update(json.dumps(adjacency["adj"], separators=(",", ":")).encode())
+        cache_key = h.hexdigest()
+        try:
+            cached = json.loads(cache_path.read_text(encoding="utf-8"))
+            pos_cached = cached.get("positions")
+            if (cached.get("key") == cache_key
+                    and isinstance(pos_cached, list)
+                    and len(pos_cached) == n):
+                print("[layout] cache hit — reusing positions (graph unchanged)")
+                return pos_cached
+        except (OSError, ValueError):
+            pass  # missing/corrupt cache → recompute
 
     def _grid_fallback() -> list[list[float]]:
         cols = max(1, int(n ** 0.5))
@@ -1189,11 +1257,21 @@ def compute_layout_positions(adjacency: dict[str, Any]) -> list[list[float]]:
     ymin, ymax = min(ys), max(ys)
     dx = xmax - xmin or 1.0
     dy = ymax - ymin or 1.0
-    return [
+    positions = [
         [round((pos[i][0] - xmin) / dx * 1000, 2),
          round((pos[i][1] - ymin) / dy * 1000, 2)]
         for i in range(n)
     ]
+    if cache_path is not None and cache_key is not None:
+        try:
+            cache_path.write_text(
+                json.dumps({"key": cache_key, "positions": positions},
+                           separators=(",", ":")),
+                encoding="utf-8",
+            )
+        except OSError:
+            pass  # cache write is best-effort; never fail the build over it
+    return positions
 
 
 def build_neighborhoods(
@@ -1564,7 +1642,9 @@ def main() -> int:
     # fcose on 1.8k nodes every visit.
     print(f"[parse] pre-computing network layout positions...")
     t_layout = time.time()
-    adjacency["positions"] = compute_layout_positions(adjacency)
+    adjacency["positions"] = compute_layout_positions(
+        adjacency, cache_path=Path(args.out) / ".layout_cache.json"
+    )
     print(f"[parse] layout done in {round(time.time() - t_layout, 1)}s")
 
     # Re-emit bridges + hubs with score alongside rank so the /bridges/
