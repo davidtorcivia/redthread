@@ -8,15 +8,18 @@ const all = activity();
 const entries = all.slice(0, CHANGELOG_LIMIT);
 const hiddenCount = Math.max(0, all.length - entries.length);
 
+// Format in UTC so a bare YYYY-MM-DD mtime (parsed as UTC midnight) renders
+// as the same calendar day regardless of the build host's timezone — west-of-
+// UTC hosts would otherwise show the previous day.
 function monthLabel(iso: string): string {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return 'Unknown';
-  return d.toLocaleString('en-US', { month: 'long', year: 'numeric' });
+  return d.toLocaleString('en-US', { month: 'long', year: 'numeric', timeZone: 'UTC' });
 }
 function dayLabel(iso: string): string {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return iso;
-  return d.toLocaleString('en-US', { month: 'short', day: 'numeric' });
+  return d.toLocaleString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' });
 }
 
 // Group by month so a long history stays scannable.

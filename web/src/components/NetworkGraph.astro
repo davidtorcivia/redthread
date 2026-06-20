@@ -14,7 +14,18 @@ const { id, title } = Astro.props;
   </p>
 
   <div class="net-shell entity-net-shell">
-    <canvas class="net-canvas" aria-label={`Network around ${title}`}></canvas>
+    <canvas
+      class="net-canvas"
+      role="img"
+      aria-label={`Network diagram of the connections around ${title} — a pointer-driven visual tool.`}
+    ></canvas>
+    {/* The same neighbors are listed as real links in the Connected and
+        Mentioned-in sections of this page, which are keyboard/SR accessible. */}
+    <p class="sr-only">
+      An interactive diagram of {title}'s connections, drawn on a canvas and explored
+      with a pointer. The same connections are listed as links in the Connected and
+      Mentioned-in sections below.
+    </p>
 
     <div class="net-status" hidden></div>
 

@@ -24,7 +24,20 @@ const total = entities().length;
     </header>
 
     <section class="net-shell" id="net-shell">
-      <canvas class="net-canvas" id="net-canvas" aria-label="Full network graph"></canvas>
+      <canvas
+        class="net-canvas"
+        id="net-canvas"
+        role="img"
+        aria-label={`Network graph of ${total.toLocaleString()} connected entries — a pointer-driven visual tool.`}
+      ></canvas>
+      {/* The canvas can't be navigated by keyboard or screen reader; point AT
+          users at the structured, fully-accessible views of the same data. */}
+      <p class="sr-only">
+        This is an interactive network visualization drawn on a canvas and explored
+        with a pointer. For a keyboard- and screen-reader-accessible view of the same
+        connections, browse entries by type from the site navigation, or use the
+        <a href="/path/">path finder</a> to trace the chain between any two entries.
+      </p>
 
       <div class="net-status" id="net-status">
         <button type="button" class="net-load" id="net-load">
@@ -846,21 +859,36 @@ const total = entities().length;
       }
 
       // --- Init -----------------------------------------------------------
+      // Guard against double-init: a second click after a failed-then-retried
+      // load would otherwise double-bind every listener and push the node/edge
+      // arrays twice. Reset on failure so a genuine retry can proceed.
+      let initStarted = false;
       async function init() {
+        if (initStarted) return;
+        initStarted = true;
         loadBtn.disabled = true;
         loadBtn.textContent = 'Loading data…';
         let data;
-        try {
-          const r = await fetch('/adjacency.json?v=' + window.__V);
-          if (!r.ok) throw new Error('fetch failed');
-          data = await r.json();
-        } catch (err) {
-          loadBtn.disabled = false;
-          loadBtn.textContent = 'Load network';
-          status.querySelector('.net-load-warn').textContent =
-            'Failed to load network data. Try again or check your connection.';
-          console.error('[net]', err);
-          return;
+        // Reuse the adjacency map the per-entity NetworkGraph widget already
+        // fetched + parsed (cached on window._netAdj), so arriving here from an
+        // entity page skips re-parsing ~450 KB of JSON.
+        if (window._netAdj) {
+          data = window._netAdj;
+        } else {
+          try {
+            const r = await fetch('/adjacency.json?v=' + window.__V);
+            if (!r.ok) throw new Error('fetch failed');
+            data = await r.json();
+            window._netAdj = data;
+          } catch (err) {
+            initStarted = false;
+            loadBtn.disabled = false;
+            loadBtn.textContent = 'Load network';
+            status.querySelector('.net-load-warn').textContent =
+              'Failed to load network data. Try again or check your connection.';
+            console.error('[net]', err);
+            return;
+          }
         }
 
         // Keep the parser's natural 0-1000 spring_layout output verbatim;
@@ -1427,6 +1455,7 @@ const total = entities().length;
         panel.querySelector('.gs-count').textContent = '';
         panel.querySelector('.gs-meta')?.classList?.add?.('hidden-meta');
         panel.querySelector('.gs-bridge').setAttribute('hidden', '');
+        panel.querySelector('.gs-hub').setAttribute('hidden', '');
         const sumEl = panel.querySelector('.gs-summary');
         sumEl.innerHTML = html;
         sumEl.removeAttribute('hidden');

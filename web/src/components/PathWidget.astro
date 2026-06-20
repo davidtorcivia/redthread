@@ -26,18 +26,23 @@ const widgetId = `pw-${fromId}`;
     <div class="pw-field">
       <input
         type="text"
+        id={`${widgetId}-input`}
         class="pw-input path-input"
         placeholder="Type any entity name…"
         autocomplete="off"
         spellcheck="false"
         aria-label="Target entity"
+        role="combobox"
+        aria-expanded="false"
+        aria-autocomplete="list"
+        aria-controls={`${widgetId}-suggest`}
       />
-      <ul class="pw-suggest path-suggest" role="listbox"></ul>
+      <ul class="pw-suggest path-suggest" id={`${widgetId}-suggest`} role="listbox" aria-label="Target suggestions"></ul>
     </div>
     <button type="submit" class="pw-go path-go">Find path</button>
   </form>
   <div class="pw-result" hidden></div>
-  <div class="pw-status" hidden></div>
+  <div class="pw-status" role="status" aria-live="polite" hidden></div>
 </section>
 
 <script is:inline define:vars={{ pool, fromId, fromTitle, widgetId }}>
@@ -75,10 +80,12 @@ const widgetId = `pw-${fromId}`;
     function renderSuggestions(items, onPick) {
       suggestEl.innerHTML = '';
       if (!items.length) { suggestEl.classList.remove('open'); return; }
-      for (const r of items) {
+      items.forEach((r, i) => {
         const li = document.createElement('li');
         li.className = `path-suggest-item type-${r.type}`;
         li.setAttribute('role', 'option');
+        li.setAttribute('aria-selected', 'false');
+        li.id = `${suggestEl.id}-opt-${i}`;
         li.dataset.entityId = r.id;
         li.innerHTML =
           '<span class="ps-type">' + (TYPE_LABELS[r.type] || r.type) + '</span>' +
@@ -86,25 +93,68 @@ const widgetId = `pw-${fromId}`;
         li.querySelector('.ps-title').textContent = r.title;
         li.addEventListener('mousedown', (e) => { e.preventDefault(); onPick(r); });
         suggestEl.appendChild(li);
-      }
+      });
       suggestEl.classList.add('open');
     }
-    input.addEventListener('input', () => {
-      toId = null;
-      renderSuggestions(suggest(input.value), (r) => {
-        input.value = r.title;
-        toId = r.id;
-        suggestEl.classList.remove('open');
-      });
-    });
-    input.addEventListener('blur', () => setTimeout(() => suggestEl.classList.remove('open'), 120));
+
+    // Keyboard combobox: arrow keys rove the options, Enter picks the active
+    // one, Escape closes. Mirrors the standalone /path/ finder.
+    let active = -1;
+    const options = () => Array.from(suggestEl.querySelectorAll('.path-suggest-item'));
+    function setActive(i) {
+      const opts = options();
+      opts.forEach((o) => { o.classList.remove('is-active'); o.setAttribute('aria-selected', 'false'); });
+      active = i;
+      if (i >= 0 && i < opts.length) {
+        const el = opts[i];
+        el.classList.add('is-active');
+        el.setAttribute('aria-selected', 'true');
+        input.setAttribute('aria-activedescendant', el.id);
+        el.scrollIntoView({ block: 'nearest' });
+      } else {
+        input.removeAttribute('aria-activedescendant');
+      }
+    }
+    function pick(r) {
+      input.value = r.title;
+      toId = r.id;
+      closeMenu();
+    }
+    function openMenu() {
+      renderSuggestions(suggest(input.value), pick);
+      input.setAttribute('aria-expanded', suggestEl.classList.contains('open') ? 'true' : 'false');
+      setActive(-1);
+    }
+    function closeMenu() {
+      suggestEl.classList.remove('open');
+      input.setAttribute('aria-expanded', 'false');
+      input.removeAttribute('aria-activedescendant');
+      active = -1;
+    }
+    input.addEventListener('input', () => { toId = null; openMenu(); });
+    input.addEventListener('focus', () => { if (input.value) openMenu(); });
+    input.addEventListener('blur', () => setTimeout(closeMenu, 120));
     input.addEventListener('keydown', (e) => {
-      if (e.key !== 'Enter') return;
-      const first = suggestEl.querySelector('.path-suggest-item');
-      if (first && suggestEl.classList.contains('open')) {
+      const isOpen = suggestEl.classList.contains('open');
+      const opts = options();
+      if (e.key === 'ArrowDown') {
+        if (!isOpen && input.value) { openMenu(); return; }
+        if (!opts.length) return;
         e.preventDefault();
-        const r = idIndex.get(first.dataset.entityId);
-        if (r) { input.value = r.title; toId = r.id; suggestEl.classList.remove('open'); }
+        setActive((active + 1) % opts.length);
+      } else if (e.key === 'ArrowUp') {
+        if (!opts.length) return;
+        e.preventDefault();
+        setActive((active - 1 + opts.length) % opts.length);
+      } else if (e.key === 'Enter') {
+        if (isOpen && opts.length) {
+          e.preventDefault();
+          const choose = active >= 0 ? opts[active] : opts[0];
+          const r = idIndex.get(choose.dataset.entityId);
+          if (r) pick(r);
+        }
+      } else if (e.key === 'Escape') {
+        if (isOpen) { e.preventDefault(); closeMenu(); }
       }
     });
 

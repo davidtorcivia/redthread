@@ -268,6 +268,12 @@ function rangeFor(e: Entity): { text: string; years: number } | null {
         </section>
       ))}
     </div>
+
+    {/* Shown by the filter JS when a type/search combination hides every
+        entry — otherwise the timeline just goes silently blank. */}
+    <p class="tl-empty" data-tl-empty role="status" aria-live="polite" hidden>
+      No entries match your filters.
+    </p>
   </section>
 </Base>
 
@@ -280,15 +286,21 @@ function rangeFor(e: Entity): { text: string; years: number } | null {
     const search = document.querySelector('[data-tl-search]');
     const summariesBtn = document.querySelector('[data-tl-summaries]');
     const body = document.querySelector('[data-tl-body]');
+    const empty = document.querySelector('[data-tl-empty]');
     const hiddenTypes = new Set();
     let q = '';
 
     const apply = () => {
+      let visible = 0;
       items.forEach((item) => {
         const typeOut = hiddenTypes.has(item.dataset.tlType);
         const searchOut = q && !item.dataset.tlSearch.includes(q);
-        item.classList.toggle('tl-out', typeOut || searchOut);
+        const out = typeOut || searchOut;
+        item.classList.toggle('tl-out', out);
+        if (!out) visible++;
       });
+      // Surface an explicit empty state instead of a blank page.
+      if (empty) empty.toggleAttribute('hidden', visible !== 0);
     };
 
     chips.forEach((chip) => {
@@ -304,9 +316,14 @@ function rangeFor(e: Entity): { text: string; years: number } | null {
     });
 
     if (search) {
+      // Debounce so a fast typist doesn't re-scan every item on each keystroke.
+      let t = null;
       search.addEventListener('input', () => {
-        q = search.value.toLowerCase().trim();
-        apply();
+        clearTimeout(t);
+        t = setTimeout(() => {
+          q = search.value.toLowerCase().trim();
+          apply();
+        }, 120);
       });
     }
 

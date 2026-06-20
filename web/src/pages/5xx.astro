@@ -16,7 +16,15 @@ import Base from '../layouts/Base.astro';
 
     <div class="error-actions">
       <a class="error-btn primary" href="/">Return home</a>
-      <button type="button" class="error-btn" onclick="window.location.reload()">Retry</button>
+      <button type="button" class="error-btn" id="error-retry">Retry</button>
     </div>
   </article>
+
+  {/* Listener instead of an inline onclick so a strict script-src CSP can't
+      break it, matching how the rest of the site wires buttons. */}
+  <script is:inline>
+    document.getElementById('error-retry')?.addEventListener('click', () => {
+      window.location.reload();
+    });
+  </script>
 </Base>

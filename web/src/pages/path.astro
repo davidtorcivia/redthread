@@ -38,8 +38,12 @@ const pool = entities().map((e) => ({
             placeholder="Type an entity name…"
             autocomplete="off"
             spellcheck="false"
+            role="combobox"
+            aria-expanded="false"
+            aria-autocomplete="list"
+            aria-controls="path-from-suggest"
           />
-          <ul class="path-suggest" id="path-from-suggest" role="listbox"></ul>
+          <ul class="path-suggest" id="path-from-suggest" role="listbox" aria-label="From suggestions"></ul>
         </label>
         <button type="button" class="path-swap" id="path-swap" aria-label="Swap endpoints" title="Swap endpoints">⇄</button>
         <label class="path-field">
@@ -51,13 +55,17 @@ const pool = entities().map((e) => ({
             placeholder="Type an entity name…"
             autocomplete="off"
             spellcheck="false"
+            role="combobox"
+            aria-expanded="false"
+            aria-autocomplete="list"
+            aria-controls="path-to-suggest"
           />
-          <ul class="path-suggest" id="path-to-suggest" role="listbox"></ul>
+          <ul class="path-suggest" id="path-to-suggest" role="listbox" aria-label="To suggestions"></ul>
         </label>
       </div>
       <div class="path-actions">
         <button type="submit" class="path-go">Find path</button>
-        <span class="path-status" id="path-status"></span>
+        <span class="path-status" id="path-status" role="status" aria-live="polite"></span>
       </div>
     </form>
 
@@ -118,16 +126,19 @@ const pool = entities().map((e) => ({
         return prefix.concat(middle).slice(0, 8);
       }
 
-      function renderSuggestions(input, suggestEl, results, onPick) {
+      function renderSuggestions(suggestEl, results, onPick) {
         suggestEl.innerHTML = '';
         if (!results.length) {
           suggestEl.classList.remove('open');
           return;
         }
-        for (const r of results) {
+        results.forEach((r, i) => {
           const li = document.createElement('li');
           li.className = `path-suggest-item type-${r.type}`;
           li.setAttribute('role', 'option');
+          li.setAttribute('aria-selected', 'false');
+          // Stable id so the input can point aria-activedescendant at it.
+          li.id = `${suggestEl.id}-opt-${i}`;
           li.dataset.entityId = r.id;
           li.innerHTML =
             '<span class="ps-type">' + (TYPE_LABELS[r.type] || r.type) + '</span>' +
@@ -140,45 +151,75 @@ const pool = entities().map((e) => ({
             onPick(r);
           });
           suggestEl.appendChild(li);
-        }
+        });
         suggestEl.classList.add('open');
       }
 
+      // Full WAI-ARIA combobox: arrow keys rove aria-activedescendant through
+      // the options, Enter picks the active one (not just the first), Escape
+      // closes. Mouse selection still works via the mousedown handler above.
       function wireAutocomplete(input, suggestEl, setId) {
-        input.addEventListener('input', () => {
-          setId(null);
-          renderSuggestions(input, suggestEl, suggest(input.value), (r) => {
-            input.value = r.title;
-            setId(r.id);
-            suggestEl.classList.remove('open');
-          });
-        });
-        input.addEventListener('focus', () => {
-          if (input.value) {
-            renderSuggestions(input, suggestEl, suggest(input.value), (r) => {
-              input.value = r.title;
-              setId(r.id);
-              suggestEl.classList.remove('open');
-            });
+        let active = -1;
+        const options = () => Array.from(suggestEl.querySelectorAll('.path-suggest-item'));
+
+        function setActive(i) {
+          const opts = options();
+          opts.forEach((o) => { o.classList.remove('is-active'); o.setAttribute('aria-selected', 'false'); });
+          active = i;
+          if (i >= 0 && i < opts.length) {
+            const el = opts[i];
+            el.classList.add('is-active');
+            el.setAttribute('aria-selected', 'true');
+            input.setAttribute('aria-activedescendant', el.id);
+            el.scrollIntoView({ block: 'nearest' });
+          } else {
+            input.removeAttribute('aria-activedescendant');
           }
-        });
+        }
+        function pick(r) {
+          input.value = r.title;
+          setId(r.id);
+          close();
+        }
+        function open() {
+          renderSuggestions(suggestEl, suggest(input.value), pick);
+          input.setAttribute('aria-expanded', suggestEl.classList.contains('open') ? 'true' : 'false');
+          setActive(-1);
+        }
+        function close() {
+          suggestEl.classList.remove('open');
+          input.setAttribute('aria-expanded', 'false');
+          input.removeAttribute('aria-activedescendant');
+          active = -1;
+        }
+
+        input.addEventListener('input', () => { setId(null); open(); });
+        input.addEventListener('focus', () => { if (input.value) open(); });
         input.addEventListener('blur', () => {
           // Delay so a click on a suggestion can resolve first.
-          setTimeout(() => suggestEl.classList.remove('open'), 120);
+          setTimeout(close, 120);
         });
         input.addEventListener('keydown', (e) => {
-          if (e.key !== 'Enter') return;
-          // If the menu is open and there's a first result, pick it.
-          const first = suggestEl.querySelector('.path-suggest-item');
-          if (first && suggestEl.classList.contains('open')) {
+          const isOpen = suggestEl.classList.contains('open');
+          const opts = options();
+          if (e.key === 'ArrowDown') {
+            if (!isOpen && input.value) { open(); return; }
+            if (!opts.length) return;
             e.preventDefault();
-            const id = first.dataset.entityId;
-            const r = idIndex.get(id);
-            if (r) {
-              input.value = r.title;
-              setId(r.id);
-              suggestEl.classList.remove('open');
+            setActive((active + 1) % opts.length);
+          } else if (e.key === 'ArrowUp') {
+            if (!opts.length) return;
+            e.preventDefault();
+            setActive((active - 1 + opts.length) % opts.length);
+          } else if (e.key === 'Enter') {
+            if (isOpen && opts.length) {
+              e.preventDefault();
+              const choose = active >= 0 ? opts[active] : opts[0];
+              const r = idIndex.get(choose.dataset.entityId);
+              if (r) pick(r);
             }
+          } else if (e.key === 'Escape') {
+            if (isOpen) { e.preventDefault(); close(); }
           }
         });
       }

@@ -45,15 +45,32 @@ const bridgeRankOf = new Map(bridges.map((e) => [e.id, e.bridge_rank!]));
     </p>
 
     <div class="br-toggle" role="tablist" aria-label="Structure view">
-      <button class="br-tab is-active" data-view="bridges" role="tab" aria-selected="true">
+      <button
+        type="button"
+        class="br-tab is-active"
+        data-view="bridges"
+        id="tab-bridges"
+        role="tab"
+        aria-selected="true"
+        aria-controls="panel-bridges-explain panel-bridges-list"
+      >
         Bridges <span class="br-tab-count">{bridges.length}</span>
       </button>
-      <button class="br-tab" data-view="hubs" role="tab" aria-selected="false">
+      <button
+        type="button"
+        class="br-tab"
+        data-view="hubs"
+        id="tab-hubs"
+        role="tab"
+        aria-selected="false"
+        tabindex="-1"
+        aria-controls="panel-hubs-explain panel-hubs-list"
+      >
         Hubs <span class="br-tab-count">{hubs.length}</span>
       </button>
     </div>
 
-    <section class="br-explain" data-view="bridges">
+    <section class="br-explain" data-view="bridges" id="panel-bridges-explain" role="tabpanel" aria-labelledby="tab-bridges" tabindex="0">
       <h2 class="br-heading">What's a bridge?</h2>
       <p>
         Most entries connect tightly within their own neighborhood — a Cold-War
@@ -95,7 +112,7 @@ const bridgeRankOf = new Map(bridges.map((e) => [e.id, e.bridge_rank!]));
       </p>
     </section>
 
-    <section class="br-explain" data-view="hubs" hidden>
+    <section class="br-explain" data-view="hubs" id="panel-hubs-explain" role="tabpanel" aria-labelledby="tab-hubs" tabindex="0" hidden>
       <h2 class="br-heading">What's a hub?</h2>
       <p>
         A <strong>hub</strong> is a node that sits at the center of the
@@ -122,7 +139,7 @@ const bridgeRankOf = new Map(bridges.map((e) => [e.id, e.bridge_rank!]));
       </p>
     </section>
 
-    <section class="br-list-section" data-view="bridges">
+    <section class="br-list-section" data-view="bridges" id="panel-bridges-list" role="tabpanel" aria-labelledby="tab-bridges" tabindex="0">
       <h2 class="br-heading">Bridges, ranked</h2>
       <ol class="br-list">
         {bridges.map((e) => {
@@ -166,7 +183,7 @@ const bridgeRankOf = new Map(bridges.map((e) => [e.id, e.bridge_rank!]));
       </ol>
     </section>
 
-    <section class="br-list-section" data-view="hubs" hidden>
+    <section class="br-list-section" data-view="hubs" id="panel-hubs-list" role="tabpanel" aria-labelledby="tab-hubs" tabindex="0" hidden>
       <h2 class="br-heading">Hubs, ranked</h2>
       <ol class="br-list">
         {hubs.map((e) => {
@@ -226,6 +243,9 @@ const bridgeRankOf = new Map(bridges.map((e) => [e.id, e.bridge_rank!]));
           const active = t.getAttribute('data-view') === view;
           t.classList.toggle('is-active', active);
           t.setAttribute('aria-selected', active ? 'true' : 'false');
+          // Roving tabindex: only the active tab is in the tab order; the
+          // others are reached with arrow keys per the WAI-ARIA tabs pattern.
+          t.setAttribute('tabindex', active ? '0' : '-1');
         });
         sections.forEach((s) => {
           const match = s.getAttribute('data-view') === view;
@@ -234,7 +254,8 @@ const bridgeRankOf = new Map(bridges.map((e) => [e.id, e.bridge_rank!]));
         });
       }
 
-      tabs.forEach((t) => {
+      const tabList = Array.from(tabs);
+      tabs.forEach((t, i) => {
         t.addEventListener('click', () => {
           const view = t.getAttribute('data-view');
           setView(view);
@@ -242,6 +263,22 @@ const bridgeRankOf = new Map(bridges.map((e) => [e.id, e.bridge_rank!]));
           // spam) so a reload or shared link restores it instead of always
           // snapping back to Bridges.
           history.replaceState(null, '', '#' + view);
+        });
+        // Left/Right (and Home/End) move between tabs and activate, the
+        // standard keyboard model for an ARIA tablist.
+        t.addEventListener('keydown', (e) => {
+          let next = -1;
+          if (e.key === 'ArrowRight' || e.key === 'ArrowDown') next = (i + 1) % tabList.length;
+          else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') next = (i - 1 + tabList.length) % tabList.length;
+          else if (e.key === 'Home') next = 0;
+          else if (e.key === 'End') next = tabList.length - 1;
+          if (next < 0) return;
+          e.preventDefault();
+          const target = tabList[next];
+          const view = target.getAttribute('data-view');
+          setView(view);
+          history.replaceState(null, '', '#' + view);
+          target.focus();
         });
       });
 

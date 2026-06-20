@@ -10,7 +10,7 @@
   --ink:      #1a1814;
   --ink-2:    #2e2a22;
   --muted:    #6a6258;
-  --muted-2:  #8a8275;
+  --muted-2:  #766e60;   /* darkened from #8a8275 → clears WCAG AA (4.5:1) at small label sizes */
   --line:     #d8cfb9;
   --line-2:   #c8bca0;
   --card:     #fbf7ee;
@@ -48,8 +48,9 @@
   --fs-h1:      2.6rem;
   --fs-display: 3.4rem;
 
-  /* Measure */
-  --measure: 52rem;
+  /* Measure — prose column is tightened to ~75ch for longform readability;
+     --measure-wide stays roomy for article wrappers, meta, and related grids. */
+  --measure: 44rem;
   --measure-wide: 52rem;
 
   /* Rhythm */
@@ -63,7 +64,7 @@
     --ink:      #ece6d5;
     --ink-2:    #d6cfbb;
     --muted:    #968d7d;
-    --muted-2:  #6c6457;
+    --muted-2:  #8f8676;   /* lightened from #6c6457 → clears WCAG AA on dark paper */
     --line:     #2a251c;
     --line-2:   #3a3327;
     --card:     #1a1611;
@@ -88,6 +89,44 @@
 * { box-sizing: border-box; }
 html { font-size: 16px; }
 @media (min-width: 1000px) { html { font-size: 17px; } }
+
+/* Visually hidden but available to assistive tech (and keyboard focus, so
+   skip-style links inside it still work). */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* Visible keyboard focus on every interactive element. Token-colored ring
+   with offset so it reads on the paper background. Uses :where() (zero
+   specificity) so component rules can still override per-element — previously
+   only .fc-dot had a focus-visible style, leaving keyboard / switch users
+   with the inconsistent (often invisible) UA default everywhere else. */
+:where(a, button, input, select, textarea, summary, [tabindex]):focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
+/* Honor the OS "reduce motion" setting globally rather than per-component.
+   Covers the network-graph reveal, hover previews, drawer slides, and every
+   transition; components that want bespoke reduced-motion behavior (e.g. the
+   homepage carousel) still layer their own rules on top of this. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
 
 body {
   margin: 0;
@@ -199,8 +238,10 @@ header.site .nav-toggle {
   background: none;
   border: 1px solid var(--line);
   border-radius: 4px;
-  width: 2rem;
-  height: 2rem;
+  /* 44px min touch target (WCAG 2.5.5 / Apple HIG); the icon stays visually
+     small via the fixed pseudo-element width. */
+  width: 2.75rem;
+  height: 2.75rem;
   padding: 0;
   cursor: pointer;
   color: var(--muted);
@@ -1585,20 +1626,25 @@ body.graph-fullscreen-active { overflow: hidden; }
   font-weight: 600;
   letter-spacing: 0.04em;
 }
-.alphabet-nav a {
-  display: inline-block;
-  min-width: 1.5rem;
+.alphabet-nav a,
+.alphabet-nav span.disabled {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 2rem;
+  min-height: 2rem;
   text-align: center;
-  padding: 0.2rem 0.4rem;
+  padding: 0.3rem 0.5rem;
   background: var(--paper-2);
   color: var(--ink-2);
   border: 1px solid var(--line);
   border-radius: 3px;
   background-image: none;
 }
-.alphabet-nav a.disabled {
+/* Letters with no entries render as non-interactive <span>s (an <a> with no
+   href isn't a real link); muted and visibly distinct from active letters. */
+.alphabet-nav span.disabled {
   opacity: 0.3;
-  pointer-events: none;
   background: transparent;
   border-color: transparent;
   color: var(--muted-2);
@@ -1726,7 +1772,7 @@ body.graph-fullscreen-active { overflow: hidden; }
   color: var(--ink);
   border-radius: 4px;
 }
-.path-input:focus { outline: none; border-color: var(--accent); background: var(--card); }
+.path-input:focus { border-color: var(--accent); background: var(--card); }
 .path-swap {
   font-family: var(--sans);
   font-size: 1.1rem;
@@ -1772,7 +1818,8 @@ body.graph-fullscreen-active { overflow: hidden; }
   border-bottom: 1px dotted var(--line);
 }
 .path-suggest-item:last-child { border-bottom: none; }
-.path-suggest-item:hover { background: var(--paper-2); color: var(--accent); }
+.path-suggest-item:hover,
+.path-suggest-item.is-active { background: var(--paper-2); color: var(--accent); }
 .path-suggest-item .ps-type {
   font-size: 0.65rem;
   text-transform: uppercase;
@@ -2153,7 +2200,7 @@ body.graph-fullscreen-active { overflow: hidden; }
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.04em;
-  padding: 0.18rem 0.55rem;
+  padding: 0.34rem 0.6rem;
   border-radius: 999px;
   cursor: pointer;
   background: var(--paper-2);
@@ -2604,7 +2651,8 @@ body.net-fullscreen-active { overflow: hidden; }
    (see .pagefind-ui__search-input and header.site .search-trigger). */
 .tl-search {
   font-family: var(--sans);
-  font-size: 0.9rem;
+  /* >=16px so iOS Safari doesn't auto-zoom the page when the field is focused. */
+  font-size: 1rem;
   padding: 0.42rem 0.9rem 0.42rem 2.15rem;
   background-color: var(--paper-2);
   background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23888' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><circle cx='11' cy='11' r='7'/><line x1='21' y1='21' x2='16.65' y2='16.65'/></svg>");
@@ -2615,7 +2663,6 @@ body.net-fullscreen-active { overflow: hidden; }
   border-radius: 4px;
   color: var(--ink);
   min-width: 17rem;
-  outline: none;
   transition: border-color 0.12s, background-color 0.12s;
 }
 .tl-search::placeholder { color: var(--muted-2); }
@@ -2664,7 +2711,15 @@ body.net-fullscreen-active { overflow: hidden; }
 }
 .tl-decade-nav-list a:hover { color: var(--accent); background: var(--paper-2); }
 
-.tl-decade { margin: 2.2rem 0; scroll-margin-top: 1rem; }
+/* Offset the decade anchor below the sticky header so a jump-nav click lands
+   the decade label in view rather than tucked behind the header. */
+.tl-decade { margin: 2.2rem 0; scroll-margin-top: 5rem; }
+.tl-empty {
+  font-family: var(--serif);
+  font-style: italic;
+  color: var(--muted);
+  padding: 2rem 0;
+}
 .tl-decade-header {
   display: flex;
   align-items: baseline;
@@ -3266,7 +3321,6 @@ body.net-fullscreen-active { overflow: hidden; }
 }
 #pf-modal .pagefind-ui__search-input::placeholder { color: var(--muted-2); opacity: 1; }
 #pf-modal .pagefind-ui__search-input:focus {
-  outline: none;
   border-color: var(--accent);
   background-color: var(--card);
 }
@@ -3680,6 +3734,11 @@ body.net-fullscreen-active { overflow: hidden; }
     pointer-events: none;
     transition: opacity 0.15s, transform 0.15s;
     font-size: 0.9rem;
+    /* The dropdown now holds 12 rows; on short / landscape viewports it can
+       exceed the screen while body scroll is locked. Let it scroll itself. */
+    max-height: calc(100vh - 100%);
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
   }
   header.site nav.open {
     opacity: 1;
@@ -3709,14 +3768,17 @@ body.net-fullscreen-active { overflow: hidden; }
   }
   header.site .spacer { display: none; }
   header.site .search-trigger {
-    padding: 0.25rem 0.55rem;
+    padding: 0.25rem 0.7rem;
+    min-height: 44px;
     font-size: 0.78rem;
     flex-shrink: 0;
     margin-left: auto;
   }
   header.site .search-trigger kbd { display: none; }
   body.nav-open { overflow: hidden; }
-  .prose p:first-of-type::first-letter { font-size: 2.4em; }
+  /* Match the desktop drop-cap selector exactly (direct first child only) so
+     the mobile size override actually targets the same letter. */
+  .prose > p:first-child::first-letter { font-size: 2.4em; }
   .related-grid { grid-template-columns: 1fr; }
   .alphabet-nav { padding: 0 1rem; }
   .browse-header, .home-hero, .home-section, .browse-body { padding-left: 1rem; padding-right: 1rem; }

@@ -221,13 +221,31 @@ export function renderInlineMd(s: string | null | undefined): string {
   h = h.replace(/(^|[^_\w])_([^_\n]+?)_(?!_)/g, '$1<em>$2</em>');
   // Inline code: `text`
   h = h.replace(/`([^`\n]+?)`/g, '<code>$1</code>');
-  // Markdown links: [text](url) — url is taken as-is; the surrounding HTML-
-  // escape pass already neutralized quotes, but we re-escape just the href
-  // quote char as a belt-and-suspenders measure.
-  h = h.replace(/\[([^\]\n]+?)\]\(([^)\n]+?)\)/g, (_m, text, url) =>
-    `<a href="${String(url).replace(/"/g, '%22')}">${text}</a>`,
-  );
+  // Markdown links: [text](url). The href scheme is allow-listed to
+  // http(s)/mailto and root/relative/anchor paths — anything else (notably
+  // javascript: and data: URLs) is dropped to plain text, so author/vault
+  // prose rendered via set:html can't smuggle an executable link. The
+  // surrounding HTML-escape pass already neutralized quotes; we re-escape the
+  // href quote char as a belt-and-suspenders measure.
+  h = h.replace(/\[([^\]\n]+?)\]\(([^)\n]+?)\)/g, (_m, text, url) => {
+    if (!isSafeUrl(String(url))) return text;
+    return `<a href="${String(url).replace(/"/g, '%22')}">${text}</a>`;
+  });
   return h;
+}
+
+/** Allow only hrefs that can't execute script: http(s)/mailto, or
+ *  root-relative / same-page paths. Note the input has already been
+ *  HTML-escaped, so a leading `javascript:` survives as-is and is rejected
+ *  here. Leading whitespace/control chars are stripped before testing. */
+function isSafeUrl(url: string): boolean {
+  // Strip all whitespace (incl. tab/newline used to break up `java\tscript:`).
+  const u = url.replace(/\s+/g, '');
+  if (/^(https?:|mailto:)/i.test(u)) return true;
+  // Relative, root-relative, anchor, or query — never a scheme.
+  if (/^[/#?]/.test(u)) return true;
+  if (/^[a-z0-9._-]+(\/|$)/i.test(u) && !/^[a-z][a-z0-9+.-]*:/i.test(u)) return true;
+  return false;
 }
 
 /** URL slug for a tag — lowercase, replace underscores + whitespace with

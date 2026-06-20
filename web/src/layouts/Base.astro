@@ -323,6 +323,12 @@ const breadcrumbSchema = crumbItems
           h = h.replace(/(^|[^_\w])_([^_\n]+?)_(?!_)/g, '$1<em>$2</em>');
           h = h.replace(/`([^`\n]+?)`/g, '<code>$1</code>');
           h = h.replace(/\[([^\]\n]+?)\]\(([^)\n]+?)\)/g, function (_m, t, u) {
+            // Allow-list the scheme so a summary can't smuggle javascript:/data:
+            // URLs into this innerHTML — mirrors isSafeUrl() in lib/data.ts.
+            var url = String(u).replace(/\s+/g, '');
+            var safe = /^(https?:|mailto:)/i.test(url) || /^[/#?]/.test(url) ||
+                       (/^[a-z0-9._-]+(\/|$)/i.test(url) && !/^[a-z][a-z0-9+.-]*:/i.test(url));
+            if (!safe) return t;
             return '<a href="' + String(u).replace(/"/g, '%22') + '">' + t + '</a>';
           });
           return h;
@@ -478,9 +484,18 @@ const breadcrumbSchema = crumbItems
             setTimeout(() => focusInput(retries - 1), 40);
           }
         }
+        // While the dialog is open, mark the rest of the page inert so Tab
+        // can't wander behind the modal and AT skips the backdrop content.
+        function setBackgroundInert(on) {
+          ['header.site', 'main', 'footer.site'].forEach((sel) => {
+            const el = document.querySelector(sel);
+            if (el) el.toggleAttribute('inert', on);
+          });
+        }
         function openModal() {
           init();
           modal.classList.add('open');
+          setBackgroundInert(true);
           // Force a layout flush so the input is reachable, then focus
           // synchronously within the user-gesture so iOS Safari raises
           // the soft keyboard. rAF/setTimeout here would break that chain.
@@ -489,8 +504,26 @@ const breadcrumbSchema = crumbItems
         }
         function closeModal() {
           modal.classList.remove('open');
+          setBackgroundInert(false);
           if (trigger) trigger.focus();
         }
+        // Trap Tab within the dialog so keyboard focus stays on the search UI.
+        modal.addEventListener('keydown', (e) => {
+          if (e.key !== 'Tab' || !modal.classList.contains('open')) return;
+          const focusables = modal.querySelectorAll(
+            'a[href], button:not([disabled]), input:not([disabled]), [tabindex]:not([tabindex="-1"])'
+          );
+          if (!focusables.length) return;
+          const first = focusables[0];
+          const last = focusables[focusables.length - 1];
+          if (e.shiftKey && document.activeElement === first) {
+            e.preventDefault();
+            last.focus();
+          } else if (!e.shiftKey && document.activeElement === last) {
+            e.preventDefault();
+            first.focus();
+          }
+        });
 
         // Attach the click handler FIRST, before the eager init() call —
         // so even if PagefindUI's constructor explodes, the button still

@@ -52,6 +52,19 @@ const collectionSchema = {
   mainEntity: { '@type': 'ItemList', numberOfItems: items.length },
 };
 const breadcrumbs = [{ name: plural, item: `/${dir}/` }];
+
+// Anchor placement for the alphabet jump-nav. Display order is category-
+// grouped (not globally alphabetical), so we attach #letter-X to the FIRST
+// entity in render order whose title starts with X. This guarantees one id
+// per letter (no duplicate ids) and that every present letter resolves to a
+// real on-page target. seenLetters is consumed during render below.
+const seenLetters = new Set<string>();
+function anchorFor(title: string): string | undefined {
+  const L = title[0]?.toUpperCase();
+  if (!L || !/[A-Z]/.test(L) || seenLetters.has(L)) return undefined;
+  seenLetters.add(L);
+  return `letter-${L}`;
+}
 ---
 <Base
   title={`${plural} — The Info Web`}
@@ -72,30 +85,47 @@ const breadcrumbs = [{ name: plural, item: `/${dir}/` }];
     <nav class="alphabet-nav" aria-label="Jump to letter">
       {allAlpha.map((L) => letters.includes(L)
         ? <a href={`#letter-${L}`}>{L}</a>
-        : <a class="disabled" aria-disabled="true">{L}</a>
+        : <span class="disabled" aria-hidden="true">{L}</span>
       )}
     </nav>
   )}
 
+  {/* With JS off the toggle buttons are inert, so reveal every list and hide
+      the dead controls — a static reference shouldn't hide content behind JS. */}
+  <noscript>
+    <style>
+      .cat-section[data-collapsed='true'] .cat-list { display: grid; }
+      .cat-section[data-collapsed='true'] .cat-peek { display: none; }
+      .cat-section h2 .toggle { display: none; }
+    </style>
+  </noscript>
+
   <div class="browse-body">
-    {ordered.map((cat) => {
+    {ordered.map((cat, ci) => {
       const list = byCategory.get(cat)!;
       const collapsed = manyCategories && !expandedSet.has(cat);
+      const listId = `cat-list-${ci}`;
       return (
         <section class="cat-section" data-collapsed={String(collapsed)}>
           <h2>
             {cat}
             <span class="count">{list.length.toLocaleString()}</span>
-            <button type="button" class="toggle" data-toggle>
+            <button
+              type="button"
+              class="toggle"
+              data-toggle
+              aria-expanded={String(!collapsed)}
+              aria-controls={listId}
+            >
               {collapsed ? 'Expand' : 'Collapse'}
             </button>
           </h2>
           <p class="cat-peek">
-            Peek: {list.slice(0, 3).map((e) => e.title).join(' · ')}…
+            Peek: {list.slice(0, 3).map((e) => e.title).join(' · ')}{list.length > 3 ? '…' : ''}
           </p>
-          <ul class="cat-list">
-            {list.map((e, i) => (
-              <li id={i === 0 ? `letter-${e.title[0]?.toUpperCase()}` : undefined}>
+          <ul class="cat-list" id={listId}>
+            {list.map((e) => (
+              <li id={anchorFor(e.title)}>
                 <a class="entry-title" href={hrefFor(e)}>{e.title}</a>
                 {e.summary && <span class="entry-summary" set:html={renderInlineMd(e.summary)} />}
               </li>
@@ -113,6 +143,7 @@ const breadcrumbs = [{ name: plural, item: `/${dir}/` }];
         if (!section) return;
         const collapsed = section.getAttribute('data-collapsed') === 'true';
         section.setAttribute('data-collapsed', String(!collapsed));
+        btn.setAttribute('aria-expanded', String(collapsed));
         btn.textContent = collapsed ? 'Collapse' : 'Expand';
       });
     });

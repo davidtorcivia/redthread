@@ -25,6 +25,12 @@ const pool = entities().map((e) => hrefFor({ id: e.id, type: e.type }));
     if (pool.length > 0) {
       const pick = pool[Math.floor(Math.random() * pool.length)];
       window.location.replace(pick);
+    } else {
+      // Empty vault — don't strand the reader on a permanent "Loading…".
+      const msg = document.querySelector('.random-msg');
+      if (msg) {
+        msg.innerHTML = 'No entries to choose from yet. <a href="/">Return home</a>.';
+      }
     }
   </script>
 
