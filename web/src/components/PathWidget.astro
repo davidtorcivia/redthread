@@ -1,18 +1,16 @@
 ---
-import { entities, hrefFor } from '../lib/data.ts';
-
 interface Props {
   fromId: string;
   fromTitle: string;
 }
 const { fromId, fromTitle } = Astro.props;
 
-// Reuse the same autocomplete pool as /path/. ~50KB; acceptable on
-// entity pages since it's already cached after the first one a user
-// visits.
-const pool = entities()
-  .filter((e) => e.id !== fromId)
-  .map((e) => ({ id: e.id, title: e.title, type: e.type, href: hrefFor({ id: e.id, type: e.type }) }));
+// NOTE: the autocomplete pool is deliberately NOT inlined here. It used to
+// be passed through define:vars, which forced this whole script inline and
+// stamped ~275 KB of identical entity JSON into all ~2,600 entity pages
+// (~720 MB of dist/, re-downloaded on every navigation). adjacency.json
+// already carries ids/titles/types for every entity and is preloaded on
+// entity pages, so the pool is built from it on first interaction instead.
 const widgetId = `pw-${fromId}`;
 ---
 <section class="path-widget" data-from-id={fromId} id={widgetId}>
@@ -45,23 +43,62 @@ const widgetId = `pw-${fromId}`;
   <div class="pw-status" role="status" aria-live="polite" hidden></div>
 </section>
 
-<script is:inline define:vars={{ pool, fromId, fromTitle, widgetId }}>
+{/* Processed (not is:inline): Astro bundles this into one hashed, long-cached
+    _astro/*.js shared by every entity page, instead of duplicating it — and
+    the entity pool it needs — into each of them. Config comes from the
+    section's data-* attributes rather than define:vars, which would force
+    the script back inline. */}
+<script>
   (function () {
     const TYPE_LABELS = {
       person: 'Person', organization: 'Organization', program: 'Program',
       event: 'Event', concept: 'Concept', place: 'Place',
       source: 'Source', meta: 'Meta', misc: 'Misc', page: 'Page',
     };
+    const TYPE_DIRS = {
+      person: 'people', organization: 'organizations', program: 'programs',
+      event: 'events', concept: 'concepts', place: 'places',
+      source: 'sources', meta: 'meta', misc: 'misc', page: 'pages',
+    };
 
-    const root = document.getElementById(widgetId);
+    const root = document.querySelector('.path-widget');
     if (!root) return;
+    const fromId = root.dataset.fromId;
     const input = root.querySelector('.pw-input');
     const suggestEl = root.querySelector('.pw-suggest');
     const result = root.querySelector('.pw-result');
     const status = root.querySelector('.pw-status');
     const form = root.querySelector('.pw-form');
 
-    const idIndex = new Map(pool.map((p) => [p.id, p]));
+    // Autocomplete pool, derived from adjacency.json on first interaction.
+    // That file already ships ids/titles/types for every entity and is
+    // <link rel=preload>ed on entity pages, so it's normally warm in cache
+    // by the time anyone reaches this widget. `pool` excludes the focal
+    // entity (you can't path to yourself) but idIndex keeps it, so the
+    // first node of a result chain still resolves to a real href.
+    const pool = [];
+    const idIndex = new Map();
+    let poolReady = false;
+    let poolPromise = null;
+    function loadPool() {
+      if (poolPromise) return poolPromise;
+      poolPromise = loadAdjacency()
+        .then((d) => {
+          for (let i = 0; i < d.ids.length; i++) {
+            const p = {
+              id: d.ids[i],
+              title: d.titles[i],
+              type: d.types[i],
+              href: '/' + (TYPE_DIRS[d.types[i]] || 'pages') + '/' + d.ids[i] + '/',
+            };
+            idIndex.set(p.id, p);
+            if (p.id !== fromId) pool.push(p);
+          }
+        })
+        .catch(() => { /* run() reports the failure; autocomplete just stays empty */ })
+        .then(() => { poolReady = true; return pool; });
+      return poolPromise;
+    }
     let toId = null;
 
     function suggest(q) {
@@ -121,6 +158,15 @@ const widgetId = `pw-${fromId}`;
       closeMenu();
     }
     function openMenu() {
+      // The pool may still be in flight on the very first keystroke. Re-open
+      // once it lands so the user doesn't have to type another character.
+      // poolReady (not pool.length) gates the retry — a failed fetch leaves
+      // the pool empty forever, and re-entering on that would spin.
+      if (!poolReady) {
+        loadPool().then(() => {
+          if (document.activeElement === input && input.value) openMenu();
+        });
+      }
       renderSuggestions(suggest(input.value), pick);
       input.setAttribute('aria-expanded', suggestEl.classList.contains('open') ? 'true' : 'false');
       setActive(-1);
@@ -132,7 +178,9 @@ const widgetId = `pw-${fromId}`;
       active = -1;
     }
     input.addEventListener('input', () => { toId = null; openMenu(); });
-    input.addEventListener('focus', () => { if (input.value) openMenu(); });
+    // Warm the pool as soon as the field is touched, so the first keystroke
+    // usually has something to match against.
+    input.addEventListener('focus', () => { loadPool(); if (input.value) openMenu(); });
     input.addEventListener('blur', () => setTimeout(closeMenu, 120));
     input.addEventListener('keydown', (e) => {
       const isOpen = suggestEl.classList.contains('open');

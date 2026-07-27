@@ -238,11 +238,16 @@ function rangeFor(e: Entity): { text: string; years: number } | null {
                         {entity.summary && (
                           <span class="tl-summary" set:html={renderInlineMd(entity.summary)} />
                         )}
+                        {/* No summary copy inside .tl-preview on purpose. This
+                            tooltip used to repeat .tl-summary verbatim, which
+                            shipped a second full set of ~1,500 summaries
+                            (~450 KB) that touch devices download and can never
+                            render — .tl-preview is display:none under
+                            @media (hover: none). The script at the bottom of
+                            this file clones it from the inline .tl-summary on
+                            first hover instead. */}
                         {hasPreview && (
                           <div class="tl-preview" role="tooltip">
-                            {entity.summary && (
-                              <p class="tl-preview-summary" set:html={renderInlineMd(entity.summary)} />
-                            )}
                             {entity.tags && entity.tags.length > 0 && (
                               <div class="tl-preview-tags">
                                 {entity.tags.slice(0, 6).map((t) => (
@@ -326,6 +331,28 @@ function rangeFor(e: Entity): { text: string; years: number } | null {
         }, 120);
       });
     }
+
+    // Fill the hover tooltip's summary on first hover, cloning the inline
+    // .tl-summary that's already in the DOM. See the markup comment above:
+    // this is what lets each summary ship exactly once instead of twice.
+    // Runs synchronously inside the mouseover handler — i.e. before the paint
+    // that CSS :hover triggers — so there's no frame where the tooltip is
+    // visible but empty.
+    const previewFilled = new WeakSet();
+    document.addEventListener('mouseover', (e) => {
+      const item = e.target.closest && e.target.closest('.tl-item');
+      if (!item || previewFilled.has(item)) return;
+      previewFilled.add(item);
+      const preview = item.querySelector('.tl-preview');
+      const summary = item.querySelector('.tl-summary');
+      if (!preview || !summary) return;
+      const p = document.createElement('p');
+      p.className = 'tl-preview-summary';
+      // Same already-escaped markup renderInlineMd produced server-side,
+      // moved between two nodes — no new injection surface.
+      p.innerHTML = summary.innerHTML;
+      preview.insertBefore(p, preview.firstChild);
+    }, { passive: true });
 
     if (summariesBtn && body) {
       summariesBtn.addEventListener('click', () => {

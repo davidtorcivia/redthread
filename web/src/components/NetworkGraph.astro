@@ -122,7 +122,7 @@ const { id, title } = Astro.props;
   </details>
 </section>
 
-<script is:inline define:vars={{ focalId: id, focalTitle: title }}>
+<script>
   /**
    * Per-entity canvas network. Renders the focal entity at center
    * plus its 1-hop neighbors (2-hop on demand). Same canvas engine
@@ -132,10 +132,18 @@ const { id, title } = Astro.props;
    * Loads the shared adjacency.json once and BFS-walks from focalId.
    * The first visit downloads ~250KB; subsequent entity pages hit the
    * browser cache.
+   *
+   * Processed (not is:inline): Astro bundles this ~1,200-line engine into a
+   * single hashed, long-cached _astro/*.js shared by every entity page. It
+   * used to carry `define:vars`, which forces a script inline — stamping
+   * ~50 KB of identical engine source into each of ~2,600 pages and making
+   * the browser re-parse it on every navigation. The focal entity is read
+   * from the section's data-focal-id attribute instead.
    */
   (function () {
-    const section = document.querySelector(`.entity-network[data-focal-id="${focalId}"]`);
+    const section = document.querySelector('.entity-network');
     if (!section) return;
+    const focalId = section.dataset.focalId;
     const shell = section.querySelector('.net-shell');
     const canvas = section.querySelector('.net-canvas');
     const ctx = canvas.getContext('2d');

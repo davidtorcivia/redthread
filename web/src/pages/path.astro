@@ -1,16 +1,12 @@
 ---
 import Base from '../layouts/Base.astro';
-import { entities, hrefFor } from '../lib/data.ts';
 
-// Embed a small autocomplete pool so the inputs work without a separate
-// fetch on first paint. ~50KB for 1,811 entries — same trick we use on
-// /random/. The full adjacency map is fetched lazily on first search.
-const pool = entities().map((e) => ({
-  id: e.id,
-  title: e.title,
-  type: e.type,
-  href: hrefFor({ id: e.id, type: e.type }),
-}));
+// NOTE: the autocomplete pool used to be inlined here via define:vars —
+// ~275 KB of entity JSON (the "~50KB for 1,811 entries" the old comment
+// claimed was stale by 5x). adjacency.json, which this page already
+// preloads and then fetches for the BFS, carries the same ids/titles/types,
+// so the pool is derived from it on first interaction instead. Same trade
+// as components/PathWidget.astro.
 ---
 <Base
   title="Find a path — The Info Web"
@@ -72,15 +68,23 @@ const pool = entities().map((e) => ({
     <section class="path-result" id="path-result" hidden></section>
   </article>
 
-  <script is:inline define:vars={{ pool }}>
+  {/* Processed, not is:inline — see the frontmatter note. define:vars would
+      force this back inline along with the entity pool it used to carry. */}
+  <script>
     (function () {
       const TYPE_LABELS = {
         person: 'Person', organization: 'Organization', program: 'Program',
         event: 'Event', concept: 'Concept', place: 'Place',
         source: 'Source', meta: 'Meta', misc: 'Misc', page: 'Page',
       };
+      const TYPE_DIRS = {
+        person: 'people', organization: 'organizations', program: 'programs',
+        event: 'events', concept: 'concepts', place: 'places',
+        source: 'sources', meta: 'meta', misc: 'misc', page: 'pages',
+      };
 
-      const idIndex = new Map(pool.map((p) => [p.id, p]));
+      const pool = [];
+      const idIndex = new Map();
       const fromInput = document.getElementById('path-from');
       const toInput = document.getElementById('path-to');
       const fromSuggest = document.getElementById('path-from-suggest');
@@ -95,18 +99,46 @@ const pool = entities().map((e) => ({
       let fromId = null;
       let toId = null;
 
+      // Build the autocomplete pool from adjacency.json. Kicked off eagerly at
+      // the bottom of this script (pathfinding is the only thing this page
+      // does, so there's no point waiting for an interaction) and awaited
+      // before the URL-param prefill, which needs titles to fill the inputs.
+      let poolReady = false;
+      let poolPromise = null;
+      function loadPool() {
+        if (poolPromise) return poolPromise;
+        poolPromise = loadAdjacency()
+          .then((d) => {
+            for (let i = 0; i < d.ids.length; i++) {
+              const p = {
+                id: d.ids[i],
+                title: d.titles[i],
+                type: d.types[i],
+                href: '/' + (TYPE_DIRS[d.types[i]] || 'pages') + '/' + d.ids[i] + '/',
+              };
+              idIndex.set(p.id, p);
+              pool.push(p);
+            }
+          })
+          .catch(() => { /* loadAdjacency already reported it in the status line */ })
+          .then(() => { poolReady = true; return pool; });
+        return poolPromise;
+      }
+
       // Pre-populate from URL params so deep links work
       // (?from=elliott-abrams&to=manuel-noriega).
-      const params = new URLSearchParams(window.location.search);
-      const urlFrom = params.get('from');
-      const urlTo = params.get('to');
-      if (urlFrom && idIndex.has(urlFrom)) {
-        fromId = urlFrom;
-        fromInput.value = idIndex.get(urlFrom).title;
-      }
-      if (urlTo && idIndex.has(urlTo)) {
-        toId = urlTo;
-        toInput.value = idIndex.get(urlTo).title;
+      function applyUrlParams() {
+        const params = new URLSearchParams(window.location.search);
+        const urlFrom = params.get('from');
+        const urlTo = params.get('to');
+        if (urlFrom && idIndex.has(urlFrom)) {
+          fromId = urlFrom;
+          fromInput.value = idIndex.get(urlFrom).title;
+        }
+        if (urlTo && idIndex.has(urlTo)) {
+          toId = urlTo;
+          toInput.value = idIndex.get(urlTo).title;
+        }
       }
 
       // Substring match autocomplete. Case-insensitive; ranks exact-prefix
@@ -182,6 +214,14 @@ const pool = entities().map((e) => ({
           close();
         }
         function open() {
+          // The pool is normally already in hand (loaded eagerly below), but a
+          // very fast typist can beat the fetch. Re-open once it lands.
+          // poolReady, not pool.length — a failed fetch would otherwise spin.
+          if (!poolReady) {
+            loadPool().then(() => {
+              if (document.activeElement === input && input.value) open();
+            });
+          }
           renderSuggestions(suggestEl, suggest(input.value), pick);
           input.setAttribute('aria-expanded', suggestEl.classList.contains('open') ? 'true' : 'false');
           setActive(-1);
@@ -328,8 +368,8 @@ const pool = entities().map((e) => ({
           li.className = `path-node type-${type}`;
           if (i === 0) li.classList.add('is-start');
           if (i === path.length - 1) li.classList.add('is-end');
-          const pool = idIndex.get(id);
-          const href = pool ? pool.href : '#';
+          const entry = idIndex.get(id);
+          const href = entry ? entry.href : '#';
           li.innerHTML =
             '<a class="pn-link" href="' + href + '">' +
               '<span class="pn-type">' + (TYPE_LABELS[type] || type) + '</span>' +
@@ -354,9 +394,13 @@ const pool = entities().map((e) => ({
         findPath();
       });
 
-      // Auto-run if both endpoints came from URL params — supports deep
-      // linking like /path/?from=elliott-abrams&to=manuel-noriega.
-      if (fromId && toId) findPath();
+      // Load the pool, then honour URL params. Auto-runs if both endpoints
+      // came from the URL — supports deep linking like
+      // /path/?from=elliott-abrams&to=manuel-noriega.
+      loadPool().then(() => {
+        applyUrlParams();
+        if (fromId && toId) findPath();
+      });
     })();
   </script>
 </Base>

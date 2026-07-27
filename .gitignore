@@ -10,6 +10,9 @@ data/md/
 # Astro build artifacts
 web/node_modules/
 web/dist/
+# Hardlink snapshot of the last good dist/, taken by rebuild.sh so a failed
+# build can roll back instead of leaving the site empty. Transient.
+web/.dist-rollback/
 web/.astro/
 web/src/content/generated/
 # Same artifacts but at app/ root — happen when npm/astro gets run from
