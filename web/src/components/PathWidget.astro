@@ -50,17 +50,8 @@ const widgetId = `pw-${fromId}`;
     the script back inline. */}
 <script>
   import { findPath, renderChain } from '../scripts/path-find';
+  import { TYPE_DIRS, TYPE_LABELS } from '../scripts/entity-types';
   (function () {
-    const TYPE_LABELS = {
-      person: 'Person', organization: 'Organization', program: 'Program',
-      event: 'Event', concept: 'Concept', place: 'Place',
-      source: 'Source', meta: 'Meta', misc: 'Misc', page: 'Page',
-    };
-    const TYPE_DIRS = {
-      person: 'people', organization: 'organizations', program: 'programs',
-      event: 'events', concept: 'concepts', place: 'places',
-      source: 'sources', meta: 'meta', misc: 'misc', page: 'pages',
-    };
 
     const root = document.querySelector('.path-widget');
     if (!root) return;

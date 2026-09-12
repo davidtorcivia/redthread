@@ -53,16 +53,7 @@ export interface EngineOptions {
   onForceSlider?: (mult: number, prevMult: number, g: GraphEngine) => void;
 }
 
-export const TYPE_DIRS: Record<string, string> = {
-  person: 'people', organization: 'organizations', program: 'programs',
-  event: 'events', concept: 'concepts', place: 'places',
-  source: 'sources', meta: 'meta', misc: 'misc', page: 'pages',
-};
-export const TYPE_LABELS: Record<string, string> = {
-  person: 'Person', organization: 'Organization', program: 'Program',
-  event: 'Event', concept: 'Concept', place: 'Place',
-  source: 'Source', meta: 'Meta', misc: 'Misc', page: 'Page',
-};
+import { TYPE_LABELS, entityHref } from './entity-types';
 
 const PROFILES = {
   entity: { bgAlpha: 0.42, lineW: 0.9, implW: 0.7, hoverW: 1.4, selW: 2.2, goldW: 3.0, focusAlpha: 0.7, zoomMax: 20, fitPad: 30, labelAll: true, hoverFont: 12 },
@@ -113,7 +104,7 @@ function escapeHtml(s: unknown): string {
   )[c]);
 }
 function hrefFor(n: GraphNode): string {
-  return `/${TYPE_DIRS[n.type] || 'pages'}/${n.id}/`;
+  return entityHref(n.type, n.id);
 }
 
 export class GraphEngine {

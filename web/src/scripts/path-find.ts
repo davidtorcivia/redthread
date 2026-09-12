@@ -80,11 +80,7 @@ class MinHeap {
   }
 }
 
-const TYPE_LABELS: Record<string, string> = {
-  person: 'Person', organization: 'Organization', program: 'Program',
-  event: 'Event', concept: 'Concept', place: 'Place',
-  source: 'Source', meta: 'Meta', misc: 'Misc', page: 'Page',
-};
+import { TYPE_LABELS } from './entity-types';
 
 /** Why two consecutive path nodes are connected, from adjacency `dir`
  *  bits (1 = a's page links b, 2 = b's page links a, 0 = inferred). */

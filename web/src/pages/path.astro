@@ -73,17 +73,8 @@ import Base from '../layouts/Base.astro';
       force this back inline along with the entity pool it used to carry. */}
   <script>
     import { findPath as hubAwarePath, renderChain } from '../scripts/path-find';
+    import { TYPE_DIRS, TYPE_LABELS } from '../scripts/entity-types';
     (function () {
-      const TYPE_LABELS = {
-        person: 'Person', organization: 'Organization', program: 'Program',
-        event: 'Event', concept: 'Concept', place: 'Place',
-        source: 'Source', meta: 'Meta', misc: 'Misc', page: 'Page',
-      };
-      const TYPE_DIRS = {
-        person: 'people', organization: 'organizations', program: 'programs',
-        event: 'events', concept: 'concepts', place: 'places',
-        source: 'sources', meta: 'meta', misc: 'misc', page: 'pages',
-      };
 
       const pool = [];
       const idIndex = new Map();
@@ -323,6 +314,11 @@ import Base from '../layouts/Base.astro';
           status.textContent = `No documented path between ${idIndex.get(fromId).title} and ${idIndex.get(toId).title}.`;
           return;
         }
+        // Keep the address bar in sync so a found path can be shared.
+        const url = new URL(window.location.href);
+        url.searchParams.set('from', fromId);
+        url.searchParams.set('to', toId);
+        history.replaceState(null, '', url);
         status.textContent = `${path.length - 1} hop${path.length - 1 === 1 ? '' : 's'}.`;
         renderPath(data, path);
       }

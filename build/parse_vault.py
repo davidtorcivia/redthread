@@ -16,6 +16,7 @@ from __future__ import annotations
 import argparse
 import datetime as _dt
 import fnmatch
+import html
 import json
 import math
 import re
@@ -797,7 +798,12 @@ def render_html(entities: list[dict[str, Any]], slug_index: dict[str, str]) -> N
             target = target.strip()
         target_id = slug_index.get(normalize_target(target))
         if not target_id:
-            return f'<a class="wikilink unresolved" data-target="{target}">{display}</a>'
+            # href makes it focusable; the client turns a click into a
+            # vault search for the name. Attribute-escaped: targets are
+            # raw vault text.
+            safe_target = html.escape(target, quote=True)
+            return (f'<a class="wikilink unresolved" href="#" data-target="{safe_target}" '
+                    f'title="No entry for this yet. Click to search the vault.">{display}</a>')
         t_type = id_to_type.get(target_id, "page")
         href = f"/{type_to_dir.get(t_type, 'pages')}/{target_id}/"
         if section:
