@@ -950,8 +950,11 @@ def build_adjacency(
 
     adj_sets: list[set[int]] = [set() for _ in entities]
     # Track which pairs are explicit so we can flag the implicit-only
-    # edges separately for the network view's "+ Inferred" toggle.
+    # edges separately for the network view's "+ Inferred" toggle, and
+    # which direction each explicit link runs so the path finder can say
+    # whose page documents a hop.
     explicit_pairs: set[tuple[int, int]] = set()
+    explicit_dir: set[tuple[int, int]] = set()
     for edge in edges:
         s, t = edge.get("source"), edge.get("target_id")
         if not s or not t or s == t:
@@ -965,8 +968,16 @@ def build_adjacency(
         if edge.get("kind", "explicit") == "explicit":
             key = (si, ti) if si < ti else (ti, si)
             explicit_pairs.add(key)
+            explicit_dir.add((si, ti))
 
     adj = [sorted(s) for s in adj_sets]
+    # dir[i][k] for neighbor j = adj[i][k]: bit 1 = i's page links j,
+    # bit 2 = j's page links i, 0 = inferred only.
+    adj_dir = [
+        [((1 if (i, j) in explicit_dir else 0) | (2 if (j, i) in explicit_dir else 0))
+         for j in neigh]
+        for i, neigh in enumerate(adj)
+    ]
 
     # Implicit-only pairs: any pair in the combined adjacency that doesn't
     # have at least one explicit edge backing it. Emitted as a list of
@@ -992,6 +1003,7 @@ def build_adjacency(
         "titles": titles,
         "types": types,
         "adj": adj,
+        "dir": adj_dir,
         "mentions": mentions,
         "bridges": bridges,
         "hubs": hubs,
@@ -1696,6 +1708,9 @@ def main() -> int:
         if surface not in title_set and eid in idx_of:
             aliases_by_idx[str(idx_of[eid])].append(surface)
     adjacency["aliases"] = dict(aliases_by_idx)
+    # Louvain community per node, for the /network/ "colour by community"
+    # mode. -1 for nodes outside the partition (none in practice).
+    adjacency["communities"] = [community_of.get(eid, -1) for eid in adjacency["ids"]]
     adjacency["hubs"] = {
         str(i): {
             "rank": hubs[adjacency["ids"][i]]["rank"],

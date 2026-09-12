@@ -13,6 +13,8 @@ web/dist/
 # Hardlink snapshot of the last good dist/, taken by rebuild.sh so a failed
 # build can roll back instead of leaving the site empty. Transient.
 web/.dist-rollback/
+# Sibling build output; build.sh rsyncs it into dist/ so the live site is never empty.
+web/.dist-build/
 web/.astro/
 web/src/content/generated/
 # Same artifacts but at app/ root — happen when npm/astro gets run from

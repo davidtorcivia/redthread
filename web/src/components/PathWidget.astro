@@ -49,7 +49,7 @@ const widgetId = `pw-${fromId}`;
     section's data-* attributes rather than define:vars, which would force
     the script back inline. */}
 <script>
-  import { findPath } from '../scripts/path-find';
+  import { findPath, renderChain } from '../scripts/path-find';
   (function () {
     const TYPE_LABELS = {
       person: 'Person', organization: 'Organization', program: 'Program',
@@ -238,35 +238,7 @@ const widgetId = `pw-${fromId}`;
       const path = findPath(data.adj, si, ti);
       if (!path) { status.textContent = `No documented path to ${idIndex.get(toId).title}.`; return; }
       status.textContent = `${path.length - 1} hop${path.length - 1 === 1 ? '' : 's'}.`;
-      const ol = document.createElement('ol');
-      ol.className = 'path-chain';
-      for (let i = 0; i < path.length; i++) {
-        const idx = path[i];
-        const id = data.ids[idx];
-        const title = data.titles[idx];
-        const type = data.types[idx];
-        const li = document.createElement('li');
-        li.className = `path-node type-${type}`;
-        if (i === 0) li.classList.add('is-start');
-        if (i === path.length - 1) li.classList.add('is-end');
-        const pe = idIndex.get(id);
-        const href = pe ? pe.href : '#';
-        li.innerHTML =
-          '<a class="pn-link" href="' + href + '">' +
-            '<span class="pn-type">' + (TYPE_LABELS[type] || type) + '</span>' +
-            '<span class="pn-title"></span>' +
-          '</a>';
-        li.querySelector('.pn-title').textContent = title;
-        ol.appendChild(li);
-        if (i < path.length - 1) {
-          const arrow = document.createElement('li');
-          arrow.className = 'path-arrow';
-          arrow.textContent = '→';
-          arrow.setAttribute('aria-hidden', 'true');
-          ol.appendChild(arrow);
-        }
-      }
-      result.appendChild(ol);
+      result.appendChild(renderChain(data, path, (id) => (idIndex.get(id) || {}).href || '#'));
       result.removeAttribute('hidden');
     }
     form.addEventListener('submit', (e) => { e.preventDefault(); run(); });

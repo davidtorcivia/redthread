@@ -33,7 +33,9 @@ markdown vault that uses Obsidian-style `[[wikilinks]]`.
   directed PageRank (hubs), community-span entropy (bridges), and pre-computes a force-directed
   layout via `networkx.spring_layout`. Emits JSON indices to `data/`.
 - **Astro site** (`web/`): consumes the JSON at build time. Renders
-  entity pages, browse pages, `/network/` (full canvas graph), `/path/`
+  entity pages, browse pages, `/network/` (full canvas graph; the canvas
+  engine in `web/src/scripts/graph-canvas.ts` is shared with the
+  per-entity Local network widget), `/path/`
   (hub-avoiding path finder), `/bridges/`, `/tags/`, `/timeline/`, `/changelog/`.
 - **Pagefind**: search index built post-Astro, surfaces a Cmd-K modal.
 - **nginx in Docker** (`deploy/`): serves the built `dist/` directory.
@@ -53,6 +55,7 @@ Everything is static. The only server-side runtime is nginx.
 | `/tags/`, `/tag/<slug>/` | Tag index + per-tag entry list |
 | `/timeline/` | Entries grouped by decade (consumes future date-backfill) |
 | `/changelog/` | Most-recently-edited entries from vault mtime |
+| `/unresolved/` | Wikilink targets with no entry, ranked by link count (editor-facing) |
 | `/random/` | Redirects to a random entry |
 | `/404`, `/5xx` | Styled error pages, wired in nginx |
 
@@ -77,7 +80,9 @@ npm --prefix web install                # Astro deps
 ./build.ps1                             # PowerShell on Windows
 ```
 Both scripts parse the vault, copy generated JSON into Astro's
-`public/`, then run `npm run build`. Result lands in `web/dist/`.
+`public/`, then build the site. `build.sh` builds into `web/.dist-build/`
+and rsyncs into `web/dist/` so a served `dist/` is never empty mid-build;
+`build.ps1` still runs `npm run build` in place.
 
 By default the vault is the parent directory of `_web/`. Override:
 ```bash

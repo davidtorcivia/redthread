@@ -389,5 +389,25 @@ class TestRankings(unittest.TestCase):
         self.assertNotIn("town", bridges)    # places excluded
 
 
+class TestAdjacencyDirection(unittest.TestCase):
+    def test_dir_bits_follow_link_direction(self):
+        ents = [make_entity("a", "A"), make_entity("b", "B"), make_entity("c", "C")]
+        edges = [
+            {"source": "a", "target_id": "b", "kind": "explicit"},   # a -> b only
+            {"source": "b", "target_id": "c", "kind": "explicit"},
+            {"source": "c", "target_id": "b", "kind": "explicit"},   # b <-> c
+            {"source": "a", "target_id": "c", "kind": "implicit", "count": 2},  # inferred only
+        ]
+        adj = pv.build_adjacency(ents, edges)
+        idx = {eid: i for i, eid in enumerate(adj["ids"])}
+        def d(x, y):
+            return adj["dir"][idx[x]][adj["adj"][idx[x]].index(idx[y])]
+        self.assertEqual(d("a", "b"), 1)
+        self.assertEqual(d("b", "a"), 2)
+        self.assertEqual(d("b", "c"), 3)
+        self.assertEqual(d("a", "c"), 0)
+        self.assertEqual(adj["implicitPairs"], [[idx["a"], idx["c"]]])
+
+
 if __name__ == "__main__":
     unittest.main()

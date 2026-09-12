@@ -79,3 +79,60 @@ class MinHeap {
     return top;
   }
 }
+
+const TYPE_LABELS: Record<string, string> = {
+  person: 'Person', organization: 'Organization', program: 'Program',
+  event: 'Event', concept: 'Concept', place: 'Place',
+  source: 'Source', meta: 'Meta', misc: 'Misc', page: 'Page',
+};
+
+/** Why two consecutive path nodes are connected, from adjacency `dir`
+ *  bits (1 = a's page links b, 2 = b's page links a, 0 = inferred). */
+export function hopReason(data: any, a: number, b: number): string {
+  const k = data.adj[a].indexOf(b);
+  const d = k >= 0 && data.dir ? data.dir[a][k] : 0;
+  if (d === 3) return 'each page links the other';
+  if (d === 1) return `linked from ${data.titles[a]}’s page`;
+  if (d === 2) return `linked from ${data.titles[b]}’s page`;
+  return 'inferred: names co-mentioned in prose';
+}
+
+/** Render a found path as the shared <ol class="path-chain"> used by
+ *  /path/ and the entity-page widget, with the evidence for each hop. */
+export function renderChain(data: any, path: number[], hrefOf: (id: string) => string): HTMLOListElement {
+  const ol = document.createElement('ol');
+  ol.className = 'path-chain';
+  for (let i = 0; i < path.length; i++) {
+    const idx = path[i];
+    const type = data.types[idx];
+    const li = document.createElement('li');
+    li.className = `path-node type-${type}`;
+    if (i === 0) li.classList.add('is-start');
+    if (i === path.length - 1) li.classList.add('is-end');
+    const a = document.createElement('a');
+    a.className = 'pn-link';
+    a.href = hrefOf(data.ids[idx]);
+    const t = document.createElement('span');
+    t.className = 'pn-type';
+    t.textContent = TYPE_LABELS[type] || type;
+    const title = document.createElement('span');
+    title.className = 'pn-title';
+    title.textContent = data.titles[idx];
+    a.append(t, title);
+    li.appendChild(a);
+    ol.appendChild(li);
+    if (i < path.length - 1) {
+      const hop = document.createElement('li');
+      hop.className = 'path-arrow';
+      const arrow = document.createElement('span');
+      arrow.textContent = '→';
+      arrow.setAttribute('aria-hidden', 'true');
+      const why = document.createElement('span');
+      why.className = 'path-why';
+      why.textContent = hopReason(data, idx, path[i + 1]);
+      hop.append(arrow, why);
+      ol.appendChild(hop);
+    }
+  }
+  return ol;
+}

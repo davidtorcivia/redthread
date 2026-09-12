@@ -1,0 +1,50 @@
+---
+import Base from '../layouts/Base.astro';
+import { unresolvedTargets, hrefFor, TYPE_LABELS } from '../lib/data.ts';
+
+const all = unresolvedTargets();
+const LIMIT = 300;
+const rows = all.slice(0, LIMIT);
+const totalLinks = all.reduce((n, t) => n + t.count, 0);
+const SAMPLE = 6;
+---
+<Base
+  title="Unresolved links — The Info Web"
+  description="Wikilink targets the vault points at but has no entry for, ranked by how often they are linked."
+>
+  <article class="changelog-article unresolved-article">
+    <div class="entity-eyebrow">
+      <span>Meta</span>
+    </div>
+    <h1 class="entity-title">Unresolved links</h1>
+    <p class="entity-dek">
+      {all.length.toLocaleString()} link targets with no matching entry, referenced
+      {totalLinks.toLocaleString()} times across the vault. Each is a page waiting to be
+      written, or an alias waiting to be added to an existing entry. Showing the top
+      {rows.length.toLocaleString()}.
+    </p>
+
+    <ol class="ur-list">
+      {rows.map((t) => (
+        <li class="ur-row">
+          <div class="ur-head">
+            <span class="ur-target">{t.target}</span>
+            <span class="ur-count">{t.count} link{t.count === 1 ? '' : 's'}</span>
+          </div>
+          <div class="ur-sources">
+            <span class="ur-from">from</span>
+            {t.sources.slice(0, SAMPLE).map((s, i) => (
+              <>
+                {i > 0 && <span class="ur-sep"> · </span>}
+                <a href={hrefFor(s)} data-preview title={TYPE_LABELS[s.type]}>{s.title}</a>
+              </>
+            ))}
+            {t.sources.length > SAMPLE && (
+              <span class="ur-more"> +{t.sources.length - SAMPLE} more</span>
+            )}
+          </div>
+        </li>
+      ))}
+    </ol>
+  </article>
+</Base>

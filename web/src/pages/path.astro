@@ -72,7 +72,7 @@ import Base from '../layouts/Base.astro';
   {/* Processed, not is:inline — see the frontmatter note. define:vars would
       force this back inline along with the entity pool it used to carry. */}
   <script>
-    import { findPath as hubAwarePath } from '../scripts/path-find';
+    import { findPath as hubAwarePath, renderChain } from '../scripts/path-find';
     (function () {
       const TYPE_LABELS = {
         person: 'Person', organization: 'Organization', program: 'Program',
@@ -329,35 +329,7 @@ import Base from '../layouts/Base.astro';
 
       function renderPath(data, path) {
         result.innerHTML = '';
-        const ol = document.createElement('ol');
-        ol.className = 'path-chain';
-        for (let i = 0; i < path.length; i++) {
-          const idx = path[i];
-          const id = data.ids[idx];
-          const title = data.titles[idx];
-          const type = data.types[idx];
-          const li = document.createElement('li');
-          li.className = `path-node type-${type}`;
-          if (i === 0) li.classList.add('is-start');
-          if (i === path.length - 1) li.classList.add('is-end');
-          const entry = idIndex.get(id);
-          const href = entry ? entry.href : '#';
-          li.innerHTML =
-            '<a class="pn-link" href="' + href + '">' +
-              '<span class="pn-type">' + (TYPE_LABELS[type] || type) + '</span>' +
-              '<span class="pn-title"></span>' +
-            '</a>';
-          li.querySelector('.pn-title').textContent = title;
-          ol.appendChild(li);
-          if (i < path.length - 1) {
-            const arrow = document.createElement('li');
-            arrow.className = 'path-arrow';
-            arrow.textContent = '→';
-            arrow.setAttribute('aria-hidden', 'true');
-            ol.appendChild(arrow);
-          }
-        }
-        result.appendChild(ol);
+        result.appendChild(renderChain(data, path, (id) => (idIndex.get(id) || {}).href || '#'));
         result.removeAttribute('hidden');
       }
 

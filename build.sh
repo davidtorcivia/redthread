@@ -17,6 +17,7 @@ if [[ -f "$script_dir/.env" ]]; then
 fi
 
 vault_path="${VAULT_PATH:-$project_root}"
+command -v rsync >/dev/null || { echo "[build] rsync is required to publish into web/dist" >&2; exit 1; }
 
 echo "[build] vault: $vault_path"
 echo "[build] output: $script_dir/web/dist"
@@ -68,7 +69,16 @@ if [[ ! -d node_modules ]]; then
   npm install
 fi
 echo "[build] (2/2) building site..."
-npm run build
+# astro build empties its output directory before writing anything, and
+# nginx bind-mounts web/dist, so building in place took the live site
+# down for ~34s per build (403 on every URL). Build into a sibling
+# directory instead and rsync the result into dist at the end: rsync
+# replaces each file atomically, so the site is never empty, and a failed
+# build never touches dist at all. Astro clears the sibling dir itself on
+# the next run, so it is left in place (gitignored).
+out_dir="$script_dir/web/.dist-build"
+npx astro build --outDir "$out_dir"
+npx pagefind --site "$out_dir"
 
 # Pagefind ships several alternate UIs alongside the one we use
 # (pagefind-ui.js). The component-ui (~217 KB), modular-ui (~150 KB),
@@ -78,7 +88,7 @@ npm run build
 # fragment/ filter/ directories must stay — pagefind-ui.js pulls them
 # in at runtime.
 echo "[build] pruning unused pagefind bundles..."
-pf="$script_dir/web/dist/pagefind"
+pf="$out_dir/pagefind"
 rm -f "$pf/pagefind-component-ui.js" "$pf/pagefind-component-ui.css" \
       "$pf/pagefind-modular-ui.js"   "$pf/pagefind-modular-ui.css"   \
       "$pf/pagefind-highlight.js"
@@ -89,10 +99,18 @@ rm -f "$pf/pagefind-component-ui.js" "$pf/pagefind-component-ui.css" \
 # -k keeps the original for clients that don't send Accept-Encoding: gzip;
 # Astro empties dist/ each build, so no stale .gz survive a rename/delete.
 echo "[build] precompressing text assets (gzip_static)..."
-find "$script_dir/web/dist" -type f \
+find "$out_dir" -type f \
   \( -name '*.html' -o -name '*.css'  -o -name '*.js'  -o -name '*.json' \
      -o -name '*.xml' -o -name '*.svg' -o -name '*.txt' -o -name '*.md' \) \
   -size +1024c -print0 \
   | xargs -0 -r -P 4 gzip -9 -kf
+
+echo "[build] publishing into web/dist..."
+mkdir -p "$script_dir/web/dist"
+# --delete-after keeps last build's hashed _astro/ and pagefind assets alive
+# until every new HTML file has landed (the default --delete-during would
+# unlink them first, since _astro/ sorts before the page directories);
+# --delay-updates stages transfers and renames them at the end.
+rsync -a --delete-after --delay-updates "$out_dir/" "$script_dir/web/dist/"
 
 echo "[build] done -> $script_dir/web/dist"
