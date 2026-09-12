@@ -383,3 +383,32 @@ export function unresolvedTargets(): UnresolvedTarget[] {
   }
   return _unresolved;
 }
+
+export interface Community {
+  id: number;
+  label: string;
+  size: number;
+  types: Record<string, number>;
+  top: Pick<Entity, 'id' | 'title' | 'type' | 'mention_count'>[];
+}
+
+/** Clusters smaller than this are disconnected fragments: listed under one
+ *  heading on /clusters/ and given no chip on entity pages. */
+export const CLUSTER_MIN_SIZE = 5;
+
+let _communities: Community[] | null = null;
+/** Louvain communities, indexed by community id (matches
+ *  Entity.community_id and adjacency.json `communities`). */
+export function communities(): Community[] {
+  if (!_communities) {
+    try {
+      _communities = loadJson<Community[]>('communities.json');
+    } catch {
+      _communities = [];
+    }
+  }
+  return _communities;
+}
+export function communityOf(e: Entity): Community | undefined {
+  return e.community_id == null ? undefined : communities()[e.community_id];
+}

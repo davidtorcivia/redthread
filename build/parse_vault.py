@@ -1220,6 +1220,40 @@ def compute_bridge_scores(
     return out, community_of
 
 
+def summarize_communities(
+    entities: list[dict[str, Any]], community_of: dict[str, int], top_n: int = 12,
+) -> list[dict[str, Any]]:
+    """One record per Louvain community, indexed by community id: a label
+    built from its three most-mentioned rankable members ("Central
+    Intelligence Agency · Contras · cocaine"), size, type mix and the
+    top members. Drives /clusters/, the entity-page Cluster chip and the
+    graph tooltip. Communities are unnamed by construction; the label is
+    the cheapest thing a reader can recognise."""
+    by_id = {e["id"]: e for e in entities}
+    members: dict[int, list[str]] = defaultdict(list)
+    for eid, cid in community_of.items():
+        if eid in by_id:
+            members[cid].append(eid)
+    out: list[dict[str, Any]] = []
+    for cid in range(max(members, default=-1) + 1):
+        ids = members.get(cid, [])
+        ranked = sorted(ids, key=lambda i: (-by_id[i].get("mention_count", 0), by_id[i]["title"]))
+        namers = [i for i in ranked if by_id[i]["type"] in RANKABLE_TYPES][:3] or ranked[:3]
+        types = Counter(by_id[i]["type"] for i in ids)
+        out.append({
+            "id": cid,
+            "label": " · ".join(by_id[i]["title"] for i in namers) or f"Cluster {cid + 1}",
+            "size": len(ids),
+            "types": dict(types.most_common()),
+            "top": [
+                {"id": i, "title": by_id[i]["title"], "type": by_id[i]["type"],
+                 "mention_count": by_id[i].get("mention_count", 0)}
+                for i in ranked[:top_n]
+            ],
+        })
+    return out
+
+
 def compute_layout_positions(
     adjacency: dict[str, Any], cache_path: "Path | None" = None
 ) -> list[list[float]]:
@@ -1717,6 +1751,8 @@ def main() -> int:
     # Louvain community per node, for the /network/ "colour by community"
     # mode. -1 for nodes outside the partition (none in practice).
     adjacency["communities"] = [community_of.get(eid, -1) for eid in adjacency["ids"]]
+    communities_out = summarize_communities(entities, community_of)
+    adjacency["communityLabels"] = [c["label"] for c in communities_out]
     adjacency["hubs"] = {
         str(i): {
             "rank": hubs[adjacency["ids"][i]]["rank"],
@@ -1769,6 +1805,8 @@ def main() -> int:
     # — no per-entity files needed. Pass None so write_outputs skips
     # generating them.
     write_outputs(args.out, entities, slug_index, edges, stats, related, None, adjacency)
+    (Path(args.out) / "communities.json").write_text(
+        json.dumps(communities_out, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
 
     print(f"[done] {len(entities)} entities, {len(edges)} edges "
           f"({stats['resolved_edges']} resolved, {stats['unresolved_edges']} unresolved) "

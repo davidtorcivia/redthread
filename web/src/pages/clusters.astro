@@ -1,0 +1,64 @@
+---
+import Base from '../layouts/Base.astro';
+import { communities, CLUSTER_MIN_SIZE, hrefFor, TYPE_LABELS, TYPE_PLURALS } from '../lib/data.ts';
+import type { EntityType } from '../lib/types.ts';
+
+const MIN_SIZE = CLUSTER_MIN_SIZE;
+const all = communities();
+const big = all.filter((c) => c.size >= MIN_SIZE).sort((a, b) => b.size - a.size);
+const small = all.filter((c) => c.size < MIN_SIZE);
+const smallMembers = small.reduce((n, c) => n + c.size, 0);
+---
+<Base
+  title="Clusters — The Info Web"
+  description="The vault's link graph partitioned into communities: groups of entries that connect to each other far more than to the rest."
+>
+  <article class="changelog-article clusters-article">
+    <div class="entity-eyebrow">
+      <span>Tools</span>
+    </div>
+    <h1 class="entity-title">Clusters</h1>
+    <p class="entity-dek">
+      {big.length} communities of {MIN_SIZE} or more entries, found by weighted Louvain
+      modularity over the wikilink and NER graph: groups of entries that link among
+      themselves far more than to the rest of the vault. Each is named after its three most-mentioned members. The same partition
+      colours the <a href="/network/">full network</a> when you switch Colour to Community.
+    </p>
+
+    {big.map((c) => (
+      <section class="cl-group cluster" id={`c-${c.id}`}>
+        <h2 class="cl-month cluster-label">
+          <span class="cluster-swatch" style={`background: hsl(${Math.round((c.id * 137.508) % 360)}, 46%, 40%)`}></span>
+          {c.label}
+        </h2>
+        <p class="cluster-meta">
+          {c.size.toLocaleString()} entries ·
+          {Object.entries(c.types).slice(0, 4).map(([t, n], i) => (
+            <>{i > 0 && ', '}{n} {(TYPE_PLURALS[t as EntityType] ?? t).toLowerCase()}</>
+          ))}
+        </p>
+        <ul class="hc-list cluster-members">
+          {c.top.map((m) => (
+            <li class={`hc-item type-${m.type}`}>
+              <a href={hrefFor({ id: m.id, type: m.type })} data-preview>
+                <span class="hc-eyebrow">{TYPE_LABELS[m.type as EntityType]}</span>
+                <span class="hc-title">{m.title}</span>
+                <span class="hc-mult">{m.mention_count}</span>
+              </a>
+            </li>
+          ))}
+        </ul>
+      </section>
+    ))}
+
+    {small.length > 0 && (
+      <section class="cl-group cluster">
+        <h2 class="cl-month cluster-label">Fragments</h2>
+        <p class="cluster-meta">
+          {small.length} clusters of fewer than {MIN_SIZE} entries ({smallMembers} entries in all):
+          small groups that only link to each other.
+        </p>
+      </section>
+    )}
+  </article>
+</Base>
