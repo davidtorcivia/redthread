@@ -17,6 +17,7 @@ import argparse
 import datetime as _dt
 import fnmatch
 import json
+import math
 import re
 import sys
 import time
@@ -396,9 +397,13 @@ def compute_relationships(
     # (>40 entities) since they swamp the signal AND would explode the
     # via-list memory.
     pair_pages: dict[tuple[str, str], list[str]] = defaultdict(list)
+    doc_freq: Counter = Counter()
+    n_pages = 0
     for src, ents in page_ents.items():
         if len(ents) > 40:
             continue
+        n_pages += 1
+        doc_freq.update(ents)
         items = sorted(ents)
         for i, a in enumerate(items):
             for b in items[i + 1:]:
@@ -410,13 +415,19 @@ def compute_relationships(
         per_entity[a].append((b, pages))
         per_entity[b].append((a, pages))
 
-    # When ranking neighbors for an entity, prefer pages that aren't the
-    # entity itself (a page co-occurring with itself is trivially true)
-    # and the most-referenced co-occurrences first.
+    # Raw co-occurrence count puts the same mega-hubs (CIA, United States)
+    # at the top of nearly every page. Weight by inverse document frequency
+    # so a neighbor that appears on few pages outranks one that is
+    # everywhere. `count` is still emitted as the shown "shared pages".
+    def score(nid: str, pages: list[str]) -> float:
+        return len(pages) * math.log(n_pages / doc_freq[nid])
+
+    # Evidence pages: the entity's own page is trivial, and a page that
+    # touches few entities is tighter evidence than a sprawling one.
     def via_for(eid: str, pages: list[str]) -> list[dict[str, Any]]:
         seen = set()
         out = []
-        for p in pages:
+        for p in sorted(pages, key=lambda p: len(page_ents[p])):
             if p == eid or p in seen or p not in by_id:
                 continue
             seen.add(p)
@@ -428,7 +439,7 @@ def compute_relationships(
 
     related: dict[str, list[dict[str, Any]]] = {}
     for eid, rels in per_entity.items():
-        rels.sort(key=lambda x: (-len(x[1]), x[0]))
+        rels.sort(key=lambda x: (-score(x[0], x[1]), x[0]))
         related[eid] = [
             {
                 "id": rid,
@@ -522,6 +533,7 @@ NER_GENERIC_DISPLAY_BLOCKLIST = {
 }
 
 NER_MIN_ALIAS_LEN = 3
+TITLE_TOKEN = re.compile(r"[A-Za-z][\w'’.-]*")
 # Mined displays must appear at least this many times to graduate to an alias.
 # Single-occurrence displays are often one-off contextual phrasing, not a
 # canonical surface form.
@@ -582,6 +594,22 @@ def build_alias_map(
     #    least NER_MIN_MINED_DISPLAY_COUNT times — proving it's a canonical
     #    surface form, not a one-off paraphrase — and (b) the display isn't
     #    a generic adjective/noun like "American" or "wife".
+    # A single-word display that is also a word in 2+ OTHER entity titles
+    # ("King", "University", "Washington") is a surname/common noun, not a
+    # surface form for one entity; a lowercase display is kept only when it
+    # is just the target's own title in lowercase ("remote viewing").
+    title_owners: dict[str, set[str]] = defaultdict(set)
+    for e in entities:
+        for tok in set(TITLE_TOKEN.findall(e["title"])):
+            title_owners[tok].add(e["id"])
+
+    def mined_display_ok(disp: str, tid: str) -> bool:
+        if disp[0].islower():
+            return disp.lower() == by_id[tid]["title"].lower()
+        if " " not in disp and len(title_owners.get(disp, set()) - {tid}) >= 2:
+            return False
+        return True
+
     display_pair_counts: Counter = Counter()
     for edge in edges:
         tid = edge.get("target_id")
@@ -591,6 +619,8 @@ def build_alias_map(
         if not disp or disp == edge.get("target_title"):
             continue
         if disp.lower() in NER_GENERIC_DISPLAY_BLOCKLIST:
+            continue
+        if not mined_display_ok(disp, tid):
             continue
         display_pair_counts[(disp, tid)] += 1
     for (disp, tid), count in display_pair_counts.items():
@@ -1014,12 +1044,22 @@ def _build_weighted_graph(
     return g, ids
 
 
+# Only real vault entities are ranked as hubs/bridges. meta/misc/source/page
+# entries (index notes, narratives) link out to hundreds of entities and
+# would otherwise top the lists with zero inbound mentions.
+RANKABLE_TYPES = {"person", "organization", "program", "event", "concept", "place"}
+
+
 def compute_hub_scores(
     entities: list[dict[str, Any]],
-    pair_w: dict[tuple[str, str], int],
+    edges: list[dict[str, Any]],
     top_n: int = 50,
 ) -> dict[str, dict[str, Any]]:
-    """Hub = PageRank over the co-occurrence-weighted graph.
+    """Hub = PageRank over the DIRECTED mention graph (source page -> target).
+
+    Directed matters: on an undirected graph PageRank collapses to degree,
+    so a narrative page that links out to 100 entities ranks as a hub with
+    zero inbound mentions. Directed, only being linked TO counts.
 
     Why PageRank instead of degree/eigenvector:
       - Degree is too shallow — a connection to a hub counts the same as
@@ -1041,11 +1081,24 @@ def compute_hub_scores(
     except ImportError:
         sys.stderr.write("[hubs] networkx not installed; skipping PageRank\n")
         return {}
-    g, _ = _build_weighted_graph(entities, pair_w)
+    rankable = {e["id"] for e in entities if e["type"] in RANKABLE_TYPES}
+    valid = {e["id"] for e in entities}
+    g = nx.DiGraph()
+    g.add_nodes_from(valid)
+    for edge in edges:
+        s, t = edge.get("source"), edge.get("target_id")
+        if not s or not t or s == t or s not in valid or t not in valid:
+            continue
+        w = edge.get("count", 1) if edge.get("kind") == "implicit" else 1
+        if g.has_edge(s, t):
+            g[s][t]["weight"] += w
+        else:
+            g.add_edge(s, t, weight=w)
     # damping=0.85 is the standard Brin/Page default. tol/maxiter at
     # networkx defaults converge in well under a second at this scale.
     pr = nx.pagerank(g, alpha=0.85, weight="weight")
-    ranked = sorted(pr.items(), key=lambda kv: -kv[1])[:top_n]
+    ranked = sorted(((k, v) for k, v in pr.items() if k in rankable),
+                    key=lambda kv: -kv[1])[:top_n]
     out: dict[str, dict[str, Any]] = {}
     for rank, (eid, score) in enumerate(ranked, start=1):
         if score <= 0:
@@ -1057,35 +1110,30 @@ def compute_hub_scores(
 def compute_bridge_scores(
     entities: list[dict[str, Any]],
     pair_w: dict[tuple[str, str], int],
+    edges: list[dict[str, Any]],
     top_n: int = 50,
 ) -> tuple[dict[str, dict[str, Any]], dict[str, int]]:
-    """Bridge = degree-normalized neighborhood-community-span entropy.
+    """Bridge = community-span entropy of the pages that MENTION a node.
 
     Algorithm:
       1. Detect communities with weighted Louvain (deterministic seed).
-      2. For each node v with neighbors N(v), degree d = |N(v)|:
-           p_c   = fraction of N(v) in community c
+      2. For each node v, let M(v) be the set of pages linking to v
+         (inbound only), m = |M(v)|:
+           p_c   = fraction of M(v) in community c
            H(v)  = -Σ p_c · log(p_c)            (Shannon entropy)
-           k(v)  = |distinct communities in N(v)|
-           score = H(v) · log(1 + k(v)) / sqrt(d)
+           k(v)  = |distinct communities in M(v)|
+           score = H(v) · log(1 + k(v)) / sqrt(m)
 
-    Why degree-normalize:
-      Without dividing by sqrt(d), high-degree hubs (the US, the CIA)
-      dominate the ranking because they touch every community trivially
-      — having 500 neighbors guarantees you span every cluster. That's
-      exactly the noise we're trying to demote: those entities are
-      already obvious.
+    Inbound, not all neighbors: a stub page that happens to wikilink ten
+    entities across ten clusters has a maximally diverse neighborhood
+    without anyone else ever mentioning it. Ranking on the communities
+    of the pages that cite the entity asks the question we actually
+    want answered: which entries keep turning up in unrelated narratives?
 
-      sqrt(d) (rather than log(d) or d) gives the right balance:
-        - log(d) doesn't penalize hubs hard enough (US still ranks high)
-        - d penalizes too hard (a degree-2 noise node beats real bridges)
-        - sqrt(d) is the IR/TF-IDF standard for frequency normalization
-          and lands the ideal-bridge profile (mid-degree, distributed
-          neighbors across many distant communities) at the top of the
-          list — exactly the entities a researcher would otherwise miss.
-
-      The log(1 + k) factor rewards spanning MANY communities over just
-      a few, breaking ties between equal-entropy candidates.
+    sqrt(m) keeps the mega-hubs (cited from every cluster trivially) off
+    the top; log(1 + k) rewards spanning many communities over a few.
+    Places are excluded: countries and cities span every cluster by
+    nature and would fill the list with the obvious.
 
     Returns ({entity_id: {score, rank, community_id, community_span}},
              {entity_id: community_id} for ALL nodes).
@@ -1112,55 +1160,33 @@ def compute_bridge_scores(
         for node in members:
             community_of[node] = cid
 
-    # Eligibility floors. Below these, sqrt(d) normalization elevates
-    # "bridges-by-proximity" — stubs whose single page happens to wikilink
-    # entities across many communities, inheriting a real bridge's reach
-    # without doing any spanning themselves (e.g. a journalist whose only
-    # role is writing one story about a real bridge).
-    #
-    # The compound rule keeps low-mention entries that have built up
-    # cross-context evidence (Hanssen mention=1 deg=16 stays; he shows up
-    # in multiple narratives even with only one dedicated page) while
-    # cutting low-mention low-degree stubs (Pam MacLean mention=1 deg=6
-    # — a real reporter, but not a real bridge).
-    MIN_DEGREE_ABS = 6   # hard floor: below this, entropy maxes too easily
-    MIN_DEG_FOR_SINGLE_MENTION = 10
-    mentions_by_id = {e["id"]: e.get("mention_count", 0) for e in entities}
+    # Below this many citing pages the entropy maxes out too easily
+    # (3 mentions from 3 clusters is noise, not a bridge).
+    MIN_INBOUND = 4
+    bridge_types = RANKABLE_TYPES - {"place"}
+    type_of = {e["id"]: e["type"] for e in entities}
+    inbound: dict[str, set[str]] = defaultdict(set)
+    for edge in edges:
+        s, t = edge.get("source"), edge.get("target_id")
+        if s and t and s != t and t in type_of and s in type_of:
+            inbound[t].add(s)
 
-    def eligible(node: str, d: int) -> bool:
-        if d < MIN_DEGREE_ABS:
-            return False
-        m = mentions_by_id.get(node, 0)
-        if m >= 2:
-            return True
-        if m >= 1 and d >= MIN_DEG_FOR_SINGLE_MENTION:
-            return True
-        return False
-
-    import math
     scores: dict[str, dict[str, Any]] = {}
-    for node in g.nodes():
-        neighbors = list(g.neighbors(node))
-        d = len(neighbors)
-        if not eligible(node, d):
+    for node, sources in inbound.items():
+        m = len(sources)
+        if m < MIN_INBOUND or type_of[node] not in bridge_types:
             continue
         bucket: dict[int, int] = defaultdict(int)
-        for nbr in neighbors:
-            bucket[community_of.get(nbr, -1)] += 1
-        total = float(d)
+        for src in sources:
+            bucket[community_of.get(src, -1)] += 1
         h = 0.0
         for c_count in bucket.values():
-            p = c_count / total
-            if p > 0:
-                h -= p * math.log(p)
+            p = c_count / m
+            h -= p * math.log(p)
         k = len(bucket)
         if k < 2:
             continue
-        # Degree normalization (sqrt) flips the ranking from "huge hubs
-        # that touch every cluster" to "mid-degree connectors whose
-        # neighbors span surprisingly distant clusters" — the
-        # researcher-facing signal that betweenness-style metrics miss.
-        score = h * math.log(1 + k) / math.sqrt(d)
+        score = h * math.log(1 + k) / math.sqrt(m)
         scores[node] = {
             "score": score,
             "community_id": community_of.get(node, -1),
@@ -1609,12 +1635,12 @@ def main() -> int:
 
     print(f"[parse] computing Hub PageRank ({len(adjacency['adj'])} nodes)...")
     t_hubs = time.time()
-    hubs = compute_hub_scores(entities, pair_w, top_n=50)
+    hubs = compute_hub_scores(entities, edges, top_n=50)
     print(f"[parse] hubs done in {round(time.time() - t_hubs, 2)}s")
 
     print(f"[parse] detecting communities + Bridge entropy...")
     t_br = time.time()
-    bridges, community_of = compute_bridge_scores(entities, pair_w, top_n=50)
+    bridges, community_of = compute_bridge_scores(entities, pair_w, edges, top_n=50)
     print(f"[parse] bridges done in {round(time.time() - t_br, 2)}s "
           f"({len(set(community_of.values()))} communities)")
 
@@ -1660,6 +1686,16 @@ def main() -> int:
         for i in range(len(adjacency["ids"]))
         if adjacency["ids"][i] in bridges
     }
+    # Alias surface forms (minus titles) for the search modal's quick-match
+    # tier, keyed by node index. ~1k entries; adjacency.json is already
+    # fetched and cached by every entity page.
+    idx_of = {eid: i for i, eid in enumerate(adjacency["ids"])}
+    title_set = {e["title"] for e in entities}
+    aliases_by_idx: dict[str, list[str]] = defaultdict(list)
+    for surface, eid in alias_map.items():
+        if surface not in title_set and eid in idx_of:
+            aliases_by_idx[str(idx_of[eid])].append(surface)
+    adjacency["aliases"] = dict(aliases_by_idx)
     adjacency["hubs"] = {
         str(i): {
             "rank": hubs[adjacency["ids"][i]]["rank"],

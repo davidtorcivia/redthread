@@ -474,6 +474,106 @@ const breadcrumbSchema = crumbItems
           }
         }
 
+        // ---------- Quick-match tier ----------
+        // Pagefind ranks by term frequency and has no title boost, so "CIA"
+        // buried the Central Intelligence Agency page under pages that say
+        // "CIA" a lot. Match titles + NER aliases from adjacency.json and
+        // list the best 8 above the full-text results.
+        const QUICK_DIRS = {
+          person: 'people', organization: 'organizations', program: 'programs',
+          event: 'events', concept: 'concepts', place: 'places', source: 'sources',
+          meta: 'meta', misc: 'misc', page: 'pages',
+        };
+        const QUICK_LABELS = {
+          person: 'Person', organization: 'Organization', program: 'Program',
+          event: 'Event', concept: 'Concept', place: 'Place', source: 'Source',
+          meta: 'Meta', misc: 'Misc', page: 'Page',
+        };
+        let quick = null;
+        let names = null;
+        let namesP = null;
+        function loadNames() {
+          if (names) return Promise.resolve(names);
+          if (namesP) return namesP;
+          namesP = fetch('/adjacency.json?v=' + window.__V)
+            .then((r) => (r.ok ? r.json() : null))
+            .then((d) => {
+              names = [];
+              if (!d) return names;
+              for (let i = 0; i < d.ids.length; i++) {
+                const aliases = (d.aliases && d.aliases[String(i)]) || [];
+                names.push({
+                  title: d.titles[i],
+                  type: d.types[i],
+                  href: '/' + (QUICK_DIRS[d.types[i]] || 'pages') + '/' + d.ids[i] + '/',
+                  keys: [d.titles[i]].concat(aliases).map((k) => k.toLowerCase()),
+                });
+              }
+              return names;
+            })
+            .catch(() => { names = []; return names; });
+          return namesP;
+        }
+        // 0 exact, 1 prefix, 2 word prefix, 3 substring; 9 = no match.
+        function quickRank(n, q) {
+          let best = 9;
+          for (const k of n.keys) {
+            const s = k === q ? 0 : k.startsWith(q) ? 1 : k.includes(' ' + q) ? 2 : k.includes(q) ? 3 : 9;
+            if (s < best) best = s;
+          }
+          return best;
+        }
+        function renderQuick(q) {
+          if (!quick) return;
+          quick.replaceChildren();
+          if (q.length < 2 || !names) { quick.hidden = true; return; }
+          const hits = [];
+          for (const n of names) {
+            const s = quickRank(n, q);
+            if (s < 9) hits.push([s, n]);
+          }
+          hits.sort((a, b) => a[0] - b[0] || a[1].title.length - b[1].title.length);
+          const top = hits.slice(0, 8);
+          if (!top.length) { quick.hidden = true; return; }
+          const label = document.createElement('div');
+          label.className = 'pf-quick-label';
+          label.textContent = 'Entries';
+          quick.appendChild(label);
+          for (const [, n] of top) {
+            const a = document.createElement('a');
+            a.className = 'pf-quick-item type-' + n.type;
+            a.href = n.href;
+            const t = document.createElement('span');
+            t.className = 'pf-quick-type';
+            t.textContent = QUICK_LABELS[n.type] || n.type;
+            a.append(t, n.title);
+            quick.appendChild(a);
+          }
+          quick.hidden = false;
+        }
+        function wireQuick(retries) {
+          if (quick) return;
+          if (retries === undefined) retries = 12;
+          const input = mount.querySelector('input');
+          const drawer = mount.querySelector('.pagefind-ui__drawer');
+          if (!input || !drawer) {
+            if (retries > 0) setTimeout(() => wireQuick(retries - 1), 40);
+            return;
+          }
+          quick = document.createElement('div');
+          quick.id = 'pf-quick';
+          quick.hidden = true;
+          drawer.parentNode.insertBefore(quick, drawer);
+          const update = () => {
+            const q = input.value.trim().toLowerCase();
+            loadNames().then(() => renderQuick(input.value.trim().toLowerCase()));
+            if (!q) renderQuick('');
+          };
+          input.addEventListener('input', update);
+          const clear = mount.querySelector('.pagefind-ui__search-clear');
+          if (clear) clear.addEventListener('click', () => renderQuick(''));
+        }
+
         function focusInput(retries) {
           if (retries === undefined) retries = 12;
           const input = mount.querySelector('input');
@@ -494,6 +594,7 @@ const breadcrumbSchema = crumbItems
         }
         function openModal() {
           init();
+          wireQuick();
           modal.classList.add('open');
           setBackgroundInert(true);
           // Force a layout flush so the input is reachable, then focus

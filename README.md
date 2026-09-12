@@ -6,7 +6,7 @@ A static-site reading layer for connection-rich Obsidian vaults.
 Turns a research vault — people, organizations, programs, events,
 concepts — into a navigable web with searchable entity pages, a
 full-vault network graph, NER-discovered "hidden" connections,
-bridge-centrality scoring, BFS path-finding between any two entries,
+bridge scoring (cited across the most communities), hub-avoiding path-finding between any two entries,
 hover previews, tags, timeline, and full-text search.
 
 Replaces Obsidian Publish for the kind of vaults where the connective
@@ -30,11 +30,11 @@ markdown vault that uses Obsidian-style `[[wikilinks]]`.
 - **Parser** (`build/parse_vault.py`, Python): walks every markdown file
   in the vault, extracts wikilinks + frontmatter + footnotes, computes
   co-occurrence / mention counts, runs NER for implicit links, computes
-  betweenness centrality (bridges), and pre-computes a force-directed
+  directed PageRank (hubs), community-span entropy (bridges), and pre-computes a force-directed
   layout via `networkx.spring_layout`. Emits JSON indices to `data/`.
 - **Astro site** (`web/`): consumes the JSON at build time. Renders
   entity pages, browse pages, `/network/` (full canvas graph), `/path/`
-  (BFS path finder), `/bridges/`, `/tags/`, `/timeline/`, `/changelog/`.
+  (hub-avoiding path finder), `/bridges/`, `/tags/`, `/timeline/`, `/changelog/`.
 - **Pagefind**: search index built post-Astro, surfaces a Cmd-K modal.
 - **nginx in Docker** (`deploy/`): serves the built `dist/` directory.
 
@@ -49,7 +49,7 @@ Everything is static. The only server-side runtime is nginx.
 | `/<type>/<slug>/` | Entity page: prose, Connected to, Hidden Connections, Local network, Mentioned in |
 | `/network/` | Full vault as one canvas graph |
 | `/path/` | BFS between any two entities |
-| `/bridges/` | Top-50 bridge entities by betweenness centrality |
+| `/bridges/` | Top-50 bridges (entries cited from the most distinct communities) and hubs (directed PageRank) |
 | `/tags/`, `/tag/<slug>/` | Tag index + per-tag entry list |
 | `/timeline/` | Entries grouped by decade (consumes future date-backfill) |
 | `/changelog/` | Most-recently-edited entries from vault mtime |

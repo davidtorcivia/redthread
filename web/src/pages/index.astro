@@ -17,7 +17,7 @@ const featuredIds = [
 const byId = new Map(entities().map((e) => [e.id, e]));
 const featuredList = featuredIds.map((id) => byId.get(id)).filter(Boolean) as ReturnType<typeof entities>;
 
-// Hubs by type — top 8 most-mentioned in each
+// Most-mentioned by type — top 8 each (PageRank hubs live on /bridges/)
 const peopleHubs = topHubs(8, 'person');
 const orgHubs = topHubs(8, 'organization');
 
@@ -135,7 +135,7 @@ const counts = headlineTypes.map((t) => ({
   )}
 
   <section class="home-section">
-    <h2 class="section-heading">Network hubs · People</h2>
+    <h2 class="section-heading">Most mentioned · People</h2>
     <ol class="hub-list">
       {peopleHubs.map((e, i) => (
         <li>
@@ -148,7 +148,7 @@ const counts = headlineTypes.map((t) => ({
   </section>
 
   <section class="home-section">
-    <h2 class="section-heading">Network hubs · Organizations</h2>
+    <h2 class="section-heading">Most mentioned · Organizations</h2>
     <ol class="hub-list">
       {orgHubs.map((e, i) => (
         <li>

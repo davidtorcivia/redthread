@@ -5,7 +5,7 @@ const { id } = Astro.props;
 const links = backlinks(id).sort((a, b) => a.source_title.localeCompare(b.source_title));
 ---
 {links.length > 0 && (
-  <section class="backlinks hc-list-section">
+  <section class="backlinks hc-list-section" data-pagefind-ignore>
     <h2 class="section-heading">
       Mentioned in
       <span class="hc-count-badge">{links.length}</span>

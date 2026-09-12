@@ -60,8 +60,8 @@ export const GET: APIRoute = ({ site }) => {
   lines.push('## Network and graph tools');
   lines.push('');
   lines.push(`- [Network graph](${base}/network/): interactive force-directed graph of the full entity network`);
-  lines.push(`- [Path finder](${base}/path/): shortest path between any two entities`);
-  lines.push(`- [Bridges](${base}/bridges/): cut-vertex analysis — entities whose removal would disconnect parts of the graph`);
+  lines.push(`- [Path finder](${base}/path/): a chain of documented connections between any two entities, steering around the mega-hubs`);
+  lines.push(`- [Bridges](${base}/bridges/): entries cited from the most distinct community clusters, plus PageRank hubs`);
   lines.push(`- [Tags](${base}/tags/): browse by tag`);
   lines.push(`- [Timeline](${base}/timeline/): entries ordered chronologically by primary year`);
   lines.push('');

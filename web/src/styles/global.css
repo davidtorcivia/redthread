@@ -398,6 +398,13 @@ footer.site .to-top { font-size: 0.75rem; }
   max-width: 38rem;
 }
 
+.entity-aka {
+  margin: -0.35rem 0 0.8rem;
+  font-size: 0.92rem;
+  font-style: italic;
+  color: var(--muted-2);
+}
+
 .entity-meta {
   display: flex;
   flex-wrap: wrap;
@@ -3348,6 +3355,46 @@ body.net-fullscreen-active { overflow: hidden; }
    60px column gap with something more dossier-modal-sized.
    align-items:flex-start anchors both columns to the top so their first
    rows (CATEGORY label vs N RESULTS message) share a baseline. */
+/* Quick-match tier: exact title/alias hits listed above Pagefind's
+   full-text results (Pagefind has no title boost). Injected before the
+   drawer by Base.astro. */
+#pf-quick {
+  margin-top: 0.7rem;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+/* Author-origin display:flex would beat the UA [hidden] rule. */
+#pf-quick[hidden] { display: none; }
+#pf-quick .pf-quick-label {
+  font-family: var(--sans);
+  font-size: 0.7rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted-2);
+  margin: 0 0 0.25rem;
+}
+#pf-quick .pf-quick-item {
+  display: flex;
+  gap: 0.6rem;
+  align-items: baseline;
+  padding: 0.3rem 0.5rem;
+  border-radius: 4px;
+  background: none;
+  color: var(--ink);
+  text-decoration: none;
+}
+#pf-quick .pf-quick-item:hover,
+#pf-quick .pf-quick-item:focus { background: var(--paper-2); color: var(--accent); }
+#pf-quick .pf-quick-type {
+  font-family: var(--sans);
+  font-size: 0.7rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted-2);
+  min-width: 5.5rem;
+  flex: 0 0 auto;
+}
 #pf-modal .pagefind-ui__drawer {
   max-height: calc(80vh - 6rem);
   overflow-y: auto;

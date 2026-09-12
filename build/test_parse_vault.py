@@ -298,5 +298,96 @@ class TestAliasResolutionRegression(unittest.TestCase):
         self.assertEqual(len(unresolved), 0)
 
 
+
+
+class TestMinedDisplayAliases(unittest.TestCase):
+    """[[Target|Display]] pairs used 2+ times become NER aliases — unless the
+    display is a shared surname/common noun or a stray lowercase word."""
+
+    def _edges(self, target_id, target_title, display, n=2):
+        return [{"source": f"s{i}", "target_id": target_id, "target_title": target_title,
+                 "display": display, "section": "", "kind": "explicit"} for i in range(n)]
+
+    def test_word_shared_by_other_titles_not_mined(self):
+        ents = [make_entity("joe-king", "Joe King", "person"),
+                make_entity("mlk", "Martin Luther King Jr.", "person"),
+                make_entity("jc", "J.C. King", "person")]
+        resolved, _ = pv.build_alias_map(ents, self._edges("joe-king", "Joe King", "King"))
+        self.assertNotIn("King", resolved)
+
+    def test_word_unique_to_target_is_mined(self):
+        ents = [make_entity("reagan", "Ronald Reagan", "person"),
+                make_entity("nancy", "Nancy Reagan", "person")]
+        resolved, _ = pv.build_alias_map(ents, self._edges("reagan", "Ronald Reagan", "Reagan"))
+        self.assertEqual(resolved["Reagan"], "reagan")
+
+    def test_lowercase_display_only_when_it_is_the_title(self):
+        ents = [make_entity("simwa", "SIMWA", "organization"),
+                make_entity("rv", "Remote Viewing")]
+        edges = (self._edges("simwa", "SIMWA", "agreement")
+                 + self._edges("rv", "Remote Viewing", "remote viewing"))
+        resolved, _ = pv.build_alias_map(ents, edges)
+        self.assertNotIn("agreement", resolved)
+        self.assertEqual(resolved["remote viewing"], "rv")
+
+
+class TestRankings(unittest.TestCase):
+    """Related / hub / bridge scoring. Needs networkx (in requirements.txt)."""
+
+    def _edge(self, s, t, kind="explicit"):
+        return {"source": s, "target_id": t, "target_title": t, "display": t,
+                "section": "", "kind": kind}
+
+    def _ents(self, *specs):
+        out = []
+        for spec in specs:
+            eid, typ = (spec, "person") if isinstance(spec, str) else spec
+            e = make_entity(eid, eid.title(), typ)
+            e["summary"] = None
+            out.append(e)
+        return out
+
+    def test_related_prefers_rare_neighbor_over_ubiquitous_hub(self):
+        # hub co-occurs with x on 3 pages but sits on every page; rare
+        # co-occurs on 2. Raw count ranks hub first; idf weighting flips it.
+        ents = self._ents("x", "hub", "rare", "p1", "p2", "p3", "p4", "p5")
+        edges = []
+        for p in ("p1", "p2", "p3"):
+            edges += [self._edge(p, "x"), self._edge(p, "hub")]
+        for p in ("p1", "p2"):
+            edges.append(self._edge(p, "rare"))
+        for p in ("p4", "p5"):
+            edges.append(self._edge(p, "hub"))
+        related, _, _ = pv.compute_relationships(ents, edges)
+        ids = [r["id"] for r in related["x"]]
+        self.assertLess(ids.index("rare"), ids.index("hub"))
+        self.assertEqual(next(r for r in related["x"] if r["id"] == "hub")["count"], 3)
+
+    def test_hub_needs_inbound_links_and_rankable_type(self):
+        ents = self._ents(("narr", "meta"), "a", "b", "c")
+        edges = [self._edge("narr", t) for t in ("a", "b", "c")]
+        edges += [self._edge("a", "b"), self._edge("c", "b")]
+        hubs = pv.compute_hub_scores(ents, edges)
+        self.assertNotIn("narr", hubs)
+        self.assertEqual(hubs["b"]["rank"], 1)
+
+    def test_bridge_is_cited_from_multiple_communities(self):
+        ents = self._ents(*[f"a{i}" for i in range(5)], *[f"b{i}" for i in range(5)],
+                          "link", "local", ("town", "place"))
+        edges = []
+        for grp in ("a", "b"):
+            for i in range(5):
+                for j in range(i + 1, 5):
+                    edges.append(self._edge(f"{grp}{i}", f"{grp}{j}"))
+        for src in ("a0", "a1", "b0", "b1"):
+            edges += [self._edge(src, "link"), self._edge(src, "town")]
+        for src in ("a0", "a1", "a2", "a3"):
+            edges.append(self._edge(src, "local"))
+        bridges, _ = pv.compute_bridge_scores(ents, pv._pair_weights(ents, edges), edges)
+        self.assertEqual(bridges["link"]["rank"], 1)
+        self.assertNotIn("local", bridges)   # cited from one community only
+        self.assertNotIn("town", bridges)    # places excluded
+
+
 if __name__ == "__main__":
-    unittest.main(verbosity=2)
+    unittest.main()

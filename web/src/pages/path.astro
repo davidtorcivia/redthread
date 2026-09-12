@@ -10,7 +10,7 @@ import Base from '../layouts/Base.astro';
 ---
 <Base
   title="Find a path — The Info Web"
-  description="Find the shortest chain of connections between any two entries in the vault."
+  description="Trace a chain of documented connections between any two entries in the vault, steering around the mega-hubs."
   preloadAdjacency
 >
   <article class="path-article">
@@ -19,8 +19,9 @@ import Base from '../layouts/Base.astro';
     </div>
     <h1 class="entity-title">Find a path</h1>
     <p class="entity-dek">
-      Pick any two entities; we'll trace the shortest chain of documented connections
-      between them through the wikilink + NER graph.
+      Pick any two entities; we'll trace a chain of documented connections between
+      them through the wikilink + NER graph, preferring specific links over the
+      mega-hubs (the United States, the CIA) that connect everything to everything.
     </p>
 
     <form class="path-form" id="path-form" autocomplete="off">
@@ -71,6 +72,7 @@ import Base from '../layouts/Base.astro';
   {/* Processed, not is:inline — see the frontmatter note. define:vars would
       force this back inline along with the entity pool it used to carry. */}
   <script>
+    import { findPath as hubAwarePath } from '../scripts/path-find';
     (function () {
       const TYPE_LABELS = {
         person: 'Person', organization: 'Organization', program: 'Program',
@@ -297,36 +299,6 @@ import Base from '../layouts/Base.astro';
         return adjacencyPromise;
       }
 
-      // BFS from src to dst (numeric indices). Returns the shortest
-      // node-index path or null if disconnected.
-      function bfsPath(adj, src, dst) {
-        if (src === dst) return [src];
-        const prev = new Int32Array(adj.length).fill(-1);
-        prev[src] = src; // mark visited
-        const queue = [src];
-        let head = 0;
-        while (head < queue.length) {
-          const v = queue[head++];
-          const neigh = adj[v];
-          for (let i = 0; i < neigh.length; i++) {
-            const w = neigh[i];
-            if (prev[w] !== -1) continue;
-            prev[w] = v;
-            if (w === dst) {
-              // Reconstruct path
-              const path = [w];
-              let cur = w;
-              while (cur !== src) {
-                cur = prev[cur];
-                path.push(cur);
-              }
-              return path.reverse();
-            }
-            queue.push(w);
-          }
-        }
-        return null;
-      }
 
       async function findPath() {
         result.setAttribute('hidden', '');
@@ -346,7 +318,7 @@ import Base from '../layouts/Base.astro';
           status.textContent = 'One of the entities is missing from the network.';
           return;
         }
-        const path = bfsPath(data.adj, si, ti);
+        const path = hubAwarePath(data.adj, si, ti);
         if (!path) {
           status.textContent = `No documented path between ${idIndex.get(fromId).title} and ${idIndex.get(toId).title}.`;
           return;
