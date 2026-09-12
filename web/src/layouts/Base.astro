@@ -269,14 +269,10 @@ const breadcrumbSchema = crumbItems
         and self-heals if PagefindUI isn't ready yet (init() guards + retries
         on first open). */}
     <script>
+      import { TYPE_DIRS, TYPE_LABELS } from '../scripts/entity-types';
       // ---------- Hover previews on wikilinks ----------
       (function () {
         if (!window.matchMedia('(hover: hover)').matches) return;
-        const TYPE_DIRS = {
-          person: 'people', organization: 'organizations', program: 'programs',
-          event: 'events', concept: 'concepts', place: 'places', source: 'sources',
-          meta: 'meta', misc: 'misc', page: 'pages',
-        };
         let previews = null;
         let previewsPromise = null;
         let pop = null;
@@ -480,16 +476,6 @@ const breadcrumbSchema = crumbItems
         // buried the Central Intelligence Agency page under pages that say
         // "CIA" a lot. Match titles + NER aliases from adjacency.json and
         // list the best 8 above the full-text results.
-        const QUICK_DIRS = {
-          person: 'people', organization: 'organizations', program: 'programs',
-          event: 'events', concept: 'concepts', place: 'places', source: 'sources',
-          meta: 'meta', misc: 'misc', page: 'pages',
-        };
-        const QUICK_LABELS = {
-          person: 'Person', organization: 'Organization', program: 'Program',
-          event: 'Event', concept: 'Concept', place: 'Place', source: 'Source',
-          meta: 'Meta', misc: 'Misc', page: 'Page',
-        };
         let quick = null;
         let names = null;
         let namesP = null;
@@ -506,7 +492,7 @@ const breadcrumbSchema = crumbItems
                 names.push({
                   title: d.titles[i],
                   type: d.types[i],
-                  href: '/' + (QUICK_DIRS[d.types[i]] || 'pages') + '/' + d.ids[i] + '/',
+                  href: '/' + (TYPE_DIRS[d.types[i]] || 'pages') + '/' + d.ids[i] + '/',
                   keys: [d.titles[i]].concat(aliases).map((k) => k.toLowerCase()),
                 });
               }
@@ -546,7 +532,7 @@ const breadcrumbSchema = crumbItems
             a.href = n.href;
             const t = document.createElement('span');
             t.className = 'pf-quick-type';
-            t.textContent = QUICK_LABELS[n.type] || n.type;
+            t.textContent = TYPE_LABELS[n.type] || n.type;
             a.append(t, n.title);
             quick.appendChild(a);
           }
@@ -573,7 +559,47 @@ const breadcrumbSchema = crumbItems
           input.addEventListener('input', update);
           const clear = mount.querySelector('.pagefind-ui__search-clear');
           if (clear) clear.addEventListener('click', () => renderQuick(''));
+          // Arrow keys walk the quick-match list; Enter follows the link.
+          input.addEventListener('keydown', (e) => {
+            if (e.key !== 'ArrowDown' || quick.hidden) return;
+            const first = quick.querySelector('.pf-quick-item');
+            if (first) { e.preventDefault(); first.focus(); }
+          });
+          quick.addEventListener('keydown', (e) => {
+            if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
+            const items = [...quick.querySelectorAll('.pf-quick-item')];
+            const i = items.indexOf(document.activeElement);
+            if (i < 0) return;
+            e.preventDefault();
+            if (e.key === 'ArrowDown') (items[i + 1] || items[i]).focus();
+            else if (i === 0) input.focus();
+            else items[i - 1].focus();
+          });
         }
+        /** Open the modal with a query already typed, as if the user had. */
+        function searchFor(text) {
+          openModal();
+          const go = (retries) => {
+            const input = mount.querySelector('input');
+            if (!input) { if (retries > 0) setTimeout(() => go(retries - 1), 40); return; }
+            input.value = text;
+            input.dispatchEvent(new Event('input', { bubbles: true }));
+          };
+          go(12);
+        }
+        // Unresolved wikilinks (a target with no entry yet) are dead
+        // otherwise; clicking one searches the vault for that name.
+        document.addEventListener('click', (e) => {
+          const a = e.target.closest && e.target.closest('a.wikilink.unresolved');
+          if (!a) return;
+          e.preventDefault();
+          opener = a;
+          searchFor(a.dataset.target || a.textContent.trim());
+        });
+        // Middle-click would open a useless "#" tab.
+        document.addEventListener('auxclick', (e) => {
+          if (e.target.closest && e.target.closest('a.wikilink.unresolved')) e.preventDefault();
+        });
 
         function focusInput(retries) {
           if (retries === undefined) retries = 12;
@@ -604,10 +630,15 @@ const breadcrumbSchema = crumbItems
           void modal.offsetHeight;
           focusInput();
         }
+        // Whatever opened the modal gets focus back on close: the header
+        // button, or an unresolved wikilink mid-prose.
+        let opener = null;
         function closeModal() {
           modal.classList.remove('open');
           setBackgroundInert(false);
-          if (trigger) trigger.focus();
+          const back = opener && document.contains(opener) ? opener : trigger;
+          opener = null;
+          if (back) back.focus();
         }
         // Trap Tab within the dialog so keyboard focus stays on the search UI.
         modal.addEventListener('keydown', (e) => {

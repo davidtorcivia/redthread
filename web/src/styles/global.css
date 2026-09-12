@@ -166,7 +166,7 @@ a.wikilink.unresolved {
   color: var(--unresolved);
   background: none;
   border-bottom: 1px dashed var(--unresolved);
-  cursor: help;
+  cursor: pointer; /* click searches the vault for the name */
 }
 
 /* Layout containers */
@@ -3733,6 +3733,7 @@ body.net-fullscreen-active { overflow: hidden; }
     color: #666;
     font-family: var(--mono);
   }
+  .prose a.wikilink.unresolved::after { content: none; }
   .prose a.wikilink {
     color: #000;
     background: none;

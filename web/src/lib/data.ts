@@ -114,12 +114,19 @@ export function implicitMentions(sourceId: string): ImplicitMention[] {
       });
       m.set(edge.source, list);
     }
+    // How many pages each target is implicitly mentioned on. Weighting by
+    // inverse document frequency keeps "United States ×4" from leading
+    // every list; a target named on few pages ranks above a ubiquitous one.
+    const df = new Map<string, number>();
+    for (const list of m.values()) for (const x of list) df.set(x.id, (df.get(x.id) ?? 0) + 1);
+    const nPages = m.size;
+    const score = (x: ImplicitMention) => x.count * Math.log((nPages + 1) / (df.get(x.id) ?? 1));
     // Final pass: remove anything that already shows up in Connected-to,
     // so the same entity never duplicates between the two sections.
     for (const [src, list] of m.entries()) {
       const relatedIds = new Set(related(src).map((r) => r.id));
       const filtered = list.filter((x) => !relatedIds.has(x.id));
-      filtered.sort((a, b) => b.count - a.count || a.title.localeCompare(b.title));
+      filtered.sort((a, b) => score(b) - score(a) || a.title.localeCompare(b.title));
       m.set(src, filtered);
     }
     _implicitOutboundById = m;
