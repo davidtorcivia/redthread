@@ -10,7 +10,7 @@ const items = implicitMentions(id).slice(0, limit);
 const total = implicitMentions(id).length;
 ---
 {items.length > 0 && (
-  <section class="hidden-connections">
+  <section class="hidden-connections" data-pagefind-ignore>
     <h2 class="section-heading">
       Hidden connections
       <span class="hc-count-badge">{total}</span>

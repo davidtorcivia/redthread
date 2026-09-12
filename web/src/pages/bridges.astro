@@ -29,7 +29,7 @@ const bridgeRankOf = new Map(bridges.map((e) => [e.id, e.bridge_rank!]));
 ---
 <Base
   title="Bridges & Hubs — The Info Web"
-  description="Two complementary frames on what holds the network together: Bridges (low-degree connectors between distant clusters) and Hubs (the famous, well-evidenced central nodes)."
+  description="Two complementary frames on what holds the network together: Bridges (entries cited from distant clusters) and Hubs (the famous, well-evidenced central nodes)."
 >
   <article class="bridges-article">
     <div class="entity-eyebrow">
@@ -38,8 +38,8 @@ const bridgeRankOf = new Map(bridges.map((e) => [e.id, e.bridge_rank!]));
     <h1 class="entity-title">Structure</h1>
     <p class="entity-dek">
       Two complementary lenses on the network. <strong>Bridges</strong> surface
-      the low-degree connectors that span otherwise-distant clusters — usually
-      the most overlooked entries. <strong>Hubs</strong> surface the famous,
+      the entries cited from otherwise-distant clusters — usually the most
+      overlooked ones. <strong>Hubs</strong> surface the famous,
       well-evidenced central nodes — usually the most obvious. Some entries
       appear in both.
     </p>
@@ -76,39 +76,34 @@ const bridgeRankOf = new Map(bridges.map((e) => [e.id, e.bridge_rank!]));
         Most entries connect tightly within their own neighborhood — a Cold-War
         politician mostly co-occurs with other Cold-War politicians; a
         parapsychology researcher mostly co-occurs with other parapsychology
-        researchers. A <strong>bridge</strong> is an entry whose neighbors are
-        spread across many of those neighborhoods at once.
+        researchers. A <strong>bridge</strong> is an entry that gets cited from
+        many of those neighborhoods at once.
       </p>
       <p>
-        Ranked by <em>degree-normalized community-span entropy</em>: we
+        Ranked by <em>community-span entropy of the citing pages</em>: we
         partition the vault into clusters with weighted Louvain modularity,
-        then for each entry measure how diverse its 1-hop neighborhood is
-        across those clusters — divided by √degree so high-degree hubs
-        (which trivially touch every cluster) don't dominate. Score =
-        H(p) · log(1 + k) / √d, where p is the fraction of neighbors in
-        each community, k is the count of distinct communities present,
-        and d is the entry's total connection count.
+        then for each entry look at the pages that link to it and measure how
+        evenly those pages are spread across the clusters. Score =
+        H(p) · log(1 + k) / √m, where p is the fraction of citing pages in
+        each community, k is the count of distinct communities present, and
+        m is the number of citing pages.
       </p>
       <p>
-        Why degree-normalize? A bridge can be a 4-mention obscurity — what
-        matters is <em>which</em> 4 it links. Someone who connects an
-        Iran-Contra figure to a Belgian organized-crime figure is
-        investigative gold even if they're barely mentioned. Without the
-        √d divisor the list is just "places and major orgs" all over
-        again — exactly the obvious entries researchers don't need a
-        ranking to find. The median top-10 bridge in this vault has just
-        {medianBridgeMentions} mentions.
+        Citing pages, not the entry's own links: a stub whose one page
+        wikilinks ten entities across ten clusters has a maximally diverse
+        neighborhood without anyone else ever mentioning it. The question a
+        researcher wants answered is which entries keep turning up in
+        unrelated narratives. The √m divisor keeps the mega-hubs (cited from
+        every cluster trivially) off the top; the median top-10 bridge in this
+        vault has {medianBridgeMentions} mentions.
       </p>
       <p class="br-footer-note">
         Computed against the full link graph (explicit wikilinks plus
-        NER-inferred mentions, weighted by co-occurrence count). Eligibility
-        floor: at least 6 connections, plus either 2+ vault mentions or
-        10+ connections — designed to keep real low-mention connectors
-        (an FBI double agent with one dedicated page but cross-narrative
-        reach) while cutting "bridges-by-proximity" (a journalist whose
-        only role is writing one story about a real bridge). Recomputed
-        on every build with a fixed Louvain seed so rankings stay stable
-        unless the underlying graph changes.
+        NER-inferred mentions, weighted by co-occurrence count). Eligibility:
+        at least 4 citing pages from at least 2 communities. Places are
+        excluded because countries and cities span every cluster by nature.
+        Recomputed on every build with a fixed Louvain seed so rankings stay
+        stable unless the underlying graph changes.
       </p>
     </section>
 

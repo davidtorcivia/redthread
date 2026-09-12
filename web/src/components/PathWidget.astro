@@ -13,7 +13,7 @@ const { fromId, fromTitle } = Astro.props;
 // entity pages, so the pool is built from it on first interaction instead.
 const widgetId = `pw-${fromId}`;
 ---
-<section class="path-widget" data-from-id={fromId} id={widgetId}>
+<section class="path-widget" data-from-id={fromId} id={widgetId} data-pagefind-ignore>
   <div class="pw-head">
     <h2 class="section-heading">Find a path from {fromTitle} to&hellip;</h2>
     <a href={`/path/?from=${encodeURIComponent(fromId)}`} class="pw-full" aria-label="Open full path finder">
@@ -49,6 +49,7 @@ const widgetId = `pw-${fromId}`;
     section's data-* attributes rather than define:vars, which would force
     the script back inline. */}
 <script>
+  import { findPath } from '../scripts/path-find';
   (function () {
     const TYPE_LABELS = {
       person: 'Person', organization: 'Organization', program: 'Program',
@@ -206,9 +207,9 @@ const widgetId = `pw-${fromId}`;
       }
     });
 
-    // BFS reused from /path/ but inlined here for self-containment. We
-    // keep the adjacency fetch cached on `window` so navigating between
-    // entity pages doesn't re-download it.
+
+    // Adjacency fetch cached on `window` so navigating between entity
+    // pages doesn't re-download it.
     function loadAdjacency() {
       if (window._adjacency) return Promise.resolve(window._adjacency);
       if (window._adjacencyP) return window._adjacencyP;
@@ -222,30 +223,6 @@ const widgetId = `pw-${fromId}`;
         });
       return window._adjacencyP;
     }
-    function bfsPath(adj, src, dst) {
-      if (src === dst) return [src];
-      const prev = new Int32Array(adj.length).fill(-1);
-      prev[src] = src;
-      const queue = [src];
-      let head = 0;
-      while (head < queue.length) {
-        const v = queue[head++];
-        const neigh = adj[v];
-        for (let i = 0; i < neigh.length; i++) {
-          const w = neigh[i];
-          if (prev[w] !== -1) continue;
-          prev[w] = v;
-          if (w === dst) {
-            const path = [w];
-            let cur = w;
-            while (cur !== src) { cur = prev[cur]; path.push(cur); }
-            return path.reverse();
-          }
-          queue.push(w);
-        }
-      }
-      return null;
-    }
 
     async function run() {
       result.setAttribute('hidden', '');
@@ -258,7 +235,7 @@ const widgetId = `pw-${fromId}`;
       const si = data.idToIdx.get(fromId);
       const ti = data.idToIdx.get(toId);
       if (si == null || ti == null) { status.textContent = 'Entity missing from network.'; return; }
-      const path = bfsPath(data.adj, si, ti);
+      const path = findPath(data.adj, si, ti);
       if (!path) { status.textContent = `No documented path to ${idIndex.get(toId).title}.`; return; }
       status.textContent = `${path.length - 1} hop${path.length - 1 === 1 ? '' : 's'}.`;
       const ol = document.createElement('ol');

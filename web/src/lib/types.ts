@@ -47,16 +47,16 @@ export interface Entity {
   /** File modification time (ISO 8601), emitted by parse_vault. Used as a
    *  dateModified fallback in schema.org and for sitemap lastmod. */
   mtime?: string;
-  /** Top-50 bridge entity. Bridge = neighborhood-community-span entropy
-   *  (Louvain communities). Lower rank = stronger bridge — a node whose
-   *  neighbors span many distant clusters, regardless of degree. */
+  /** Top-50 bridge entity. Bridge = community-span entropy of the pages
+   *  that cite this entry (Louvain communities). Lower rank = stronger
+   *  bridge — an entry that keeps turning up in distant clusters. */
   bridge_rank?: number;
-  /** Bridge score: H(neighbor-community-distribution) · log(1 + k). */
+  /** Bridge score: H(citing-page community distribution) · log(1 + k) / sqrt(m). */
   bridge_score?: number;
-  /** Number of distinct Louvain communities present in the 1-hop
-   *  neighborhood. Companion to bridge_rank. */
+  /** Number of distinct Louvain communities among the pages citing this
+   *  entry. Companion to bridge_rank. */
   community_span?: number;
-  /** Top-50 hub entity by weighted PageRank (co-occurrence-weighted).
+  /** Top-50 hub entity by PageRank on the directed mention graph.
    *  Lower rank = stronger hub. The famous, well-evidenced central
    *  nodes — distinct from Bridge, which is structural connectivity. */
   hub_rank?: number;

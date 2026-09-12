@@ -5,7 +5,7 @@ const { id, limit = 8 } = Astro.props;
 const items = related(id).slice(0, limit);
 ---
 {items.length > 0 && (
-  <section class="related-section">
+  <section class="related-section" data-pagefind-ignore>
     <h2 class="section-heading">Connected to</h2>
     <div class="related-grid">
       {items.map((r) => (

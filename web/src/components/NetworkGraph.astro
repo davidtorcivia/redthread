@@ -5,10 +5,10 @@ interface Props {
 }
 const { id, title } = Astro.props;
 ---
-<section class="entity-network" data-focal-id={id}>
+<section class="entity-network" data-focal-id={id} data-pagefind-ignore>
   <h2 class="section-heading">Local network</h2>
   <p class="net-blurb">
-    {title}'s direct connections. Click any node to navigate, drag to pan,
+    {title}'s direct connections (the most-mentioned 250 on the densest entries). Click any node to navigate, drag to pan,
     scroll (or pinch) to zoom. <strong>+ 2&#8209;hop</strong> expands the
     neighborhood one level further.
   </p>
@@ -328,16 +328,31 @@ const { id, title } = Astro.props;
     function buildNeighborhood() {
       const maxDepth = twoHop ? 2 : 1;
       const adj = adjacencyData.adj;
+      const mentions = adjacencyData.mentions;
+      // Uncapped, the 2-hop ball had a median of 831 nodes (the United
+      // States alone has 650 neighbors). Never expand through a hub, take
+      // only the most-mentioned neighbors per node, and stop at MAX_NODES.
+      const HUB_DEGREE = 60;
+      const PER_NODE_2HOP = 8;
+      const MAX_NODES = 250;
+      // With 2-hop on, hold the first ring to 120 so the second ring has
+      // room; otherwise a 250-neighbor focal fills the budget and the
+      // toggle does nothing.
+      const FIRST_RING = twoHop ? 120 : MAX_NODES;
+      const byMentions = (a, b) => (mentions[b] || 0) - (mentions[a] || 0);
       const depth = new Map();
       depth.set(focalIdx, 0);
       const queue = [focalIdx];
       let head = 0;
-      while (head < queue.length) {
+      while (head < queue.length && depth.size < MAX_NODES) {
         const v = queue[head++];
         const d = depth.get(v);
         if (d >= maxDepth) continue;
-        for (const w of adj[v]) {
+        if (d > 0 && adj[v].length > HUB_DEGREE) continue;
+        const neigh = adj[v].slice().sort(byMentions).slice(0, d === 0 ? FIRST_RING : PER_NODE_2HOP);
+        for (const w of neigh) {
           if (depth.has(w)) continue;
+          if (depth.size >= MAX_NODES) break;
           depth.set(w, d + 1);
           queue.push(w);
         }

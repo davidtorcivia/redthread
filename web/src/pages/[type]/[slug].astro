@@ -97,6 +97,11 @@ if (modified) jsonLd.dateModified = modified;
 if (Array.isArray(fm.aliases) && fm.aliases.length > 0) {
   jsonLd.alternateName = fm.aliases.length === 1 ? fm.aliases[0] : fm.aliases;
 }
+// Shown under the title and weighted in the search index, so "CIA" finds
+// Central Intelligence Agency. The title itself is skipped.
+const aliases = (Array.isArray(fm.aliases) ? fm.aliases : [])
+  .map((a) => String(a).trim())
+  .filter((a) => a && a.toLowerCase() !== entity.title.toLowerCase());
 // Topics as schema.org Things — richer for knowledge graphs than the flat
 // keywords string (which we keep for plain search engines).
 if (entity.tags?.length) {
@@ -148,6 +153,10 @@ const mdHref = `/${TYPE_DIRS[entity.type]}/${entity.id}.md`;
 
     <h1 class="entity-title">{entity.title}</h1>
 
+    {aliases.length > 0 && (
+      <p class="entity-aka" data-pagefind-weight="10">Also known as {aliases.join(', ')}</p>
+    )}
+
     {entity.summary && <p class="entity-dek" set:html={renderInlineMd(entity.summary)} />}
 
     <div class="entity-meta">
@@ -174,7 +183,7 @@ const mdHref = `/${TYPE_DIRS[entity.type]}/${entity.id}.md`;
           <a
             class="bridge-badge"
             href={`/bridges/#br-${entity.id}`}
-            title={`Bridge #${entity.bridge_rank}. This entry's neighbors span ${entity.community_span ?? 'multiple'} distinct community clusters — a low-degree connector between otherwise-separate parts of the network. Click for the full Bridges list.`}
+            title={`Bridge #${entity.bridge_rank}. The pages citing this entry span ${entity.community_span ?? 'multiple'} distinct community clusters — it keeps turning up in otherwise-separate parts of the network. Click for the full Bridges list.`}
           >
             Bridge <span class="bridge-rank">#{entity.bridge_rank}</span>
           </a>
