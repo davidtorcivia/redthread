@@ -3836,3 +3836,50 @@ body.net-fullscreen-active { overflow: hidden; }
   .type-strip { grid-template-columns: 1fr 1fr; }
   #pf-modal { padding: 4vh 0.5rem 0.5rem; }
 }
+
+/* Path hop evidence: the arrow between two chain nodes carries a one-line
+   reason (whose page documents the link, or "inferred"). */
+.path-arrow {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.15rem;
+  max-width: 9rem;
+  text-align: center;
+}
+.path-arrow .path-why {
+  font-size: 0.68rem;
+  line-height: 1.25;
+  color: var(--muted-2);
+  letter-spacing: 0.01em;
+}
+
+/* /unresolved/ — editor-facing list of link targets with no entry. */
+.ur-list { list-style: none; padding: 0; margin: 1.5rem 0 0; }
+.ur-row {
+  padding: 0.7rem 0;
+  border-top: 1px solid var(--line);
+}
+.ur-head {
+  display: flex;
+  align-items: baseline;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+.ur-target { font-weight: 600; font-size: 1.02rem; }
+.ur-count {
+  font-family: var(--sans);
+  font-size: 0.75rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted-2);
+}
+.ur-sources {
+  margin-top: 0.2rem;
+  font-size: 0.88rem;
+  color: var(--muted);
+}
+.ur-sources a { color: var(--ink); }
+.ur-sources a:hover { color: var(--accent); }
+.ur-from { font-family: var(--sans); font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted-2); margin-right: 0.3rem; }
+.ur-more { color: var(--muted-2); }

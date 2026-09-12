@@ -338,3 +338,41 @@ export function hubEntities(): Entity[] {
     .filter((e) => e.hub_rank != null)
     .sort((a, b) => (a.hub_rank! - b.hub_rank!));
 }
+
+export interface UnresolvedTarget {
+  /** Link text as written in the vault, first spelling seen. */
+  target: string;
+  count: number;
+  sources: Pick<Entity, 'id' | 'title' | 'type'>[];
+}
+
+let _unresolved: UnresolvedTarget[] | null = null;
+/** Wikilink targets with no matching entry, grouped case-insensitively,
+ *  most-linked first. Drives /unresolved/, the editor-facing list of
+ *  entries the vault keeps pointing at but does not have. */
+export function unresolvedTargets(): UnresolvedTarget[] {
+  if (!_unresolved) {
+    const ents = byId();
+    const m = new Map<string, UnresolvedTarget & { seen: Set<string> }>();
+    for (const edge of edges()) {
+      if (edge.kind !== 'explicit' || edge.target_id || !edge.target_title) continue;
+      const key = edge.target_title.trim().toLowerCase();
+      if (!key) continue;
+      let t = m.get(key);
+      if (!t) {
+        t = { target: edge.target_title.trim(), count: 0, sources: [], seen: new Set() };
+        m.set(key, t);
+      }
+      t.count++;
+      const src = ents.get(edge.source);
+      if (src && !t.seen.has(src.id)) {
+        t.seen.add(src.id);
+        t.sources.push({ id: src.id, title: src.title, type: src.type });
+      }
+    }
+    _unresolved = [...m.values()]
+      .map(({ seen: _s, ...t }) => t)
+      .sort((a, b) => b.count - a.count || a.target.localeCompare(b.target));
+  }
+  return _unresolved;
+}
