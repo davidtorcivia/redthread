@@ -23,6 +23,7 @@ export const GET: APIRoute = ({ site }) => {
     { loc: '/network/',  changefreq: 'weekly',  priority: '0.8' },
     { loc: '/path/',     changefreq: 'monthly', priority: '0.7' },
     { loc: '/bridges/',  changefreq: 'weekly',  priority: '0.7' },
+    { loc: '/clusters/', changefreq: 'weekly',  priority: '0.6' },
     { loc: '/tags/',     changefreq: 'weekly',  priority: '0.7' },
     { loc: '/timeline/', changefreq: 'weekly',  priority: '0.7' },
     { loc: '/changelog/',changefreq: 'daily',   priority: '0.5' },

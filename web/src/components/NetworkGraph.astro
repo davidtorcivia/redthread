@@ -189,6 +189,7 @@ const { id, title } = Astro.props;
         status.textContent = 'This entity is not in the network.';
         return;
       }
+      engine.communityLabels = adjacencyData.communityLabels || [];
       buildNeighborhood();
       status.setAttribute('hidden', '');
       engine.resize();

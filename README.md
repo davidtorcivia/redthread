@@ -52,6 +52,7 @@ Everything is static. The only server-side runtime is nginx.
 | `/network/` | Full vault as one canvas graph |
 | `/path/` | BFS between any two entities |
 | `/bridges/` | Top-50 bridges (entries cited from the most distinct communities) and hubs (directed PageRank) |
+| `/clusters/` | Louvain communities of the link graph, each named after its most-mentioned members |
 | `/tags/`, `/tag/<slug>/` | Tag index + per-tag entry list |
 | `/timeline/` | Entries grouped by decade (consumes future date-backfill) |
 | `/changelog/` | Most-recently-edited entries from vault mtime |

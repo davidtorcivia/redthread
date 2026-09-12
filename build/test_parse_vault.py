@@ -409,5 +409,20 @@ class TestAdjacencyDirection(unittest.TestCase):
         self.assertEqual(adj["implicitPairs"], [[idx["a"], idx["c"]]])
 
 
+class TestSummarizeCommunities(unittest.TestCase):
+    def test_label_uses_top_rankable_members(self):
+        ents = [make_entity("a", "Alpha", "person"), make_entity("b", "Beta", "organization"),
+                make_entity("c", "Gamma", "place"), make_entity("n", "Notes", "meta"),
+                make_entity("z", "Zeta", "person")]
+        for e, m in zip(ents, (5, 9, 1, 50, 2)):
+            e["mention_count"] = m
+        out = pv.summarize_communities(ents, {"a": 0, "b": 0, "c": 0, "n": 0, "z": 1})
+        self.assertEqual(len(out), 2)
+        self.assertEqual(out[0]["label"], "Beta · Alpha · Gamma")
+        self.assertEqual(out[0]["size"], 4)
+        self.assertEqual(out[0]["top"][0]["id"], "n")   # meta page still listed, just not in the label
+        self.assertEqual(out[1]["label"], "Zeta")
+
+
 if __name__ == "__main__":
     unittest.main()

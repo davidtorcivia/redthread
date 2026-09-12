@@ -62,6 +62,7 @@ export const GET: APIRoute = ({ site }) => {
   lines.push(`- [Network graph](${base}/network/): interactive force-directed graph of the full entity network`);
   lines.push(`- [Path finder](${base}/path/): a chain of documented connections between any two entities, steering around the mega-hubs`);
   lines.push(`- [Bridges](${base}/bridges/): entries cited from the most distinct community clusters, plus PageRank hubs`);
+  lines.push(`- [Clusters](${base}/clusters/): Louvain communities of the link graph, each named after its most-mentioned members`);
   lines.push(`- [Tags](${base}/tags/): browse by tag`);
   lines.push(`- [Timeline](${base}/timeline/): entries ordered chronologically by primary year`);
   lines.push('');

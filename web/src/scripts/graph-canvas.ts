@@ -132,6 +132,8 @@ export class GraphEngine {
   edgesVisible = true;
   showImplicit: boolean;
   colorMode: 'type' | 'community' = 'type';
+  /** Labels indexed by community id (adjacency.json communityLabels). */
+  communityLabels: string[] = [];
   opacityMult = 1.0;
   highlightStrength = 1.0;
   forceMult = 1.0;
@@ -868,7 +870,8 @@ export class GraphEngine {
       ' · ' + n.count.toLocaleString() + ' mentions' +
       (n.bridgeRank ? ' · bridge #' + n.bridgeRank : '') +
       (n.hubRank ? ' · hub #' + n.hubRank : '') +
-      (this.colorMode === 'community' && n.community >= 0 ? ' · cluster ' + (n.community + 1) : '') +
+      (this.colorMode === 'community' && n.community >= 0
+        ? ' · ' + escapeHtml(this.communityLabels[n.community] || 'cluster ' + (n.community + 1)) : '') +
       '</div>';
     this.placeTooltip(px, py);
   }

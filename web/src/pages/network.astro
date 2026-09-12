@@ -20,7 +20,8 @@ const total = entities().length;
         <strong>double-click</strong> a node to navigate.
         Use the sliders to dim everything or spread Force layout farther apart.
         Bridge entities are ringed in gold; edges that touch them tint gold too.
-        <strong>Colour</strong> switches node colour from entry type to detected cluster.
+        <strong>Colour</strong> switches node colour from entry type to detected
+        <a href="/clusters/">cluster</a>.
       </p>
     </header>
 
@@ -264,6 +265,7 @@ const total = entities().length;
         }
         if (isolated > 0) console.info(`[net] hiding ${isolated} orphan node(s) with no connections`);
 
+        engine.communityLabels = data.communityLabels || [];
         engine.setGraph(nodes, edges, implicit);
         status.setAttribute('hidden', '');
         controls.removeAttribute('hidden');
