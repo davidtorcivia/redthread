@@ -58,20 +58,16 @@ const smallMembers = small.reduce((n, c) => n + c.size, 0);
         <p class="cluster-meta">
           {small.length} clusters of fewer than {MIN_SIZE} entries ({smallMembers} entries in total).
         </p>
-        <div class="cl-small-grid">
+        <ul class="cl-small-list">
           {small.sort((a, b) => b.size - a.size).map((c) => (
-            <div class="cl-small" id={`c-${c.id}`} style={`--sw: hsl(${Math.round((c.id * 137.508) % 360)}, 46%, 40%)`}>
-              <ul class="cl-small-members">
-                {c.top.map((m) => (
-                  <li class={`type-${m.type}`}>
-                    <a href={hrefFor({ id: m.id, type: m.type })} data-preview>{m.title}</a>
-                    <span class="cl-small-type">{TYPE_LABELS[m.type as EntityType]}</span>
-                  </li>
-                ))}
-              </ul>
-            </div>
+            <li id={`c-${c.id}`}>
+              <span class="cluster-swatch" style={`background: hsl(${Math.round((c.id * 137.508) % 360)}, 46%, 40%)`}></span>
+              {c.top.map((m, i) => (
+                <>{i > 0 && <span class="cl-small-sep">·</span>}<a class={`type-${m.type}`} href={hrefFor({ id: m.id, type: m.type })} data-preview>{m.title}</a></>
+              ))}
+            </li>
           ))}
-        </div>
+        </ul>
       </section>
     )}
   </article>

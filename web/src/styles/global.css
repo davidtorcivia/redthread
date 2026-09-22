@@ -3903,47 +3903,22 @@ body.net-fullscreen-active { overflow: hidden; }
 .entity-meta a.cluster-link { color: var(--ink); background: none; }
 .entity-meta a.cluster-link:hover { color: var(--accent); }
 
-/* /clusters/ small groups: one card per cluster, colour bar keyed to the swatch */
-.cl-small-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(min(15rem, 100%), 1fr));
-  gap: 1rem;
-  margin-top: 1.2rem;
-  align-items: start;
-}
-.cl-small {
-  border: 1px solid var(--line);
-  border-top: 3px solid var(--sw);
-  background: var(--paper-2);
-  border-radius: 3px;
-  padding: 0.75rem 0.9rem 0.8rem;
-}
-.cl-small-members { list-style: none; margin: 0; padding: 0; }
-.cl-small-members li { display: flex; align-items: baseline; gap: 0.6rem; padding: 0.22rem 0; }
-.cl-small-members a {
-  color: var(--ink);
-  background: none;
+/* /clusters/ small groups: one line per group, members inline */
+.cl-small-list { list-style: none; margin: 1rem 0 0; padding: 0; }
+.cl-small-list li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.3rem 0.5rem;
+  padding: 0.5rem 0;
+  border-bottom: 1px dotted var(--line);
   font-family: var(--serif);
   font-weight: 600;
-  font-size: 0.98rem;
+  font-size: 1.02rem;
   line-height: 1.3;
-  min-width: 0;
-  overflow-wrap: anywhere;
 }
-.cl-small-members a:hover { color: var(--accent); }
-.cl-small-type {
-  margin-left: auto;
-  font-family: var(--sans);
-  font-size: 0.6rem;
-  text-transform: uppercase;
-  letter-spacing: 0.1em;
-  font-weight: 600;
-  color: var(--muted);
-  white-space: nowrap;
-}
-.cl-small-members li.type-person       .cl-small-type { color: var(--t-person); }
-.cl-small-members li.type-organization .cl-small-type { color: var(--t-organization); }
-.cl-small-members li.type-program      .cl-small-type { color: var(--t-program); }
-.cl-small-members li.type-event        .cl-small-type { color: var(--t-event); }
-.cl-small-members li.type-concept      .cl-small-type { color: var(--t-concept); }
-.cl-small-members li.type-place        .cl-small-type { color: var(--t-place); }
+.cl-small-list li:last-child { border-bottom: none; }
+.cl-small-list .cluster-swatch { width: 0.55em; height: 0.55em; margin-right: 0.35rem; align-self: center; }
+.cl-small-list a { color: var(--ink); background: none; }
+.cl-small-list a:hover { color: var(--accent); }
+.cl-small-sep { color: var(--muted-2); font-weight: 400; }
