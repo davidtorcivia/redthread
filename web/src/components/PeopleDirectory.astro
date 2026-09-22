@@ -1,0 +1,299 @@
+---
+import type { Entity } from '../lib/types.ts';
+import { hrefFor, renderInlineMd } from '../lib/data.ts';
+
+const { items } = Astro.props as { items: Entity[] };
+const categories = new Map<string, Entity[]>();
+for (const item of items) {
+  const name = item.category || 'Uncategorized';
+  const group = categories.get(name) ?? [];
+  group.push(item);
+  categories.set(name, group);
+}
+const rankedCategories = [...categories].sort((a, b) => b[1].length - a[1].length || a[0].localeCompare(b[0]));
+const leadCategories = [
+  ...rankedCategories.filter(([name]) => name === 'Key Figures'),
+  ...rankedCategories.filter(([name]) => name !== 'Key Figures').slice(0, 5),
+];
+const leadNames = new Set(leadCategories.map(([name]) => name));
+const otherCategories = rankedCategories.filter(([name]) => !leadNames.has(name));
+const letters = new Set(items.map((item) => item.title[0]?.toUpperCase()).filter(Boolean));
+const aliasesFor = (item: Entity) => [item.frontmatter.alias, item.frontmatter.aliases]
+  .flatMap((value) => Array.isArray(value) ? value : typeof value === 'string' ? [value] : [])
+  .filter((value): value is string => typeof value === 'string')
+  .join(' ');
+---
+<div class="people-directory" id="people-directory">
+  <header class="browse-header people-header">
+    <h1>People</h1>
+    <span class="people-total">{items.length.toLocaleString()} entries</span>
+  </header>
+
+  <div class="people-inner">
+    <div class="people-tools">
+      <section class="people-search-section" aria-labelledby="people-search-label">
+        <div class="people-section-label"><h2 id="people-search-label">Find a person</h2></div>
+        <div class="people-search-wrap">
+          <label class="sr-only" for="people-query">Search people by name, alias, or summary</label>
+          <input id="people-query" type="search" placeholder="Name or keyword" autocomplete="off" />
+          <span class="people-search-mark" aria-hidden="true">⌕</span>
+        </div>
+      </section>
+
+      <section class="people-category-section" aria-labelledby="people-category-title">
+        <div class="people-section-label"><h2 id="people-category-title">Browse by category</h2></div>
+        <div class="people-category-grid">
+          {leadCategories.map(([name, group]) => (
+            <button class="people-category-card" type="button" data-category={name} aria-pressed="false">
+              <span class="people-category-name">{name}</span>
+              <span class="people-category-bottom"><span>{group.length.toLocaleString()} people</span><span aria-hidden="true">↗</span></span>
+            </button>
+          ))}
+        </div>
+        {otherCategories.length > 0 && (
+          <details class="people-more-categories">
+            <summary>{otherCategories.length} more categories <span aria-hidden="true">+</span></summary>
+            <div class="people-category-grid people-category-grid-more">
+              {otherCategories.map(([name, group]) => (
+                <button class="people-category-card" type="button" data-category={name} aria-pressed="false">
+                  <span class="people-category-name">{name}</span>
+                  <span class="people-category-bottom"><span>{group.length.toLocaleString()} people</span><span aria-hidden="true">↗</span></span>
+                </button>
+              ))}
+            </div>
+          </details>
+        )}
+      </section>
+    </div>
+
+    <section class="people-index" id="people-index" aria-labelledby="people-index-title">
+      <div class="people-index-top">
+        <div>
+          <div class="people-section-label"><h2 id="people-index-title">All people</h2></div>
+          <p class="people-result-status" id="people-result-status" role="status" aria-live="polite">{items.length.toLocaleString()} people, A–Z</p>
+        </div>
+        <div class="people-index-actions people-tools">
+          <label for="people-sort">Sort</label>
+          <select id="people-sort">
+            <option value="az">A–Z</option>
+            <option value="mentions">Most referenced</option>
+          </select>
+          <button id="people-clear" type="button" hidden>Clear filter</button>
+        </div>
+      </div>
+
+      <nav class="people-letters people-tools" aria-label="Filter people by first letter">
+        {'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('').map((letter) => letters.has(letter)
+          ? <button type="button" data-letter={letter} aria-pressed="false">{letter}</button>
+          : <span aria-hidden="true">{letter}</span>
+        )}
+      </nav>
+
+      <ul class="people-results" id="people-results">
+        {items.map((item) => (
+          <li class="person-row" data-category={item.category || 'Uncategorized'} data-letter={item.title[0]?.toUpperCase() || ''} data-mentions={item.mention_count ?? 0} data-aliases={aliasesFor(item)}>
+            <div class="person-row-main">
+              <a href={hrefFor(item)}>{item.title}</a>
+            </div>
+            {item.summary && <p class="person-row-summary" set:html={renderInlineMd(item.summary)} />}
+          </li>
+        ))}
+      </ul>
+      <p class="people-empty" id="people-empty" hidden>No people match that search. Try a name, an alias, or another term.</p>
+      <button class="people-load-more people-tools" id="people-load-more" type="button" hidden>Show 30 more <span aria-hidden="true">↓</span></button>
+    </section>
+  </div>
+</div>
+
+<noscript><style>.people-directory .people-tools{display:none!important}</style></noscript>
+
+<script is:inline>
+  (() => {
+    const root = document.getElementById('people-directory');
+    if (!root) return;
+    const input = root.querySelector('#people-query');
+    const list = root.querySelector('#people-results');
+    const status = root.querySelector('#people-result-status');
+    const heading = root.querySelector('#people-index-title');
+    const more = root.querySelector('#people-load-more');
+    const empty = root.querySelector('#people-empty');
+    const clear = root.querySelector('#people-clear');
+    const sortSelect = root.querySelector('#people-sort');
+    const categoryButtons = [...root.querySelectorAll('[data-category].people-category-card')];
+    const letterButtons = [...root.querySelectorAll('.people-letters button[data-letter]')];
+    const normalize = (text) => (text || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+    const rows = [...list.querySelectorAll('.person-row')].map((node) => ({
+      node,
+      title: normalize(node.querySelector('a')?.textContent),
+      aliases: normalize(node.dataset.aliases),
+      summary: normalize(node.querySelector('.person-row-summary')?.textContent),
+      category: node.dataset.category,
+      letter: node.dataset.letter,
+      mentions: Number(node.dataset.mentions) || 0,
+    }));
+    const params = new URLSearchParams(location.search);
+    const validCategories = new Set(categoryButtons.map((button) => button.dataset.category));
+    let query = params.get('q') || '';
+    let category = validCategories.has(params.get('category')) ? params.get('category') : '';
+    let letter = /^[A-Z]$/.test(params.get('letter') || '') ? params.get('letter') : '';
+    let sort = params.get('sort') === 'mentions' ? 'mentions' : 'az';
+    let limit = 30;
+
+    function syncUrl(push = false) {
+      const url = new URL(location.href);
+      for (const key of ['q', 'category', 'letter', 'sort']) url.searchParams.delete(key);
+      if (query) url.searchParams.set('q', query);
+      else if (category) url.searchParams.set('category', category);
+      else if (letter) url.searchParams.set('letter', letter);
+      if (sort !== 'az') url.searchParams.set('sort', sort);
+      history[push ? 'pushState' : 'replaceState'](null, '', url);
+    }
+
+    function render() {
+      const term = normalize(query.trim());
+      let matches = rows.filter((row) => {
+        if (term) return row.title.includes(term) || row.aliases.includes(term) || row.summary.includes(term);
+        if (category) return row.category === category;
+        if (letter) return row.letter === letter;
+        return true;
+      });
+      matches.sort((a, b) => {
+        if (term) {
+          const rank = (row) => row.title.startsWith(term) ? 0 : row.title.includes(term) ? 1 : row.aliases.includes(term) ? 2 : 3;
+          const difference = rank(a) - rank(b);
+          if (difference) return difference;
+        }
+        return sort === 'mentions' ? b.mentions - a.mentions || a.title.localeCompare(b.title) : a.title.localeCompare(b.title);
+      });
+      list.replaceChildren(...matches.slice(0, limit).map((row) => row.node));
+      const shown = Math.min(limit, matches.length);
+      heading.textContent = category || (letter ? `People: ${letter}` : term ? 'Search results' : 'All people');
+      status.textContent = term || category || letter
+        ? `${matches.length.toLocaleString()} ${matches.length === 1 ? 'person' : 'people'} found${shown < matches.length ? ` · showing ${shown.toLocaleString()}` : ''}`
+        : `Showing ${shown.toLocaleString()} of ${matches.length.toLocaleString()} people`;
+      more.hidden = shown >= matches.length;
+      empty.hidden = matches.length > 0;
+      clear.hidden = !(term || category || letter);
+      sortSelect.value = sort;
+      categoryButtons.forEach((button) => button.setAttribute('aria-pressed', String(button.dataset.category === category)));
+      letterButtons.forEach((button) => button.setAttribute('aria-pressed', String(button.dataset.letter === letter)));
+    }
+
+    input.value = query;
+    render();
+    let searchTimer;
+    input.addEventListener('input', () => {
+      query = input.value;
+      category = '';
+      letter = '';
+      limit = 30;
+      render();
+      clearTimeout(searchTimer);
+      searchTimer = setTimeout(() => syncUrl(), 180);
+    });
+    categoryButtons.forEach((button) => button.addEventListener('click', () => {
+      category = category === button.dataset.category ? '' : button.dataset.category;
+      query = '';
+      letter = '';
+      input.value = '';
+      limit = 30;
+      syncUrl(true);
+      render();
+      root.querySelector('#people-index').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }));
+    letterButtons.forEach((button) => button.addEventListener('click', () => {
+      letter = letter === button.dataset.letter ? '' : button.dataset.letter;
+      query = '';
+      category = '';
+      input.value = '';
+      limit = 30;
+      syncUrl(true);
+      render();
+    }));
+    sortSelect.addEventListener('change', () => { sort = sortSelect.value; syncUrl(true); render(); });
+    more.addEventListener('click', () => { limit += 30; render(); });
+    clear.addEventListener('click', () => {
+      query = category = letter = '';
+      input.value = '';
+      limit = 30;
+      syncUrl(true);
+      render();
+    });
+    window.addEventListener('popstate', () => {
+      const state = new URLSearchParams(location.search);
+      query = state.get('q') || '';
+      category = validCategories.has(state.get('category')) ? state.get('category') : '';
+      letter = /^[A-Z]$/.test(state.get('letter') || '') ? state.get('letter') : '';
+      sort = state.get('sort') === 'mentions' ? 'mentions' : 'az';
+      input.value = query;
+      limit = 30;
+      render();
+    });
+  })();
+</script>
+
+<style>
+  .people-header { border-bottom: 0; }
+  .people-header h1 { margin-bottom: 1rem; }
+  .people-total { display:inline-block; font: 700 0.86rem/1.2 var(--sans); letter-spacing:.08em; text-transform:uppercase; border-top:2px solid currentColor; padding-top:.55rem; }
+  .people-inner { padding: 0 var(--gutter) 5rem; }
+  .people-search-section { padding:2.2rem 0 2.4rem; border-bottom:1px solid var(--line); }
+  .people-section-label { display:flex; align-items:baseline; }
+  .people-section-label h2 { margin:0; font:700 clamp(1.5rem,2vw,2.1rem)/1.1 var(--sans); letter-spacing:-.025em; }
+  .people-search-wrap { position:relative; max-width:46rem; margin:1.2rem 0 0; }
+  .people-search-wrap input { width:100%; height:3.4rem; padding:.75rem 3rem .75rem 1rem; border:1px solid var(--line-2); border-radius:0; background:var(--card); color:var(--ink); font:500 1rem/1.3 var(--sans); }
+  .people-search-wrap input:focus { border-color:var(--ink); outline:2px solid var(--accent); outline-offset:2px; }
+  .people-search-wrap input::placeholder { color:var(--muted); opacity:1; }
+  .people-search-mark { position:absolute; right:1rem; top:50%; transform:translateY(-50%); font:600 1.8rem/1 var(--sans); pointer-events:none; }
+  .people-category-section { padding:2.3rem 0 2.6rem; border-bottom:2px solid var(--ink); }
+  .people-category-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:0; margin:1.4rem 0 0; border-top:1px solid var(--line-2); border-left:1px solid var(--line-2); }
+  .people-category-card { min-width:0; min-height:8.2rem; display:flex; flex-direction:column; justify-content:space-between; gap:1rem; text-align:left; padding:1rem 1.1rem; border:0; border-right:1px solid var(--line-2); border-bottom:1px solid var(--line-2); border-radius:0; background:transparent; color:var(--ink); cursor:pointer; }
+  .people-category-card:hover,.people-category-card[aria-pressed='true'] { background:var(--paper-2); }
+  .people-category-card[aria-pressed='true'] { box-shadow:inset 4px 0 var(--accent); }
+  .people-category-name { font:700 clamp(1.12rem,1.6vw,1.45rem)/1.12 var(--sans); letter-spacing:-.02em; overflow-wrap:anywhere; }
+  .people-category-bottom { display:flex; justify-content:space-between; align-items:center; gap:.5rem; font:600 .72rem/1.2 var(--sans); color:var(--muted); text-transform:uppercase; letter-spacing:.07em; }
+  .people-category-bottom span:last-child { color:var(--ink); font-size:1.1rem; line-height:1; }
+  .people-more-categories { margin:1.2rem 0 0; }
+  .people-more-categories summary { display:inline-flex; gap:1rem; align-items:center; list-style:none; cursor:pointer; font:700 .82rem/1.4 var(--sans); text-transform:uppercase; letter-spacing:.06em; border-bottom:1px solid var(--ink); padding:.3rem 0; }
+  .people-more-categories summary::-webkit-details-marker { display:none; }
+  .people-more-categories[open] summary span { transform:rotate(45deg); }
+  .people-category-grid-more { margin:1.1rem 0 0; }
+  .people-category-grid-more .people-category-card { min-height:6.8rem; }
+  .people-index { padding-top:2.3rem; scroll-margin-top:1rem; }
+  .people-index-top { display:flex; align-items:end; justify-content:space-between; gap:1rem; }
+  .people-result-status { margin:.55rem 0 0; color:var(--muted); font:500 .83rem/1.3 var(--sans); }
+  .people-index-actions { display:flex; align-items:center; gap:.6rem; font:600 .76rem/1 var(--sans); text-transform:uppercase; letter-spacing:.06em; }
+  .people-index-actions select,.people-index-actions button { min-height:2.5rem; padding:.35rem .6rem; border:1px solid var(--line-2); border-radius:0; background:var(--card); color:var(--ink); font:600 .8rem/1.2 var(--sans); cursor:pointer; }
+  .people-index-actions button { background:transparent; }
+  .people-index-actions button[hidden] { display:none; }
+  .people-letters { display:flex; overflow-x:auto; gap:0; padding:.65rem 0 .8rem; margin-top:1.3rem; border-top:1px solid var(--line); border-bottom:1px solid var(--line); scrollbar-width:thin; }
+  .people-letters button,.people-letters span { flex:1 0 1.65rem; min-width:1.65rem; min-height:2rem; border:0; background:transparent; color:var(--ink); font:700 .78rem/1 var(--sans); cursor:pointer; }
+  .people-letters span { display:grid; place-items:center; color:var(--muted); opacity:.4; }
+  .people-letters button:hover,.people-letters button[aria-pressed='true'] { background:var(--ink); color:var(--paper); }
+  .people-results { list-style:none; margin:0; padding:0; display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); column-gap:2.4rem; }
+  .person-row { min-width:0; padding:1.15rem 0 1.25rem; border-bottom:1px solid var(--line); }
+  .person-row-main { display:flex; min-width:0; }
+  .person-row-main a { min-width:0; color:var(--ink); background:none; font:700 clamp(1.12rem,1.5vw,1.4rem)/1.12 var(--sans); letter-spacing:-.025em; overflow-wrap:anywhere; }
+  .person-row-main a:hover { color:var(--accent); }
+  .person-row-summary { display:-webkit-box; -webkit-box-orient:vertical; -webkit-line-clamp:2; overflow:hidden; margin:.45rem 0 0; color:var(--muted); font:400 .88rem/1.42 var(--serif); }
+  .people-empty { padding:2rem 0; color:var(--muted); font:400 1rem/1.4 var(--sans); }
+  .people-empty[hidden] { display:none; }
+  .people-load-more { width:100%; display:flex; justify-content:space-between; align-items:center; margin:1.5rem 0 0; padding:.9rem 1rem; border:1px solid var(--ink); border-radius:0; background:transparent; color:var(--ink); cursor:pointer; font:700 .85rem/1.2 var(--sans); text-transform:uppercase; letter-spacing:.07em; }
+  .people-load-more:hover { background:var(--ink); color:var(--paper); }
+  .people-load-more[hidden] { display:none; }
+  @media (max-width:800px) {
+    .people-category-grid { grid-template-columns:repeat(2,minmax(0,1fr)); }
+    .people-results { grid-template-columns:1fr; }
+  }
+  @media (max-width:560px) {
+    .people-header { padding-top:2.4rem; }
+    .people-header h1 { margin-bottom:1rem; }
+    .people-inner { padding-bottom:3rem; }
+    .people-search-section,.people-category-section { padding:1.7rem 0; }
+    .people-category-card { min-height:7.2rem; padding:.8rem; }
+    .people-category-name { font-size:1.1rem; }
+    .people-index-top { align-items:start; flex-direction:column; }
+    .people-index-actions { align-self:stretch; }
+    .people-index-actions select { margin-left:auto; }
+  }
+</style>
