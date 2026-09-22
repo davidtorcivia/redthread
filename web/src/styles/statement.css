@@ -24,6 +24,8 @@
   --t-person:#d8a564; --t-organization:#7eb5b0; --t-program:#9d99d6;
   --t-event:#e08a82; --t-concept:#b3c082; --t-place:#c79e7c; --t-source:#a5a29b;
 }
+::selection {background:#ffd34d;color:#0d0d0d}
+::-moz-selection {background:#ffd34d;color:#0d0d0d}
 html {font-size:16px}
 body {font-size:19px;line-height:1.5;font-feature-settings:normal}
 a {color:inherit;background-image:none}

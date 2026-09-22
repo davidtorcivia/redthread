@@ -73,8 +73,8 @@ function anchorFor(title: string): string | undefined {
   jsonLd={collectionSchema}
   breadcrumbs={breadcrumbs}
 >
-  {entityType === 'person' || entityType === 'organization'
-    ? <DirectoryExplorer items={items} directory={plural} singular={entityType === 'person' ? 'person' : 'organization'} />
+  {entityType !== 'source'
+    ? <DirectoryExplorer items={items} directory={plural} singular={entityType} />
     : <>
   <header class="browse-header">
     <div class="kicker">Browse</div>

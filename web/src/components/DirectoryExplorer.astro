@@ -8,8 +8,8 @@ const { items, directory = 'People', singular = 'person' } = Astro.props as {
   singular?: string;
 };
 const pluralLower = directory.toLowerCase();
-const indefinite = singular === 'organization' ? 'an' : 'a';
-const featuredCategory = directory === 'People' ? 'Key Figures' : 'Key Organizations';
+const indefinite = /^[aeiou]/i.test(singular) ? 'an' : 'a';
+const featuredCategory = directory === 'People' ? 'Key Figures' : `Key ${directory}`;
 const categories = new Map<string, Entity[]>();
 for (const item of items) {
   const name = item.category || 'Uncategorized';
@@ -18,13 +18,19 @@ for (const item of items) {
   categories.set(name, group);
 }
 const rankedCategories = [...categories].sort((a, b) => b[1].length - a[1].length || a[0].localeCompare(b[0]));
+const leadLimit = categories.size <= 9 ? categories.size : 6;
 const leadCategories = [
   ...rankedCategories.filter(([name]) => name === featuredCategory),
-  ...rankedCategories.filter(([name]) => name !== featuredCategory).slice(0, categories.has(featuredCategory) ? 5 : 6),
+  ...rankedCategories.filter(([name]) => name !== featuredCategory).slice(0, leadLimit - Number(categories.has(featuredCategory))),
 ];
 const leadNames = new Set(leadCategories.map(([name]) => name));
 const otherCategories = rankedCategories.filter(([name]) => !leadNames.has(name));
-const letters = new Set(items.map((item) => item.title[0]?.toUpperCase()).filter(Boolean));
+const initialFor = (title: string) => {
+  const first = title.trim().normalize('NFD').replace(/[\u0300-\u036f]/g, '')[0]?.toUpperCase();
+  if (first && /[0-9]/.test(first)) return '0-9';
+  return first && /[A-Z]/.test(first) ? first : '';
+};
+const letters = new Set(items.map((item) => initialFor(item.title)).filter(Boolean));
 const aliasesFor = (item: Entity) => [item.frontmatter.alias, item.frontmatter.aliases]
   .flatMap((value) => Array.isArray(value) ? value : typeof value === 'string' ? [value] : [])
   .filter((value): value is string => typeof value === 'string')
@@ -90,15 +96,15 @@ const aliasesFor = (item: Entity) => [item.frontmatter.alias, item.frontmatter.a
       </div>
 
       <nav class="people-letters people-tools" aria-label={`Filter ${pluralLower} by first letter`}>
-        {'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('').map((letter) => letters.has(letter)
-          ? <button type="button" data-letter={letter} aria-pressed="false">{letter}</button>
-          : <span aria-hidden="true">{letter}</span>
+        {['0-9', ...'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('')].map((letter) => letters.has(letter)
+          ? <button type="button" data-letter={letter} aria-pressed="false">{letter === '0-9' ? '0–9' : letter}</button>
+          : letter === '0-9' ? null : <span aria-hidden="true">{letter}</span>
         )}
       </nav>
 
       <ul class="people-results" id="people-results">
         {items.map((item) => (
-          <li class="person-row" data-category={item.category || 'Uncategorized'} data-letter={item.title[0]?.toUpperCase() || ''} data-mentions={item.mention_count ?? 0} data-aliases={aliasesFor(item)}>
+          <li class="person-row" data-category={item.category || 'Uncategorized'} data-letter={initialFor(item.title)} data-mentions={item.mention_count ?? 0} data-aliases={aliasesFor(item)}>
             <div class="person-row-main">
               <a href={hrefFor(item)}>{item.title}</a>
             </div>
@@ -145,7 +151,7 @@ const aliasesFor = (item: Entity) => [item.frontmatter.alias, item.frontmatter.a
     const validCategories = new Set(categoryButtons.map((button) => button.dataset.category));
     let query = params.get('q') || '';
     let category = validCategories.has(params.get('category')) ? params.get('category') : '';
-    let letter = /^[A-Z]$/.test(params.get('letter') || '') ? params.get('letter') : '';
+    let letter = /^(?:[A-Z]|0-9)$/.test(params.get('letter') || '') ? params.get('letter') : '';
     let sort = params.get('sort') === 'mentions' ? 'mentions' : 'az';
     let limit = 30;
 
@@ -177,7 +183,7 @@ const aliasesFor = (item: Entity) => [item.frontmatter.alias, item.frontmatter.a
       });
       list.replaceChildren(...matches.slice(0, limit).map((row) => row.node));
       const shown = Math.min(limit, matches.length);
-      heading.textContent = category || (letter ? `${directory}: ${letter}` : term ? 'Search results' : `All ${plural}`);
+      heading.textContent = category || (letter ? `${directory}: ${letter === '0-9' ? '0–9' : letter}` : term ? 'Search results' : `All ${plural}`);
       status.textContent = term || category || letter
         ? `${matches.length.toLocaleString()} ${matches.length === 1 ? singular : plural} found${shown < matches.length ? ` · showing ${shown.toLocaleString()}` : ''}`
         : `Showing ${shown.toLocaleString()} of ${matches.length.toLocaleString()} ${plural}`;
@@ -233,7 +239,7 @@ const aliasesFor = (item: Entity) => [item.frontmatter.alias, item.frontmatter.a
       const state = new URLSearchParams(location.search);
       query = state.get('q') || '';
       category = validCategories.has(state.get('category')) ? state.get('category') : '';
-      letter = /^[A-Z]$/.test(state.get('letter') || '') ? state.get('letter') : '';
+      letter = /^(?:[A-Z]|0-9)$/.test(state.get('letter') || '') ? state.get('letter') : '';
       sort = state.get('sort') === 'mentions' ? 'mentions' : 'az';
       input.value = query;
       limit = 30;
