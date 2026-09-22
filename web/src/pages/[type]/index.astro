@@ -41,11 +41,11 @@ const manyCategories = ordered.length > 4;
 // Unique, count-bearing description so this listing gets a meaningful SERP
 // snippet instead of falling through to a generic site default.
 const dir = TYPE_DIRS[entityType];
-const description = `${items.length.toLocaleString()} ${plural.toLowerCase()} across ${ordered.length} categories in The Info Web — a research vault on intelligence operations, programs, and the parapolitical record.`;
+const description = `${items.length.toLocaleString()} ${plural.toLowerCase()} across ${ordered.length} categories in The Info Web.`;
 const collectionSchema = {
   '@context': 'https://schema.org',
   '@type': 'CollectionPage',
-  name: `${plural} — The Info Web`,
+  name: `${plural} | The Info Web`,
   description,
   url: Astro.site ? new URL(`/${dir}/`, Astro.site).href : `/${dir}/`,
   ...(Astro.site ? { isPartOf: { '@id': `${new URL('/', Astro.site).href}#website` } } : {}),
@@ -67,7 +67,7 @@ function anchorFor(title: string): string | undefined {
 }
 ---
 <Base
-  title={`${plural} — The Info Web`}
+  title={`${plural} | The Info Web`}
   description={description}
   jsonLd={collectionSchema}
   breadcrumbs={breadcrumbs}
@@ -76,7 +76,7 @@ function anchorFor(title: string): string | undefined {
     <div class="kicker">Browse</div>
     <h1>{plural}</h1>
     <p class="lead">
-      {items.length.toLocaleString()} {plural.toLowerCase()} across {ordered.length} categories.
+      {items.length.toLocaleString()}{' '}{plural.toLowerCase()} across {ordered.length} categories.
       Categories of central interest are expanded; click any heading to expand or collapse.
     </p>
   </header>

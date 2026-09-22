@@ -88,7 +88,7 @@ npx pagefind --site "$out_dir"
 # fragment/ filter/ directories must stay — pagefind-ui.js pulls them
 # in at runtime.
 echo "[build] pruning unused pagefind bundles..."
-pf="$out_dir/pagefind"
+pf="$out_dir/search-index"
 rm -f "$pf/pagefind-component-ui.js" "$pf/pagefind-component-ui.css" \
       "$pf/pagefind-modular-ui.js"   "$pf/pagefind-modular-ui.css"   \
       "$pf/pagefind-highlight.js"

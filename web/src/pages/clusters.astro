@@ -10,8 +10,9 @@ const small = all.filter((c) => c.size < MIN_SIZE);
 const smallMembers = small.reduce((n, c) => n + c.size, 0);
 ---
 <Base
-  title="Clusters — The Info Web"
-  description="The vault's link graph partitioned into communities: groups of entries that connect to each other far more than to the rest."
+  bodyClass="utility"
+  title="Clusters | The Info Web"
+  description="Groups of entries with more links to one another than to the rest of the site."
 >
   <article class="changelog-article clusters-article">
     <div class="entity-eyebrow">
@@ -19,10 +20,10 @@ const smallMembers = small.reduce((n, c) => n + c.size, 0);
     </div>
     <h1 class="entity-title">Clusters</h1>
     <p class="entity-dek">
-      {big.length} communities of {MIN_SIZE} or more entries, found by weighted Louvain
-      modularity over the wikilink and NER graph: groups of entries that link among
-      themselves far more than to the rest of the vault. Each is named after its three most-mentioned members. The same partition
-      colours the <a href="/network/">full network</a> when you switch Colour to Community.
+      {big.length} groups of related entries. Entries in each group have more links to
+      one another than to the rest of the site. Each group shown here has at least
+      {MIN_SIZE} entries and takes its name from its three most-mentioned members.
+      See the same groups in the <a href="/network/">network</a>.
     </p>
 
     {big.map((c) => (
@@ -34,7 +35,7 @@ const smallMembers = small.reduce((n, c) => n + c.size, 0);
         <p class="cluster-meta">
           {c.size.toLocaleString()} entries ·
           {Object.entries(c.types).slice(0, 4).map(([t, n], i) => (
-            <>{i > 0 && ', '}{n} {(TYPE_PLURALS[t as EntityType] ?? t).toLowerCase()}</>
+            <>{i > 0 && ', '}{n}{' '}{(TYPE_PLURALS[t as EntityType] ?? t).toLowerCase()}</>
           ))}
         </p>
         <ul class="hc-list cluster-members">
@@ -53,10 +54,9 @@ const smallMembers = small.reduce((n, c) => n + c.size, 0);
 
     {small.length > 0 && (
       <section class="cl-group cluster">
-        <h2 class="cl-month cluster-label">Fragments</h2>
+        <h2 class="cl-month cluster-label">Smaller groups</h2>
         <p class="cluster-meta">
-          {small.length} clusters of fewer than {MIN_SIZE} entries ({smallMembers} entries in all):
-          small groups that only link to each other.
+          {small.length} clusters of fewer than {MIN_SIZE} entries ({smallMembers} entries in total).
         </p>
       </section>
     )}

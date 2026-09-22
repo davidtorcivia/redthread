@@ -87,10 +87,10 @@ import { TYPE_LABELS } from './entity-types';
 export function hopReason(data: any, a: number, b: number): string {
   const k = data.adj[a].indexOf(b);
   const d = k >= 0 && data.dir ? data.dir[a][k] : 0;
-  if (d === 3) return 'each page links the other';
+  if (d === 3) return 'Both pages link to each other';
   if (d === 1) return `linked from ${data.titles[a]}’s page`;
   if (d === 2) return `linked from ${data.titles[b]}’s page`;
-  return 'inferred: names co-mentioned in prose';
+  return 'Inferred from names mentioned together';
 }
 
 /** Render a found path as the shared <ol class="path-chain"> used by

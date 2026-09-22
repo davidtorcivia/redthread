@@ -9,8 +9,9 @@ import Base from '../layouts/Base.astro';
 // as components/PathWidget.astro.
 ---
 <Base
-  title="Find a path — The Info Web"
-  description="Trace a chain of documented connections between any two entries in the vault, steering around the mega-hubs."
+  bodyClass="utility"
+  title="Find a path | The Info Web"
+  description="Find a chain of connections between two entries."
   preloadAdjacency
 >
   <article class="path-article">
@@ -19,9 +20,8 @@ import Base from '../layouts/Base.astro';
     </div>
     <h1 class="entity-title">Find a path</h1>
     <p class="entity-dek">
-      Pick any two entities; we'll trace a chain of documented connections between
-      them through the wikilink + NER graph, preferring specific links over the
-      mega-hubs (the United States, the CIA) that connect everything to everything.
+      Choose a starting entry and a destination to find the links between them.
+      Routes favor specific connections over entries mentioned throughout the site.
     </p>
 
     <form class="path-form" id="path-form" autocomplete="off">
@@ -32,7 +32,7 @@ import Base from '../layouts/Base.astro';
             type="text"
             id="path-from"
             class="path-input"
-            placeholder="Type an entity name…"
+            placeholder="Search for an entry…"
             autocomplete="off"
             spellcheck="false"
             role="combobox"
@@ -49,7 +49,7 @@ import Base from '../layouts/Base.astro';
             type="text"
             id="path-to"
             class="path-input"
-            placeholder="Type an entity name…"
+            placeholder="Search for an entry…"
             autocomplete="off"
             spellcheck="false"
             role="combobox"
@@ -61,7 +61,7 @@ import Base from '../layouts/Base.astro';
         </label>
       </div>
       <div class="path-actions">
-        <button type="submit" class="path-go">Find path</button>
+        <button type="submit" class="path-go">Find connection <span aria-hidden="true">→</span></button>
         <span class="path-status" id="path-status" role="status" aria-live="polite"></span>
       </div>
     </form>
@@ -256,10 +256,12 @@ import Base from '../layouts/Base.astro';
           }
         });
       }
-      wireAutocomplete(fromInput, fromSuggest, (id) => { fromId = id; });
-      wireAutocomplete(toInput, toSuggest, (id) => { toId = id; });
+      function clearResult() { result.hidden = true; status.textContent = ''; }
+      wireAutocomplete(fromInput, fromSuggest, (id) => { fromId = id; clearResult(); });
+      wireAutocomplete(toInput, toSuggest, (id) => { toId = id; clearResult(); });
 
       swapBtn.addEventListener('click', () => {
+        clearResult();
         const tmpVal = fromInput.value;
         const tmpId = fromId;
         fromInput.value = toInput.value; fromId = toId;
@@ -283,7 +285,7 @@ import Base from '../layouts/Base.astro';
             return adjacency;
           })
           .catch((err) => {
-            status.textContent = 'Failed to load adjacency data.';
+            status.textContent = 'Could not load connections. Try again.';
             adjacencyPromise = null;
             throw err;
           });
@@ -302,7 +304,9 @@ import Base from '../layouts/Base.astro';
           status.textContent = 'Source and target are the same.';
           return;
         }
-        const data = await loadAdjacency();
+        const requestedFrom = fromId, requestedTo = toId;
+        const data = await loadAdjacency().catch(() => null);
+        if (!data || fromId !== requestedFrom || toId !== requestedTo) return;
         const si = data.idToIdx.get(fromId);
         const ti = data.idToIdx.get(toId);
         if (si == null || ti == null) {

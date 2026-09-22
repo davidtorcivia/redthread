@@ -1,319 +1,98 @@
-/**
- * OG card template + canonicalization for the cache key.
- *
- * The renderer is pure (entity-in → element-out); side-effects (font I/O,
- * cache, satori invocation) live in og-render.ts. Splitting them keeps the
- * cache-key hash deterministic — `cardInputs()` is the *only* thing that
- * feeds the per-entity hash, and `CARD_TEMPLATE_HASH` is the *only* thing
- * that captures "renderer changed".
- *
- * Brand language pulled from src/styles/global.css:
- *   paper #f7f2e7 / ink #1a1814 / accent #94322a / muted #6a6258
- *   type colors: person #8a5a1f, organization #2d6864, program #3f3d8b,
- *                event #94322a, concept #5e6b32, place #735237, source #6a6258
- */
+/** Editorial social cards, using the same Archivo / orange identity as the site. */
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import type { Entity, EntityType } from './types.ts';
+import { formatDates } from './dates.ts';
 
-const COLORS = {
-  paper: '#f7f2e7',
-  paper2: '#efe9d9',
-  ink: '#1a1814',
-  ink2: '#2e2a22',
-  muted: '#6a6258',
-  line: '#d8cfb9',
-  accent: '#94322a',
-};
-
-const TYPE_COLOR: Record<string, string> = {
-  person: '#8a5a1f',
-  organization: '#2d6864',
-  program: '#3f3d8b',
-  event: '#94322a',
-  concept: '#5e6b32',
-  place: '#735237',
-  source: '#6a6258',
-  meta: '#6a6258',
-  misc: '#6a6258',
-  page: '#6a6258',
-};
-
-const TYPE_LABEL: Record<string, string> = {
-  person: 'Person',
-  organization: 'Organization',
-  program: 'Program',
-  event: 'Event',
-  concept: 'Concept',
-  place: 'Place',
-  source: 'Source',
-  meta: 'Meta',
-  misc: 'Misc',
-  page: 'Page',
-};
-
-// React-element factory without JSX or React. Satori only inspects
-// { type, props } shapes, so this is enough.
-type Node = { type: string; props: Record<string, unknown> };
-type Child = Node | string | null | false | undefined | Child[];
-
-function h(type: string, props: Record<string, unknown> | null, ...children: Child[]): Node {
-  const flat: (Node | string)[] = [];
-  const walk = (c: Child) => {
-    if (c == null || c === false) return;
-    if (Array.isArray(c)) c.forEach(walk);
-    else flat.push(c as Node | string);
-  };
-  for (const c of children) walk(c);
-  return { type, props: { ...(props || {}), children: flat.length === 1 ? flat[0] : flat } };
+import fontMetrics from '../assets/fonts/og-metrics.json' with { type: 'json' };
+const metrics = fontMetrics as Record<string,{units:number;widths:Record<string,number>}>;
+const TYPE_LABEL: Record<string,string> = {person:'Person',organization:'Organization',program:'Program',event:'Event',concept:'Concept',place:'Place',source:'Source',meta:'Meta',misc:'Entry',page:'Index'};
+type Node = {type:string;props:Record<string,unknown>};
+type Child = Node|string|null|false|undefined|Child[];
+function h(type:string,props:Record<string,unknown>|null,...children:Child[]):Node {
+  const flat:(Node|string)[]=[];
+  const walk=(c:Child)=>{if(c==null||c===false)return;if(Array.isArray(c))c.forEach(walk);else flat.push(c as Node|string);};
+  children.forEach(walk);
+  return {type,props:{...(props||{}),children:flat.length===1?flat[0]:flat}};
 }
 
-function plainSummary(s: string | null | undefined): string {
-  if (!s) return '';
-  return String(s)
-    .replace(/\[\[([^|\]]+)\|([^\]]+)\]\]/g, '$2')
-    .replace(/\[\[([^\]]+)\]\]/g, '$1')
-    .replace(/\*\*([^*]+)\*\*/g, '$1')
-    .replace(/`([^`]+)`/g, '$1')
-    .replace(/\s+/g, ' ')
-    .trim();
-}
-
-// Tags use snake_case in the vault (Child_Pornography, u.s.-military);
-// the card surface reads as prose so we normalize underscores to spaces.
-function prettyTag(t: string): string {
-  return String(t).replace(/_/g, ' ');
-}
-
-function yearOf(s: string | undefined): string | null {
-  if (!s) return null;
-  const m = String(s).match(/^(\d{4})/);
-  return m ? m[1] : String(s);
-}
-
-function dateline(entity: CardInput): { label: string; value: string } | null {
-  const d = entity.dates || {};
-  const born = yearOf(d.born), died = yearOf(d.died);
-  const start = yearOf(d.start), end = yearOf(d.end);
-  const date = yearOf(d.date);
-  if (born || died) return { label: 'Lifespan', value: `${born ?? '?'}–${died ?? 'present'}` };
-  if (start || end) return { label: 'Active', value: `${start ?? '?'}–${end ?? 'present'}` };
-  if (date) return { label: 'Date', value: date };
-  return null;
-}
-
-// Chips: label and value share visual baseline via center-alignment +
-// matched lineHeight. Satori's `alignItems: baseline` drifts when font
-// sizes differ, which is why we don't use it here.
-function MetaChip(label: string, value: string, color?: string): Node {
-  return h('div', {
-    style: {
-      display: 'flex',
-      alignItems: 'center',
-      gap: 10,
-      padding: '10px 16px',
-      backgroundColor: '#fbf7ee',
-      border: `1px solid ${COLORS.line}`,
-      borderRadius: 4,
-      fontFamily: 'Inter Tight',
-    },
-  },
-    h('span', {
-      style: {
-        fontSize: 18,
-        textTransform: 'uppercase',
-        letterSpacing: 1.4,
-        color: COLORS.muted,
-        fontWeight: 500,
-        lineHeight: 1,
-      },
-    }, label),
-    h('span', {
-      style: { fontSize: 22, color: color || COLORS.ink, fontWeight: 600, lineHeight: 1 },
-    }, value),
-  );
-}
-
-/**
- * Inputs to the card — the *exact* fields the template reads. The cache
- * key is computed over this shape, so widening it requires bumping the
- * template hash (handled automatically since this file's source is
- * hashed below).
- */
 export interface CardInput {
-  type: EntityType | 'page';
-  title: string;
-  summary: string | null;
-  category: string | null;
-  dates: { born?: string; died?: string; start?: string; end?: string; date?: string };
-  locations: string[];
-  tags: string[];
-  mention_count: number;
-  bridge_rank?: number;
-  hub_rank?: number;
+  type:EntityType|'page';title:string;summary:string|null;category:string|null;
+  dates:{born?:string;died?:string;start?:string;end?:string;date?:string};
+  locations:string[];tags:string[];mention_count:number;bridge_rank?:number;hub_rank?:number;
 }
-
-export function cardInputs(entity: Entity): CardInput {
-  return {
-    type: entity.type,
-    title: entity.title,
-    summary: entity.summary,
-    category: entity.category,
-    dates: {
-      born: entity.dates?.born,
-      died: entity.dates?.died,
-      start: entity.dates?.start,
-      end: entity.dates?.end,
-      date: entity.dates?.date,
-    },
-    locations: (entity.locations ?? []).slice(0, 2),
-    tags: (entity.tags ?? []).slice(0, 3),
-    mention_count: entity.mention_count ?? 0,
-    bridge_rank: entity.bridge_rank,
-    hub_rank: entity.hub_rank,
-  };
+export function cardInputs(e:Entity):CardInput {
+  return {type:e.type,title:e.title,summary:e.summary,category:e.category,dates:e.dates||{},
+    locations:(e.locations||[]).slice(0,2),tags:[],mention_count:e.mention_count||0};
 }
+function plain(s:string|null|undefined):string {
+  return String(s||'').replace(/\[\[([^|\]]+)\|([^\]]+)\]\]/g,'$2').replace(/\[\[([^\]]+)\]\]/g,'$1')
+    .replace(/\[([^\]]+)\]\([^)]+\)/g,'$1').replace(/[*_`]/g,'')
+    .replace(/<[^>]*>/g,'').replace(/&amp;/g,'&').replace(/&quot;/g,'"').replace(/&#39;/g,"'")
+    .replace(/\s+/g,' ').trim();
+}
+function width(text:string,size:number,font='title'):number {
+  const m=metrics[font];
+  return [...text].reduce((sum,c)=>sum+(m.widths[c]??m.units*.65),0)/m.units*size;
+}
+function wrap(text:string,size:number,maxWidth:number,font='title'):string[] {
+  const lines:string[]=[];let line='';
+  for(const word of text.split(/\s+/)) {
+    if(line && width(line+' '+word,size,font)>maxWidth){lines.push(line);line='';}
+    if(font!=='title' && width(word,size,font)>maxWidth){
+      let part='';
+      for(const c of word){if(part&&width(part+c,size,font)>maxWidth){lines.push(part);part='';}part+=c;}
+      line=part;
+    } else line=line?line+' '+word:word;
+  }
+  if(line)lines.push(line);
+  return lines;
+}
+export function titleLayout(title:string):{lines:string[];size:number} {
+  const text=title.replace(/\s+/g,' ').trim().toLocaleUpperCase('en-US');
+  for(const size of [176,154,132,112,96,84,72,62,54,48,42]) {
+    const lines=wrap(text,size,1080);
+    if(lines.length*size*1.02<=278 && lines.every(line=>width(line,size)<=1080))return {lines,size};
+  }
+  const lines=wrap(text,42,1080).slice(0,6);
+  let last=lines[5]||'';
+  while(width(last+'…',42)>1080)last=last.slice(0,-1);
+  if(lines.length===6)lines[5]=last+'…';
+  return {lines,size:42};
+}
+function dateLine(e:CardInput):string { return formatDates(e.dates || {}); }
+function shorten(s:string,max:number){return s.length<=max?s:s.slice(0,max-1).trimEnd()+'…';}
 
-export function renderCard(entity: CardInput): Node {
-  const typeLabel = TYPE_LABEL[entity.type] || 'Page';
-  const typeColor = TYPE_COLOR[entity.type] || COLORS.muted;
-  const dl = dateline(entity);
-  const locations = entity.locations || [];
-  const tags = entity.tags || [];
-  const summary = plainSummary(entity.summary);
-
-  return h('div', {
-    style: {
-      width: 1200,
-      height: 630,
-      display: 'flex',
-      flexDirection: 'column',
-      backgroundColor: COLORS.paper,
-      fontFamily: 'Source Serif 4',
-      color: COLORS.ink,
-      position: 'relative',
-    },
-  },
-    h('div', { style: { display: 'flex', width: '100%', height: 10, backgroundColor: COLORS.accent } }),
-    h('div', { style: { display: 'flex', width: '100%', height: 4, backgroundColor: COLORS.paper2 } }),
-
-    h('div', {
-      style: {
-        display: 'flex',
-        flexDirection: 'column',
-        flex: 1,
-        padding: '56px 72px 48px 72px',
-        justifyContent: 'space-between',
-      },
-    },
-      h('div', { style: { display: 'flex', flexDirection: 'column' } },
-        // Eyebrow
-        h('div', {
-          style: {
-            display: 'flex',
-            alignItems: 'center',
-            gap: 14,
-            fontFamily: 'Inter Tight',
-            fontSize: 22,
-            fontWeight: 600,
-            textTransform: 'uppercase',
-            letterSpacing: 2.5,
-            color: typeColor,
-            marginBottom: 28,
-          },
-        },
-          h('span', null, typeLabel),
-          entity.category && h('span', { style: { color: COLORS.line } }, '•'),
-          entity.category && h('span', { style: { color: COLORS.muted, fontWeight: 500 } }, entity.category),
-        ),
-
-        // Title — line-height 1.15 keeps descenders (g/j/p/q/y) inside
-        // the line box; with 1.05 the bottom of "Signal" got clipped.
-        h('div', {
-          style: {
-            display: 'flex',
-            fontSize: entity.title.length > 38 ? 76 : 92,
-            lineHeight: 1.15,
-            fontWeight: 700,
-            letterSpacing: -1,
-            color: COLORS.ink,
-            marginBottom: 24,
-            maxHeight: 260,
-            overflow: 'hidden',
-            paddingBottom: 4,
-          },
-        }, entity.title),
-
-        summary && h('div', {
-          style: {
-            display: 'flex',
-            fontSize: 28,
-            lineHeight: 1.35,
-            color: COLORS.ink2,
-            maxHeight: 116,
-            overflow: 'hidden',
-          },
-        }, summary),
-      ),
-
-      h('div', {
-        style: {
-          display: 'flex',
-          alignItems: 'flex-end',
-          justifyContent: 'space-between',
-          marginTop: 32,
-        },
-      },
-        h('div', { style: { display: 'flex', flexWrap: 'wrap', gap: 10, maxWidth: 820 } },
-          dl ? MetaChip(dl.label, dl.value) : null,
-          locations.length > 0 ? MetaChip('Location', locations.slice(0, 2).join(', ')) : null,
-          entity.mention_count > 0 ? MetaChip('Mentions', String(entity.mention_count)) : null,
-          entity.bridge_rank ? MetaChip('Bridge', `#${entity.bridge_rank}`, COLORS.accent) : null,
-          entity.hub_rank ? MetaChip('Hub', `#${entity.hub_rank}`, COLORS.accent) : null,
-          tags.length > 0 ? MetaChip('Tags', tags.slice(0, 3).map(prettyTag).join(' · ')) : null,
-        ),
-
-        h('div', {
-          style: {
-            display: 'flex',
-            flexDirection: 'column',
-            alignItems: 'flex-end',
-            fontFamily: 'Source Serif 4',
-            color: COLORS.ink,
-            marginLeft: 24,
-          },
-        },
-          h('div', { style: { display: 'flex', fontSize: 32, fontWeight: 700, color: COLORS.accent, lineHeight: 1.1 } }, 'The Info Web'),
-          h('div', {
-            style: {
-              display: 'flex',
-              fontSize: 14,
-              fontFamily: 'Inter Tight',
-              fontWeight: 600,
-              letterSpacing: 1.5,
-              color: COLORS.muted,
-              marginTop: 4,
-            },
-          }, 'theinfoweb.disinfo.zone'),
-        ),
-      ),
-    ),
+export function renderCard(entity:CardInput):Node {
+  const site=entity.type==='page'&&entity.title==='The Info Web';
+  const title=site?{lines:['THE INFO','WEB'],size:132}:titleLayout(entity.title);
+  const summary=plain(entity.summary);
+  const summaryLines=wrap(summary,28,1080,'body');
+  if(summaryLines.length>3){
+    summaryLines.length=3;
+    let line=summaryLines[2];
+    while(width(line+'…',28,'body')>1080)line=line.includes(' ')?line.slice(0,line.lastIndexOf(' ')):line.slice(0,-1);
+    summaryLines[2]=line.replace(/[ ,;:.]+$/,'')+'…';
+  }
+  const facts=[dateLine(entity),entity.mention_count>0?`${entity.mention_count.toLocaleString('en-US')} mentions`:''].filter(Boolean).join(' · ');
+  const label=site?'AN INDEX OF THE PARAPOLITICAL RECORD':[TYPE_LABEL[entity.type]||'Entry',entity.category].filter(Boolean).join(' / ').toUpperCase();
+  return h('div',{style:{width:1200,height:630,display:'flex',flexDirection:'column',background:'#fff',color:'#0d0d0d',fontFamily:'Archivo',position:'relative'}},
+    h('div',{style:{display:'flex',position:'absolute',top:0,left:0,width:1200,height:420,background:'#ff4a1c'}}),
+    h('div',{style:{display:'flex',position:'absolute',top:32,left:56,right:56,justifyContent:'space-between',alignItems:'center'}},
+      h('span',{style:{fontSize:28,fontWeight:800,letterSpacing:-1}},'The Info Web'),
+      h('span',{style:{fontSize:18,fontWeight:500,maxWidth:760,textAlign:'right'}},shorten(label,75))),
+    h('div',{style:{position:'absolute',top:106,left:56,width:1088,height:286,display:'flex',flexDirection:'column',justifyContent:'center'}},
+      title.lines.map(line=>h('div',{style:{display:'flex',fontSize:title.size,fontWeight:800,lineHeight:1.02,letterSpacing:-title.size*.025,whiteSpace:'pre'}},line))),
+    h('div',{style:{position:'absolute',left:56,top:444,width:1088,display:'flex',flexDirection:'column',fontFamily:'Source Serif 4',fontSize:28,fontWeight:400,lineHeight:1.22}},
+      summaryLines.map(line=>h('div',{style:{display:'flex',whiteSpace:'pre'}},line))),
+    h('div',{style:{position:'absolute',left:56,right:56,bottom:24,height:38,borderTop:'2px solid #0d0d0d',paddingTop:12,display:'flex',justifyContent:'space-between',alignItems:'center',fontSize:19,fontWeight:500}},
+      h('span',null,site?'People · Programs · Events · Connections':facts||TYPE_LABEL[entity.type]||'The parapolitical record'),
+      h('span',null,'theinfoweb.disinfo.zone'))
   );
 }
 
-/**
- * SHA-256 of this file's source, computed once at module load. Any edit
- * to the template (layout, colors, copy) automatically busts every cache
- * entry without needing a manual version bump.
- */
-export const CARD_TEMPLATE_HASH = (() => {
-  try {
-    const self = fileURLToPath(import.meta.url);
-    return createHash('sha256').update(readFileSync(self)).digest('hex').slice(0, 16);
-  } catch {
-    // Fallback for environments where import.meta.url can't be resolved
-    // (shouldn't happen at build time, but be defensive).
-    return 'unknown';
-  }
+export const CARD_TEMPLATE_HASH=(()=>{
+  try{return createHash('sha256').update(readFileSync(fileURLToPath(import.meta.url))).update(JSON.stringify(metrics)).update(formatDates.toString()).digest('hex').slice(0,16);}
+  catch{return 'statement-v2';}
 })();

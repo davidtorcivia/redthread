@@ -15,21 +15,25 @@ const widgetId = `pw-${fromId}`;
 ---
 <section class="path-widget" data-from-id={fromId} id={widgetId} data-pagefind-ignore>
   <div class="pw-head">
-    <h2 class="section-heading">Find a path from {fromTitle} to&hellip;</h2>
+    <h2 class="section-heading">Find a path</h2>
     <a href={`/path/?from=${encodeURIComponent(fromId)}`} class="pw-full" aria-label="Open full path finder">
       Full finder &rarr;
     </a>
   </div>
+  <p class="pw-intro">Find a chain of links from this entry to another.</p>
   <form class="pw-form" autocomplete="off">
+    <div class="pw-from"><span class="path-label">From</span><strong>{fromTitle}</strong></div>
+    <span class="pw-direction" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M3 12h17m-6-6 6 6-6 6" /></svg></span>
     <div class="pw-field">
+      <label class="path-label" for={`${widgetId}-input`}>To</label>
       <input
         type="text"
         id={`${widgetId}-input`}
         class="pw-input path-input"
-        placeholder="Type any entity name…"
+        placeholder="Search for an entry…"
         autocomplete="off"
         spellcheck="false"
-        aria-label="Target entity"
+        aria-label="Destination entry"
         role="combobox"
         aria-expanded="false"
         aria-autocomplete="list"
@@ -37,7 +41,7 @@ const widgetId = `pw-${fromId}`;
       />
       <ul class="pw-suggest path-suggest" id={`${widgetId}-suggest`} role="listbox" aria-label="Target suggestions"></ul>
     </div>
-    <button type="submit" class="pw-go path-go">Find path</button>
+    <button type="submit" class="pw-go path-go">Find connection <span aria-hidden="true">→</span></button>
   </form>
   <div class="pw-result" hidden></div>
   <div class="pw-status" role="status" aria-live="polite" hidden></div>
@@ -144,7 +148,9 @@ const widgetId = `pw-${fromId}`;
         input.removeAttribute('aria-activedescendant');
       }
     }
+    function clearResult() { result.hidden = true; status.hidden = true; }
     function pick(r) {
+      clearResult();
       input.value = r.title;
       toId = r.id;
       closeMenu();
@@ -169,7 +175,7 @@ const widgetId = `pw-${fromId}`;
       input.removeAttribute('aria-activedescendant');
       active = -1;
     }
-    input.addEventListener('input', () => { toId = null; openMenu(); });
+    input.addEventListener('input', () => { toId = null; clearResult(); openMenu(); });
     // Warm the pool as soon as the field is touched, so the first keystroke
     // usually has something to match against.
     input.addEventListener('focus', () => { loadPool(); if (input.value) openMenu(); });
@@ -211,7 +217,8 @@ const widgetId = `pw-${fromId}`;
           for (let i = 0; i < d.ids.length; i++) d.idToIdx.set(d.ids[i], i);
           window._adjacency = d;
           return d;
-        });
+        })
+        .catch((error) => { window._adjacencyP = null; throw error; });
       return window._adjacencyP;
     }
 
@@ -219,10 +226,12 @@ const widgetId = `pw-${fromId}`;
       result.setAttribute('hidden', '');
       result.innerHTML = '';
       status.setAttribute('hidden', '');
-      if (!toId) { status.textContent = 'Pick a target.'; status.removeAttribute('hidden'); return; }
+      if (!toId) { status.textContent = 'Choose a destination from the suggestions.'; status.removeAttribute('hidden'); return; }
       status.textContent = 'Loading network…'; status.removeAttribute('hidden');
+      const requestedTo = toId;
       const data = await loadAdjacency().catch(() => null);
-      if (!data) { status.textContent = 'Failed to load network.'; return; }
+      if (toId !== requestedTo) return;
+      if (!data) { status.textContent = 'Could not load connections. Try again.'; return; }
       const si = data.idToIdx.get(fromId);
       const ti = data.idToIdx.get(toId);
       if (si == null || ti == null) { status.textContent = 'Entity missing from network.'; return; }

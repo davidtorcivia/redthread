@@ -10,7 +10,7 @@ export const GET: APIRoute = async () => {
   const { png } = await renderOrCache({
     type: 'page',
     title: 'The Info Web',
-    summary: 'A vault of people, organizations, programs, events, places, and concepts — and the connections between them.',
+    summary: 'An index of the parapolitical record: intelligence operations, government programs, and the people who moved through them.',
     category: null,
     dates: {},
     locations: [],

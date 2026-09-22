@@ -9,8 +9,9 @@ const totalLinks = all.reduce((n, t) => n + t.count, 0);
 const SAMPLE = 6;
 ---
 <Base
-  title="Unresolved links — The Info Web"
-  description="Wikilink targets the vault points at but has no entry for, ranked by how often they are linked."
+  bodyClass="utility"
+  title="Unresolved links | The Info Web"
+  description="Names linked from existing pages that have no matching entry."
   noindex
 >
   <article class="changelog-article unresolved-article">
@@ -19,10 +20,10 @@ const SAMPLE = 6;
     </div>
     <h1 class="entity-title">Unresolved links</h1>
     <p class="entity-dek">
-      {all.length.toLocaleString()} link targets with no matching entry, referenced
-      {totalLinks.toLocaleString()} times across the vault. Each is a page waiting to be
-      written, or an alias waiting to be added to an existing entry. Showing the top
-      {rows.length.toLocaleString()}.
+      These names are linked from existing pages but have no matching entry.
+      They may need a new page or an alternate name added to one we already have.
+      Showing {rows.length.toLocaleString()} of {all.length.toLocaleString()} unresolved names,
+      with {totalLinks.toLocaleString()} links in total.
     </p>
 
     <ol class="ur-list">

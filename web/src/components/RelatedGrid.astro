@@ -1,34 +1,16 @@
 ---
-import { related, hrefFor, renderInlineMd, TYPE_LABELS } from '../lib/data.ts';
+import { related, hrefFor, TYPE_LABELS } from '../lib/data.ts';
 interface Props { id: string; limit?: number }
 const { id, limit = 8 } = Astro.props;
 const items = related(id).slice(0, limit);
 ---
-{items.length > 0 && (
-  <section class="related-section" data-pagefind-ignore>
-    <h2 class="section-heading">Connected to</h2>
-    <div class="related-grid">
-      {items.map((r) => (
-        <article class={`related-card type-${r.type}`}>
-          <a class="rc-link" href={hrefFor({ id: r.id, type: r.type })} aria-label={r.title}>
-            <div class="rc-eyebrow">{TYPE_LABELS[r.type]}</div>
-            <div class="rc-title">{r.title}</div>
-            {r.summary && <div class="rc-summary" set:html={renderInlineMd(r.summary)} />}
-            <div class="rc-count">{r.count} shared page{r.count === 1 ? '' : 's'}</div>
-          </a>
-          {r.via && r.via.length > 0 && (
-            <div class="rc-via">
-              <span class="rc-via-label">via</span>
-              {r.via.map((v, i) => (
-                <>
-                  {i > 0 && <span class="rc-via-sep"> · </span>}
-                  <a class="rc-via-link" href={hrefFor({ id: v.id, type: v.type })} data-preview>{v.title}</a>
-                </>
-              ))}
-            </div>
-          )}
-        </article>
-      ))}
+{items.length > 0 && <section class="related-section statement-list" data-pagefind-ignore>
+  <h2 class="section-heading">Connected to <span>by shared pages</span></h2>
+  {items.map(r => <div class="statement-item">
+    <div class="item-facts">
+      <b>{r.count} shared</b> · {TYPE_LABELS[r.type]}
+      {r.via?.length > 0 && <i>via {r.via.slice(0, 3).map((v, i) => <>{i > 0 && ', '}<a href={hrefFor(v)} data-preview>{v.title}</a></>)}</i>}
     </div>
-  </section>
-)}
+    <a class="item-title" href={hrefFor(r)}>{r.title}</a>
+  </div>)}
+</section>}

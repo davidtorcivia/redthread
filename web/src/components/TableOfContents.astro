@@ -10,7 +10,8 @@ const show = entries.length >= 2;
 ---
 {show && (
   <aside class="entity-toc" aria-label="Table of contents">
-    <div class="toc-label">Contents</div>
+    <details class="toc-disclosure" open>
+      <summary><span>On this page</span><span class="toc-count">{entries.length} sections</span><svg class="toc-toggle" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 2v12M2 8h12" /></svg></summary>
     <ol class="toc-list">
       {entries.map((e) => (
         <li class={`toc-item toc-l${e.level}`} data-toc-id={e.id}>
@@ -18,15 +19,21 @@ const show = entries.length >= 2;
         </li>
       ))}
     </ol>
+    </details>
   </aside>
 
   <script is:inline>
+    // Set the initial disclosure before the next paint.
+    document.querySelector('.toc-disclosure').open = matchMedia('(min-width: 901px)').matches;
     // Defer until the page has parsed — the .prose div (and the heading
     // IDs inside it) renders AFTER this script tag in document order,
     // so getElementById would otherwise return null at script-execute.
     document.addEventListener('DOMContentLoaded', () => {
       const toc = document.querySelector('.entity-toc');
       if (!toc) return;
+      const disclosure = toc.querySelector('.toc-disclosure');
+      const mobile = matchMedia('(max-width: 900px)');
+      mobile.addEventListener('change', () => { disclosure.open = !mobile.matches; });
       const items = Array.from(toc.querySelectorAll('.toc-item'));
       const byId = new Map(items.map((el) => [el.dataset.tocId, el]));
       const headings = items
@@ -39,9 +46,9 @@ const show = entries.length >= 2;
       // enter that band (or the last one we passed) is "active".
       const visible = new Set();
       function setActive(id) {
-        items.forEach((el) => el.classList.remove('active'));
+        items.forEach((el) => { el.classList.remove('active'); el.querySelector('a').removeAttribute('aria-current'); });
         const el = byId.get(id);
-        if (el) el.classList.add('active');
+        if (el) { el.classList.add('active'); el.querySelector('a').setAttribute('aria-current', 'location'); }
       }
       function pickActive() {
         if (visible.size > 0) {
@@ -89,8 +96,11 @@ const show = entries.length >= 2;
         const target = document.getElementById(id);
         if (!target) return;
         e.preventDefault();
-        const y = target.getBoundingClientRect().top + window.scrollY - 80;
-        window.scrollTo({ top: y, behavior: 'smooth' });
+        if (mobile.matches) disclosure.open = false;
+        const y = target.getBoundingClientRect().top + window.scrollY - 24;
+        target.setAttribute('tabindex', '-1');
+        target.focus({ preventScroll: true });
+        window.scrollTo({ top: y, behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
         history.replaceState(null, '', `#${id}`);
       });
 

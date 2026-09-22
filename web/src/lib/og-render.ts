@@ -42,9 +42,8 @@ function loadFonts(): { fonts: SatoriFont[]; hash: string } {
   const specs: { name: string; weight: SatoriWeight; file: string }[] = [
     { name: 'Source Serif 4', weight: 400, file: 'source-serif-4-latin-400-normal.woff' },
     { name: 'Source Serif 4', weight: 700, file: 'source-serif-4-latin-700-normal.woff' },
-    { name: 'Inter Tight',    weight: 400, file: 'inter-tight-latin-400-normal.woff' },
-    { name: 'Inter Tight',    weight: 500, file: 'inter-tight-latin-500-normal.woff' },
-    { name: 'Inter Tight',    weight: 700, file: 'inter-tight-latin-700-normal.woff' },
+    { name: 'Archivo', weight: 500, file: 'archivo-latin-500-normal.woff' },
+    { name: 'Archivo', weight: 800, file: 'archivo-latin-800-normal.woff' },
   ];
   const h = createHash('sha256');
   const fonts: SatoriFont[] = specs.map((s) => {

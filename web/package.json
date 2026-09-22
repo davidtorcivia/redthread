@@ -6,7 +6,9 @@
   "scripts": {
     "dev": "astro dev",
     "build": "astro build && pagefind --site dist",
-    "preview": "astro preview"
+    "preview": "astro preview",
+    "test": "node --experimental-strip-types --test tests/dates.test.mjs",
+    "test:ui": "node tests/ui-smoke.mjs"
   },
   "dependencies": {
     "@resvg/resvg-js": "^2.6.2",
@@ -15,6 +17,7 @@
     "satori": "^0.26.0"
   },
   "devDependencies": {
-    "@types/node": "^25.8.0"
+    "@types/node": "^25.8.0",
+    "playwright": "1.63.0"
   }
 }

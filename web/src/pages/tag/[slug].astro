@@ -56,11 +56,11 @@ const breakdown = groups
     return `${g.items.length} ${noun.toLowerCase()}`;
   })
   .join(', ');
-const description = `${count.toLocaleString()} entr${count === 1 ? 'y' : 'ies'} tagged ${tag}${breakdown ? ` — ${breakdown}` : ''}.`;
+const description = `${count.toLocaleString()} entr${count === 1 ? 'y' : 'ies'} tagged ${tag}${breakdown ? `: ${breakdown}` : ''}.`;
 const collectionSchema = {
   '@context': 'https://schema.org',
   '@type': 'CollectionPage',
-  name: `#${tag} — The Info Web`,
+  name: `#${tag} | The Info Web`,
   description,
   url: Astro.site ? new URL(`/tag/${slug}/`, Astro.site).href : `/tag/${slug}/`,
   ...(Astro.site ? { isPartOf: { '@id': `${new URL('/', Astro.site).href}#website` } } : {}),
@@ -72,7 +72,7 @@ const breadcrumbs = [
 ];
 ---
 <Base
-  title={`#${tag} — The Info Web`}
+  title={`#${tag} | The Info Web`}
   description={description}
   jsonLd={collectionSchema}
   breadcrumbs={breadcrumbs}

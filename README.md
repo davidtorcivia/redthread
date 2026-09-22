@@ -332,3 +332,33 @@ email the address in `git log`.
 MIT — see [LICENSE](LICENSE). The build pipeline is open; the vault
 content it consumes lives in its own repo and is governed by whatever
 license that repo uses (it's not part of this distribution).
+
+
+## Frontend checks
+
+The browser smoke test checks responsive headings, mobile contents, resolved and
+missing link styles, both path finders, Bridges/Hubs tabs, full-text search,
+graph controls, and search loading failure. Run it against a built preview or
+the deployed site:
+
+```sh
+cd web
+npm ci
+npm test
+npx playwright install chromium
+BASE_URL=http://127.0.0.1:4321 npm run test:ui
+```
+
+Use `PLAYWRIGHT_CHANNEL=chrome` to test with an installed Chrome browser.
+The preview must include the search index, so run `npm run build` before
+`npm run preview`.
+
+Search assets live at `/search-index/`, configured in `web/pagefind.yml`.
+Nginx revalidates the loader, worker, manifest, and WASM. Content-hashed index
+files keep their long cache lifetime. The site's CSP permits WebAssembly for
+Pagefind while keeping JavaScript eval disabled.
+
+After replacing `deploy/nginx.conf` on a running deployment, restart the web
+container so its file bind mount picks up the new file. Reloading nginx alone
+can keep the previous file mounted. Then check the response headers from the
+running container.

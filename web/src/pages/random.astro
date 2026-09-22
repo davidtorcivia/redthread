@@ -7,7 +7,8 @@ import { entities, hrefFor } from '../lib/data.ts';
 const pool = entities().map((e) => hrefFor({ id: e.id, type: e.type }));
 ---
 <Base
-  title="Random entry — The Info Web"
+  bodyClass="utility"
+  title="Random entry | The Info Web"
   description="Jump to a random entry in the vault."
   noindex
 >

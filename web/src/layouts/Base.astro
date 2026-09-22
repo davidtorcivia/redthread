@@ -1,5 +1,10 @@
 ---
+import '../styles/fonts.css';
 import '../styles/global.css';
+import '../styles/statement.css';
+import '../styles/graph.css';
+import '../styles/path.css';
+import { CARD_TEMPLATE_HASH } from '../lib/og-card';
 interface Props {
   title: string;
   description?: string;
@@ -61,9 +66,10 @@ const canonical = Astro.site
 // OG image absolute URL. Falls back to the relative path when site isn't
 // set (dev). Slack/Facebook require absolute URLs; Twitter accepts both
 // but normalizes anyway.
+const versionedOgImage = ogImage + (ogImage.includes('?') ? '&' : '?') + 'v=' + CARD_TEMPLATE_HASH;
 const ogImageUrl = Astro.site
-  ? new URL(ogImage, Astro.site).href
-  : ogImage;
+  ? new URL(versionedOgImage, Astro.site).href
+  : versionedOgImage;
 
 // Optional analytics snippet. Set ANALYTICS_SRC + ANALYTICS_ID in the build
 // environment and a script tag gets injected into <head>. Defaults match
@@ -132,6 +138,15 @@ const breadcrumbSchema = crumbItems
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <script is:inline>
+      try {
+        const saved = localStorage.getItem('iw-theme');
+        document.documentElement.dataset.theme = saved === 'dark' || saved === 'light'
+          ? saved : matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+      } catch {
+        document.documentElement.dataset.theme = matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+      }
+    </script>
     <title>{title}</title>
     {description && <meta name="description" content={description} />}
     {noindex && <meta name="robots" content="noindex, nofollow" />}
@@ -169,13 +184,13 @@ const breadcrumbSchema = crumbItems
       <script type="application/ld+json" set:html={JSON.stringify(breadcrumbSchema)} is:inline />
     )}
 
-    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' fill='%23f7f2e7'/%3E%3Ctext y='.85em' x='8' font-family='Georgia,serif' font-size='86' font-weight='600' fill='%2394322a'%3EI%3C/text%3E%3C/svg%3E" />
-    <link href="/pagefind/pagefind-ui.css" rel="stylesheet" />
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' fill='%23ff4a1c'/%3E%3Ctext y='.85em' x='8' font-family='Georgia,serif' font-size='86' font-weight='600' fill='%230d0d0d'%3EI%3C/text%3E%3C/svg%3E" />
+    <link href="/search-index/pagefind-ui.css" rel="stylesheet" />
     {/* defer: ~120KB of search UI no longer blocks first paint. Pagefind
         only runs when the user opens search, but deferring still ensures
         window.PagefindUI is defined before our DOMContentLoaded init()
         below — no race on the first ⌘K. */}
-    <script src="/pagefind/pagefind-ui.js" defer is:inline></script>
+    <script src="/search-index/pagefind-ui.js" defer is:inline></script>
     {preloadAdjacency && (
       /* Shared adjacency map for the NetworkGraph widget on entity pages
          and the /network/ + /path/ tools. ~150 KB gzipped. Only preloaded
@@ -199,50 +214,30 @@ const breadcrumbSchema = crumbItems
     )}
   </head>
   <body class={bodyClass}>
-    <header class="site">
+    <a class="skip-link" href="#main-content">Skip to content</a>
+    <header class="site" id="top">
       <div class="bar">
-        <button
-          class="nav-toggle"
-          id="nav-toggle"
-          type="button"
-          aria-expanded="false"
-          aria-controls="site-nav"
-          aria-label="Open menu"
-        >
-          <span class="nav-icon" aria-hidden="true"></span>
-        </button>
         <a href="/" class="brand">The Info Web</a>
-        <nav id="site-nav">
+        <button class="nav-toggle" id="nav-toggle" type="button" aria-expanded="false" aria-controls="site-nav" aria-label="Open menu">Menu</button>
+        <nav id="site-nav" aria-label="Main navigation">
           <a href="/people/">People</a>
           <a href="/organizations/">Organizations</a>
           <a href="/programs/">Programs</a>
           <a href="/events/">Events</a>
           <a href="/concepts/">Concepts</a>
           <a href="/places/">Places</a>
-          {/* Tool links — hidden on desktop (they live in the footer there),
-              surfaced inside the mobile dropdown so phones can reach them
-              without hunting through the tiny footer. See .nav-tool in CSS. */}
-          <span class="nav-group-label" aria-hidden="true">Explore</span>
-          <a class="nav-tool" href="/network/">Network</a>
-          <a class="nav-tool" href="/path/">Path</a>
-          <a class="nav-tool" href="/bridges/">Bridges</a>
-          <a class="nav-tool" href="/clusters/">Clusters</a>
-          <a class="nav-tool" href="/tags/">Tags</a>
-          <a class="nav-tool" href="/timeline/">Timeline</a>
+          <a href="/network/">Network</a>
+          <button class="search-trigger" id="search-open" type="button" aria-label="Open search" disabled>Search</button>
+          <button class="theme-toggle" data-theme-toggle type="button">Dark</button>
         </nav>
-        <span class="spacer"></span>
-        <button class="search-trigger" id="search-open" type="button" aria-label="Open search (Command-K)">
-          <span>Search</span>
-          <kbd>⌘ K</kbd>
-        </button>
       </div>
     </header>
-    <main>
+    <main id="main-content" tabindex="-1">
       <slot />
     </main>
     <footer class="site">
       <div class="container">
-        <a href="/" class="foot-brand">The Info Web</a>
+        <a href="/random/" class="foot-brand">Random entry</a>
         <nav class="foot-nav">
           <a href="/network/">Network</a>
           <a href="/path/">Path</a>
@@ -260,6 +255,8 @@ const breadcrumbSchema = crumbItems
 
     <div id="pf-modal" role="dialog" aria-modal="true" aria-label="Search">
       <div class="pf-shell">
+        <div class="pf-header"><span>Search</span><button type="button" id="pf-close" aria-label="Close search">Close</button></div>
+        <p id="pf-error" role="status" hidden>Search could not load. <button type="button" id="pf-reload">Reload the page</button> to try again.</p>
         <div id="pf-mount"></div>
       </div>
     </div>
@@ -424,7 +421,33 @@ const breadcrumbSchema = crumbItems
         }
       }
 
-      // ---------- Mobile hamburger menu ----------
+      // Saved preferences take precedence over the OS. Notify canvas graphs.
+      onReady(() => {
+        const root = document.documentElement;
+        const system = matchMedia('(prefers-color-scheme: dark)');
+        const buttons = document.querySelectorAll('[data-theme-toggle]');
+        const setTheme = (theme) => {
+          root.dataset.theme = theme;
+          buttons.forEach(button => {
+            button.textContent = theme === 'dark' ? 'Light' : 'Dark';
+            button.setAttribute('aria-label', 'Switch to ' + (theme === 'dark' ? 'light' : 'dark') + ' theme');
+          });
+          window.dispatchEvent(new Event('themechange'));
+        };
+        setTheme(root.dataset.theme || (system.matches ? 'dark' : 'light'));
+        buttons.forEach(button => button.addEventListener('click', () => {
+          const theme = root.dataset.theme === 'dark' ? 'light' : 'dark';
+          try { localStorage.setItem('iw-theme', theme); } catch {}
+          setTheme(theme);
+        }));
+        system.addEventListener('change', () => {
+          let saved;
+          try { saved = localStorage.getItem('iw-theme'); } catch {}
+          if (saved !== 'dark' && saved !== 'light') setTheme(system.matches ? 'dark' : 'light');
+        });
+      });
+
+      // ---------- Mobile menu ----------
       onReady(() => {
         const toggle = document.getElementById('nav-toggle');
         const nav = document.getElementById('site-nav');
@@ -432,18 +455,28 @@ const breadcrumbSchema = crumbItems
         function setOpen(open) {
           nav.classList.toggle('open', open);
           toggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+          toggle.textContent = open ? 'Close' : 'Menu';
+          document.querySelector('main').inert = open;
+          document.querySelector('footer.site').inert = open;
           toggle.setAttribute('aria-label', open ? 'Close menu' : 'Open menu');
           document.body.classList.toggle('nav-open', open);
         }
+        window.addEventListener('close-menu', () => setOpen(false));
+        matchMedia('(min-width: 1101px)').addEventListener('change', e => { if (e.matches) setOpen(false); });
         toggle.addEventListener('click', () => {
           setOpen(!nav.classList.contains('open'));
         });
         // Close on link tap and on Escape.
         nav.addEventListener('click', (e) => {
-          if (e.target.closest('a')) setOpen(false);
-        });
+          if (e.target.closest('a, .search-trigger')) setOpen(false);
+        }, true);
         document.addEventListener('keydown', (e) => {
-          if (e.key === 'Escape' && nav.classList.contains('open')) setOpen(false);
+          if (e.key === 'Escape' && nav.classList.contains('open')) { setOpen(false); toggle.focus(); }
+          if (e.key === 'Tab' && nav.classList.contains('open')) {
+            const last = nav.querySelector('[data-theme-toggle]');
+            if (e.shiftKey && document.activeElement === toggle) { e.preventDefault(); last.focus(); }
+            else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); toggle.focus(); }
+          }
         });
       });
 
@@ -454,22 +487,26 @@ const breadcrumbSchema = crumbItems
         const trigger = document.getElementById('search-open');
         if (!modal || !mount) return;
         let pfReady = false;
+        const loadError = document.getElementById('pf-error');
+        document.getElementById('pf-reload')?.addEventListener('click', () => location.reload());
+        document.getElementById('pf-close')?.addEventListener('click', closeModal);
 
         function init() {
           if (pfReady) return;
-          if (!window.PagefindUI) return;
+          if (!window.PagefindUI) { loadError.hidden = false; return; }
           try {
             new window.PagefindUI({
               element: '#pf-mount',
+              bundlePath: '/search-index/',
               showImages: false,
               showSubResults: true,
               resetStyles: false,
               placeholder: 'Search the vault…',
             });
             pfReady = true;
+            loadError.hidden = true;
           } catch (_) {
-            // Swallow — the click listener below still works, and the modal
-            // will show an empty shell rather than the whole header dying.
+            loadError.hidden = false;
           }
         }
 
@@ -622,6 +659,7 @@ const breadcrumbSchema = crumbItems
           });
         }
         function openModal() {
+          window.dispatchEvent(new Event('close-menu'));
           init();
           wireQuick();
           modal.classList.add('open');
@@ -640,14 +678,15 @@ const breadcrumbSchema = crumbItems
           setBackgroundInert(false);
           const back = opener && document.contains(opener) ? opener : trigger;
           opener = null;
-          if (back) back.focus();
+          if (back && back.getClientRects().length) back.focus();
+          else document.getElementById('nav-toggle')?.focus();
         }
         // Trap Tab within the dialog so keyboard focus stays on the search UI.
         modal.addEventListener('keydown', (e) => {
           if (e.key !== 'Tab' || !modal.classList.contains('open')) return;
-          const focusables = modal.querySelectorAll(
+          const focusables = [...modal.querySelectorAll(
             'a[href], button:not([disabled]), input:not([disabled]), [tabindex]:not([tabindex="-1"])'
-          );
+          )].filter(el => el.getClientRects().length && getComputedStyle(el).visibility !== 'hidden');
           if (!focusables.length) return;
           const first = focusables[0];
           const last = focusables[focusables.length - 1];
@@ -663,7 +702,10 @@ const breadcrumbSchema = crumbItems
         // Attach the click handler FIRST, before the eager init() call —
         // so even if PagefindUI's constructor explodes, the button still
         // opens the modal.
-        trigger && trigger.addEventListener('click', openModal);
+        if (trigger) {
+          trigger.addEventListener('click', openModal);
+          trigger.disabled = false;
+        }
         modal.addEventListener('mousedown', (e) => {
           if (e.target === modal) closeModal();
         });

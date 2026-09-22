@@ -1,36 +1,30 @@
 ---
 import Base from '../layouts/Base.astro';
+import GraphTools from '../components/GraphTools.astro';
+import GraphCaption from '../components/GraphCaption.astro';
 import { entities } from '../lib/data.ts';
 
 const total = entities().length;
 ---
 <Base
-  title="Full network — The Info Web"
+  bodyClass="utility"
+  title="Full network | The Info Web"
   description="Every entry in the vault rendered as a single navigable graph."
   preloadAdjacency
 >
   <article class="network-article" id="net-article">
     <header class="network-header">
-      <div class="entity-eyebrow"><span>Tools</span></div>
-      <h1 class="entity-title">The full network</h1>
-      <p class="entity-dek">
-        Every {total.toLocaleString()} entries in the vault on one map.
-        <strong>Scroll</strong> to zoom, <strong>drag</strong> to pan,
-        <strong>click</strong> a node or connection line to select,
-        <strong>double-click</strong> a node to navigate.
-        Use the sliders to dim everything or spread Force layout farther apart.
-        Bridge entities are ringed in gold; edges that touch them tint gold too.
-        <strong>Colour</strong> switches node colour from entry type to detected
-        <a href="/clusters/">cluster</a>.
-      </p>
+      <div class="network-heading"><h1 class="entity-title">Follow the connections.</h1><span class="network-total">{total.toLocaleString()} entries</span></div>
+      <p class="entity-dek">Browse connections between entries. Search for a name, select a node to see its links, or use Options to filter the graph.</p>
     </header>
 
+    <GraphTools full id="full-network" />
     <section class="net-shell" id="net-shell">
       <canvas
         class="net-canvas"
         id="net-canvas"
         role="img"
-        aria-label={`Network graph of ${total.toLocaleString()} connected entries — a pointer-driven visual tool.`}
+        aria-label={`Network graph of ${total.toLocaleString()} connected entries. Search or select an entry to explore its connections.`}
       ></canvas>
       {/* The canvas can't be navigated by keyboard or screen reader; point AT
           users at the structured, fully-accessible views of the same data. */}
@@ -46,61 +40,8 @@ const total = entities().length;
           Load network <span class="net-load-hint">({total.toLocaleString()} nodes)</span>
         </button>
         <p class="net-load-warn">
-          Renders the entire vault as a single canvas. Should be near-instant on modern browsers.
+          Load all entries and their connections.
         </p>
-      </div>
-
-      <div class="net-controls net-drawer net-drawer-right" hidden id="net-controls">
-        <button class="net-drawer-toggle" id="net-controls-toggle" type="button" aria-label="Toggle settings" aria-expanded="true">
-          <span class="net-carrot" aria-hidden="true"></span>
-        </button>
-        <div class="net-drawer-body net-controls-body">
-          <button class="graph-btn net-layout" type="button">Layout: Force</button>
-          <button class="graph-btn net-fit" type="button">Refit</button>
-          <button class="graph-btn net-edges" type="button" aria-pressed="true">Hide edges</button>
-          <button class="graph-btn net-implicit" type="button" aria-pressed="false">+ Inferred</button>
-          <button class="graph-btn net-multi" type="button" aria-pressed="false">Multi: off</button>
-          <button class="graph-btn net-color" type="button" aria-pressed="false">Colour: Type</button>
-          <button class="graph-btn net-fullscreen" type="button" aria-pressed="false">Fullscreen</button>
-        </div>
-      </div>
-
-      <div class="net-sliders net-drawer net-drawer-right" hidden id="net-sliders">
-        <button class="net-drawer-toggle" id="net-sliders-toggle" type="button" aria-label="Toggle sliders" aria-expanded="true">
-          <span class="net-carrot" aria-hidden="true"></span>
-        </button>
-        <div class="net-drawer-body net-sliders-body">
-          <label class="net-slider">
-            <span class="net-slider-label">Opacity</span>
-            <input type="range" class="net-slider-input" data-slider="opacity" min="0" max="100" value="100" />
-            <span class="net-slider-val" data-slider-val="opacity">100%</span>
-          </label>
-          <label class="net-slider" title="How much non-related elements fade when something is selected. Lower = selection overlays the full network; higher = quick read.">
-            <span class="net-slider-label">Highlight</span>
-            <input type="range" class="net-slider-input" data-slider="highlight" min="0" max="100" value="100" />
-            <span class="net-slider-val" data-slider-val="highlight">100%</span>
-          </label>
-          <label class="net-slider" data-force-only>
-            <span class="net-slider-label">Force</span>
-            <input type="range" class="net-slider-input" data-slider="force" min="50" max="400" value="100" />
-            <span class="net-slider-val" data-slider-val="force">100%</span>
-          </label>
-        </div>
-      </div>
-
-      <div class="net-filters net-drawer net-drawer-left" hidden id="net-filters" aria-label="Filter by type">
-        <div class="net-drawer-body net-filters-body">
-          <span class="net-filters-label">Show</span>
-          <button class="net-chip active type-person" data-type="person" aria-pressed="true">People</button>
-          <button class="net-chip active type-organization" data-type="organization" aria-pressed="true">Orgs</button>
-          <button class="net-chip active type-program" data-type="program" aria-pressed="true">Programs</button>
-          <button class="net-chip active type-event" data-type="event" aria-pressed="true">Events</button>
-          <button class="net-chip active type-concept" data-type="concept" aria-pressed="true">Concepts</button>
-          <button class="net-chip active type-place" data-type="place" aria-pressed="true">Places</button>
-        </div>
-        <button class="net-drawer-toggle" id="net-filters-toggle" type="button" aria-label="Toggle filters" aria-expanded="true">
-          <span class="net-carrot" aria-hidden="true"></span>
-        </button>
       </div>
 
       <div class="graph-selection net-selection" hidden id="net-selection">
@@ -120,15 +61,16 @@ const total = entities().length;
 
       <div class="graph-tooltip net-tooltip" hidden id="net-tooltip"></div>
     </section>
+    <GraphCaption />
 
     {/* Legend — the canvas encodes type/size/edge-kind/bridge with no
         on-screen key, so spell them out. Native <details> keeps it
         collapsed by default and needs no JS. */}
     <details class="net-legend">
-      <summary>Legend — how to read this graph</summary>
+      <summary>How to read the graph</summary>
       <div class="net-legend-body">
         <div class="nl-group">
-          <span class="nl-group-label">Node colour — type (or Louvain cluster, via “Colour”)</span>
+          <span class="nl-group-label">Colour shows the entry type or cluster</span>
           <ul class="nl-types">
             <li><span class="nl-dot t-person"></span>People</li>
             <li><span class="nl-dot t-organization"></span>Organizations</li>
@@ -147,13 +89,13 @@ const total = entities().length;
         </div>
         <div class="nl-group">
           <span class="nl-group-label">Connections</span>
-          <p class="nl-row"><span class="nl-line"></span> Explicit link (wikilink between entries).</p>
-          <p class="nl-row"><span class="nl-line dashed"></span> Inferred connection (name co-mention) — shown via “+ Inferred”.</p>
+          <p class="nl-row"><span class="nl-line"></span> A link from one entry to another.</p>
+          <p class="nl-row"><span class="nl-line dashed"></span> A name mentioned in an entry without a direct link. Toggle these with “Inferred”.</p>
         </div>
         <div class="nl-group">
           <span class="nl-group-label">Highlights</span>
-          <p class="nl-row"><span class="nl-ring gold"></span> Gold ring (and gold edges) — a bridge entity linking distant clusters.</p>
-          <p class="nl-row"><span class="nl-ring accent"></span> Accent ring — your current selection.</p>
+          <p class="nl-row"><span class="nl-ring gold"></span> Gold rings mark entries mentioned across several clusters.</p>
+          <p class="nl-row"><span class="nl-ring accent"></span> Orange rings mark your selection.</p>
         </div>
       </div>
     </details>
@@ -190,6 +132,7 @@ const total = entities().length;
         showImplicit: false,
         fullscreenEl: article,
         layouts: [
+          { key: 'clusters', label: 'Clusters', apply: applyClusterLayout },
           { key: 'force', label: 'Force', apply: applyForceLayout },
           { key: 'grid', label: 'Grid', apply: applyGridLayout },
           { key: 'circle', label: 'Circle', apply: applyCircleLayout },
@@ -267,6 +210,8 @@ const total = entities().length;
 
         engine.communityLabels = data.communityLabels || [];
         engine.setGraph(nodes, edges, implicit);
+        engine.setColorMode('community');
+        article.classList.add('color-by-community');
         status.setAttribute('hidden', '');
         controls.removeAttribute('hidden');
         filters.removeAttribute('hidden');
@@ -296,6 +241,46 @@ const total = entities().length;
       }
 
       // --- Layouts ---------------------------------------------------------
+      function applyClusterLayout(g) {
+        // Pack actual link communities into separate islands. The force view
+        // remains available for the ungrouped topology.
+        const communities = new Map();
+        for (const n of g.nodes) {
+          if (!n.visible) continue;
+          if (!communities.has(n.community)) communities.set(n.community, []);
+          communities.get(n.community).push(n);
+        }
+        const groups = [...communities.entries()].filter(([,members]) => members.length >= 8);
+        const fragments = [...communities.values()].filter(members => members.length < 8).flat();
+        if (fragments.length) groups.push([-1, fragments]);
+        groups.sort((a,b) => b[1].length - a[1].length);
+        const placed = [];
+        const aspect = Math.max(.7, Math.min(2.1, g.canvasSize().W / g.canvasSize().H));
+        for (const [id, members] of groups) {
+          const radius = Math.sqrt(members.length) * 21 + 50;
+          let best = { x: 0, y: 0, score: Infinity };
+          if (!placed.length) best.score = 0;
+          for (const other of placed) {
+            for (let step = 0; step < 96; step++) {
+              const angle = step / 96 * Math.PI * 2;
+              const x = other.x + Math.cos(angle) * (radius + other.radius + 65);
+              const y = other.y + Math.sin(angle) * (radius + other.radius + 65);
+              if (placed.some(p => Math.hypot(p.x-x,p.y-y) < p.radius+radius+60)) continue;
+              const score = (x*x)/(aspect*aspect) + y*y;
+              if (score < best.score) best = {x,y,score};
+            }
+          }
+          placed.push({x:best.x,y:best.y,radius});
+          members.sort((a,b) => b.count-a.count || a.title.localeCompare(b.title));
+          members.forEach((n,i) => {
+            const angle = i * 2.399963229728653;
+            const distance = Math.sqrt(i / Math.max(1,members.length-1)) * (radius-45);
+            n.x = best.x + Math.cos(angle)*distance;
+            n.y = best.y + Math.sin(angle)*distance;
+          });
+        }
+      }
+
       function applyForceLayout(g) {
         if (!rawForcePositions) return;
         const scale = FORCE_BASELINE * g.forceMult;
@@ -351,6 +336,10 @@ const total = entities().length;
       }
 
       loadBtn.addEventListener('click', init);
+      const observer = new IntersectionObserver(entries => {
+        if (entries.some(entry => entry.isIntersecting)) { observer.disconnect(); init(); }
+      }, { rootMargin: '200px' });
+      observer.observe(article);
     })();
   </script>
 </Base>

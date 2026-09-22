@@ -1,4 +1,6 @@
 ---
+import GraphTools from './GraphTools.astro';
+import GraphCaption from './GraphCaption.astro';
 interface Props {
   id: string;
   title: string;
@@ -7,17 +9,14 @@ const { id, title } = Astro.props;
 ---
 <section class="entity-network" data-focal-id={id} data-pagefind-ignore>
   <h2 class="section-heading">Local network</h2>
-  <p class="net-blurb">
-    {title}'s direct connections (the most-mentioned 250 on the densest entries). Click any node to navigate, drag to pan,
-    scroll (or pinch) to zoom. <strong>+ 2&#8209;hop</strong> expands the
-    neighborhood one level further.
-  </p>
+  <p class="net-blurb">Search or select an entry to see how it connects to {title}.</p>
+  <GraphTools id={id} />
 
   <div class="net-shell entity-net-shell">
     <canvas
       class="net-canvas"
       role="img"
-      aria-label={`Network diagram of the connections around ${title} — a pointer-driven visual tool.`}
+      aria-label={`Network diagram of the connections around ${title}. Search or select an entry to explore its connections.`}
     ></canvas>
     {/* The same neighbors are listed as real links in the Connected and
         Mentioned-in sections of this page, which are keyboard/SR accessible. */}
@@ -28,45 +27,6 @@ const { id, title } = Astro.props;
     </p>
 
     <div class="net-status" hidden></div>
-
-    <div class="net-controls net-drawer net-drawer-right">
-      <button class="net-drawer-toggle" type="button" data-toggle="controls" aria-label="Toggle settings" aria-expanded="true">
-        <span class="net-carrot" aria-hidden="true"></span>
-      </button>
-      <div class="net-drawer-body net-controls-body">
-        <button class="graph-btn net-twohop" type="button" aria-pressed="false">+ 2&#8209;hop</button>
-        <button class="graph-btn net-layout" type="button">Layout: Force</button>
-        <button class="graph-btn net-fit" type="button">Refit</button>
-        <button class="graph-btn net-edges" type="button" aria-pressed="true">Hide edges</button>
-        <button class="graph-btn net-implicit" type="button" aria-pressed="true">− Inferred</button>
-        <button class="graph-btn net-multi" type="button" aria-pressed="false">Multi: off</button>
-        <button class="graph-btn net-color" type="button" aria-pressed="false">Colour: Type</button>
-        <button class="graph-btn net-fullscreen" type="button" aria-pressed="false">Fullscreen</button>
-      </div>
-    </div>
-
-    <div class="net-sliders net-drawer net-drawer-right">
-      <button class="net-drawer-toggle" type="button" data-toggle="sliders" aria-label="Toggle sliders" aria-expanded="true">
-        <span class="net-carrot" aria-hidden="true"></span>
-      </button>
-      <div class="net-drawer-body net-sliders-body">
-        <label class="net-slider">
-          <span class="net-slider-label">Opacity</span>
-          <input type="range" class="net-slider-input" data-slider="opacity" min="0" max="100" value="100" />
-          <span class="net-slider-val" data-slider-val="opacity">100%</span>
-        </label>
-        <label class="net-slider">
-          <span class="net-slider-label">Highlight</span>
-          <input type="range" class="net-slider-input" data-slider="highlight" min="0" max="100" value="100" />
-          <span class="net-slider-val" data-slider-val="highlight">100%</span>
-        </label>
-        <label class="net-slider" data-force-only>
-          <span class="net-slider-label">Force</span>
-          <input type="range" class="net-slider-input" data-slider="force" min="50" max="400" value="100" />
-          <span class="net-slider-val" data-slider-val="force">100%</span>
-        </label>
-      </div>
-    </div>
 
     <div class="graph-selection net-selection" hidden>
       <div class="gs-row">
@@ -86,13 +46,15 @@ const { id, title } = Astro.props;
     <div class="graph-tooltip net-tooltip" hidden></div>
   </div>
 
+  <GraphCaption />
+
   {/* Same key as the full /network/ graph — node colour/size, edge kind,
       bridge ring. Native <details>, collapsed by default. */}
   <details class="net-legend">
-    <summary>Legend — how to read this graph</summary>
+    <summary>How to read the graph</summary>
     <div class="net-legend-body">
       <div class="nl-group">
-        <span class="nl-group-label">Node colour — type (or cluster, via “Colour”)</span>
+        <span class="nl-group-label">Colour shows the entry type or cluster</span>
         <ul class="nl-types">
           <li><span class="nl-dot t-person"></span>People</li>
           <li><span class="nl-dot t-organization"></span>Organizations</li>
@@ -111,13 +73,13 @@ const { id, title } = Astro.props;
       </div>
       <div class="nl-group">
         <span class="nl-group-label">Connections</span>
-        <p class="nl-row"><span class="nl-line"></span> Explicit link (wikilink between entries).</p>
-        <p class="nl-row"><span class="nl-line dashed"></span> Inferred connection (name co-mention) — toggle with “Inferred”.</p>
+        <p class="nl-row"><span class="nl-line"></span> A link from one entry to another.</p>
+        <p class="nl-row"><span class="nl-line dashed"></span> A name mentioned in an entry without a direct link. Toggle these with “Inferred”.</p>
       </div>
       <div class="nl-group">
         <span class="nl-group-label">Highlights</span>
-        <p class="nl-row"><span class="nl-ring gold"></span> Gold ring — a bridge entity linking distant clusters.</p>
-        <p class="nl-row"><span class="nl-ring accent"></span> Accent ring — your current selection.</p>
+        <p class="nl-row"><span class="nl-ring gold"></span> Gold rings mark entries mentioned across several clusters.</p>
+        <p class="nl-row"><span class="nl-ring accent"></span> Orange rings mark your selection.</p>
       </div>
     </div>
   </details>
@@ -154,13 +116,17 @@ const { id, title } = Astro.props;
         { key: 'concentric', label: 'Concentric', apply: applyConcentricLayout },
         { key: 'circle', label: 'Circle', apply: applyCircleLayout },
       ],
-      onForceSlider(mult, _prev, g) {
+      onForceSlider(mult, prev, g) {
         if (!cachedForcePositions) return;
         for (let i = 0; i < g.nodes.length; i++) {
           g.nodes[i].x = cachedForcePositions[i][0] * mult;
           g.nodes[i].y = cachedForcePositions[i][1] * mult;
         }
-        g.fit();
+        const ratio = mult / prev;
+        const { W, H } = g.canvasSize();
+        g.view.tx = W / 2 * (1 - ratio) + g.view.tx * ratio;
+        g.view.ty = H / 2 * (1 - ratio) + g.view.ty * ratio;
+        g.requestDraw();
       },
     });
 
@@ -197,24 +163,7 @@ const { id, title } = Astro.props;
       engine.wire();
       wireTwoHop();
 
-      // Reveal: drawers slide in to their collapsed tab, then the tab
-      // flashes gold once so the user sees there is something to open.
-      const drawers = [...section.querySelectorAll('.net-drawer')];
-      for (const d of drawers) {
-        d.classList.add('collapsed', 'entering');
-        const t = d.querySelector('.net-drawer-toggle');
-        if (t) t.setAttribute('aria-expanded', 'false');
-      }
-      void section.offsetHeight;
-      requestAnimationFrame(() => {
-        for (const d of drawers) d.classList.remove('entering');
-        setTimeout(() => {
-          section.querySelectorAll('.net-drawer-toggle').forEach((tog) => {
-            tog.classList.add('attention-flash');
-            setTimeout(() => tog.classList.remove('attention-flash'), 1500);
-          });
-        }, 400);
-      });
+
     }
 
     // BFS from the focal node to depth 1 or 2, capped. Uncapped, the 2-hop
@@ -254,11 +203,11 @@ const { id, title } = Astro.props;
         localIdx.set(globalIdx, nodes.length);
         // sqrt scaling: at small N each node gets more visual weight than
         // the log scaling used on /network/.
-        const size = Math.min(40, 10 + Math.sqrt(mentions[globalIdx] || 0) * 1.8);
+        const size = Math.min(15, 5 + Math.log2(1 + (mentions[globalIdx] || 0)) * 1.1);
         const n = nodeFromAdjacency(adjacencyData, globalIdx, size);
         n.hop = hop;
         n.isFocal = globalIdx === focalIdx;
-        if (n.isFocal) n.size = Math.max(size * 1.4 + 4, 28);
+        if (n.isFocal) n.size = 22;
         nodes.push(n);
       }
       const edges = [];
@@ -344,11 +293,12 @@ const { id, title } = Astro.props;
     function applyForceLayout(g) {
       // Small Fruchterman-Reingold pass, focal pinned at the origin.
       const nodes = g.nodes, n = nodes.length;
-      const k = Math.sqrt((600 * 600) / Math.max(1, n));
+      const k = Math.sqrt((1100 * 700) / Math.max(1, n));
       for (const node of nodes) {
         if (Math.abs(node.x) < 1 && Math.abs(node.y) < 1) {
-          node.x = (Math.random() - 0.5) * 200;
-          node.y = (Math.random() - 0.5) * 200;
+          const index = nodes.indexOf(node);
+          node.x = Math.cos(index * 2.399963) * (30 + Math.sqrt(index) * 20);
+          node.y = Math.sin(index * 2.399963) * (30 + Math.sqrt(index) * 20);
         }
       }
       let temp = 50;

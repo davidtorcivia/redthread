@@ -1,12 +1,14 @@
 ---
 import Base from '../../layouts/Base.astro';
+import Headline from '../../components/Headline.astro';
+import { formatDates } from '../../lib/dates';
 import Backlinks from '../../components/Backlinks.astro';
 import HiddenConnections from '../../components/HiddenConnections.astro';
 import NetworkGraph from '../../components/NetworkGraph.astro';
 import PathWidget from '../../components/PathWidget.astro';
 import RelatedGrid from '../../components/RelatedGrid.astro';
 import TableOfContents from '../../components/TableOfContents.astro';
-import { entities, communityOf, CLUSTER_MIN_SIZE, tagHref, renderInlineMd, TYPE_DIRS, TYPE_LABELS, TYPE_PLURALS } from '../../lib/data.ts';
+import { entities, hrefFor, communityOf, CLUSTER_MIN_SIZE, tagHref, renderInlineMd, TYPE_DIRS, TYPE_LABELS, TYPE_PLURALS } from '../../lib/data.ts';
 import type { Entity } from '../../lib/types.ts';
 
 export function getStaticPaths() {
@@ -21,33 +23,8 @@ const typeLabel = TYPE_LABELS[entity.type];
 const typePlural = TYPE_PLURALS[entity.type];
 const typeHref = `/${TYPE_DIRS[entity.type]}/`;
 
-// Short-form date label: prefer just the year so meta stays terse.
-function yearOf(s?: string): string | null {
-  if (!s) return null;
-  const m = s.match(/^(\d{4})/);
-  return m ? m[1] : s;
-}
 const dates = entity.dates ?? {};
-const born = yearOf(dates.born);
-const died = yearOf(dates.died);
-const start = yearOf(dates.start);
-const end = yearOf(dates.end);
-const date = yearOf(dates.date);
-// Compose a single "Lifespan / Active / Date" line per entity, depending
-// on which fields are present. People get born–died; events/programs get
-// start–end; single-day events get just the date.
-let dateLabel: string | null = null;
-let dateValue: string | null = null;
-if (born || died) {
-  dateLabel = 'Lifespan';
-  dateValue = `${born ?? '?'}–${died ?? 'present'}`;
-} else if (start || end) {
-  dateLabel = 'Active';
-  dateValue = `${start ?? '?'}–${end ?? 'present'}`;
-} else if (date) {
-  dateLabel = 'Date';
-  dateValue = date;
-}
+const dateValue = formatDates(dates);
 const locations = entity.locations ?? [];
 // Louvain cluster this entry sits in; fragments are not shown.
 const cluster = communityOf(entity);
@@ -118,10 +95,14 @@ const ogImage = `/og/${TYPE_DIRS[entity.type]}/${entity.id}.png`;
 // LLM tools auto-discover the clean-markdown companion via rel=alternate.
 // The .md sits beside the HTML directory (e.g. /people/foo.md next to
 // /people/foo/) and is emitted by parse_vault → build.sh copies into public/.
+const siblings = entities().filter(e => e.type === entity.type).sort((a, b) => a.title.localeCompare(b.title));
+const position = siblings.findIndex(e => e.id === entity.id);
+const previous = siblings[position - 1];
+const next = siblings[position + 1];
 const mdHref = `/${TYPE_DIRS[entity.type]}/${entity.id}.md`;
 ---
 <Base
-  title={`${entity.title} — The Info Web`}
+  title={`${entity.title} | The Info Web`}
   description={entity.summary ?? undefined}
   bodyClass={`entity type-${entity.type}`}
   ogType={ogType}
@@ -144,88 +125,27 @@ const mdHref = `/${TYPE_DIRS[entity.type]}/${entity.id}.md`;
       <span data-pagefind-filter={`category:${entity.category}`} hidden></span>
     )}
 
-    <div class="entity-eyebrow">
-      <a href={typeHref}>{typePlural}</a>
-      {entity.category && (
-        <>
-          <span class="crumb-sep">·</span>
-          <span>{entity.category}</span>
-        </>
-      )}
-    </div>
-
-    <h1 class="entity-title">{entity.title}</h1>
-
-    {aliases.length > 0 && (
-      <p class="entity-aka" data-pagefind-weight="10">Also known as {aliases.join(', ')}</p>
-    )}
-
-    {entity.summary && <p class="entity-dek" set:html={renderInlineMd(entity.summary)} />}
-
-    <div class="entity-meta">
-      {dateLabel && (
-        <span class="meta-item">
-          <span class="meta-label">{dateLabel}</span>
-          <span class="meta-value">{dateValue}</span>
-        </span>
-      )}
-      {locations.length > 0 && (
-        <span class="meta-item">
-          <span class="meta-label">Location</span>
-          <span class="meta-value">{locations.join(', ')}</span>
-        </span>
-      )}
-      {entity.mention_count > 0 && (
-        <span class="meta-item">
-          <span class="meta-label">Mentions</span>
-          <span class="meta-value">{entity.mention_count}</span>
-        </span>
-      )}
-      {entity.bridge_rank && (
-        <span class="meta-item">
-          <a
-            class="bridge-badge"
-            href={`/bridges/#br-${entity.id}`}
-            title={`Bridge #${entity.bridge_rank}. The pages citing this entry span ${entity.community_span ?? 'multiple'} distinct community clusters — it keeps turning up in otherwise-separate parts of the network. Click for the full Bridges list.`}
-          >
-            Bridge <span class="bridge-rank">#{entity.bridge_rank}</span>
-          </a>
-        </span>
-      )}
-      {entity.hub_rank && (
-        <span class="meta-item">
-          <a
-            class="bridge-badge hub-badge"
-            href={`/bridges/#hu-${entity.id}`}
-            title={`Hub #${entity.hub_rank}. High weighted PageRank — heavily mentioned and mentioned by other heavily-mentioned entries. Click for the full Hubs list.`}
-          >
-            Hub <span class="bridge-rank">#{entity.hub_rank}</span>
-          </a>
-        </span>
-      )}
-      {clusterShown && (
-        <span class="meta-item">
-          <span class="meta-label">Cluster</span>
-          <a
-            class="meta-value cluster-link"
-            href={`/clusters/#c-${clusterShown.id}`}
-            title={`One of ${clusterShown.size} entries in this community of the link graph. Click for the cluster list.`}
-          >{clusterShown.label}</a>
-        </span>
-      )}
-      {entity.tags.length > 0 && (
-        <span class="meta-item">
-          <span class="meta-label">Tags</span>
-          {entity.tags.slice(0, 8).map((t) => (
-            <a class="tag" href={tagHref(t)}>{t}</a>
-          ))}
-        </span>
-      )}
-    </div>
-
-    <TableOfContents entries={entity.toc ?? []} />
-
-    <div class="prose" set:html={entity.body_html} />
+    <header class="statement-band entry-band">
+      <Headline class={['entity-title', entity.title.length > 22 && 'long-title', entity.title.length > 55 && 'very-long-title'].filter(Boolean).join(' ')} title={entity.title} />
+      <div class="band-row">
+        {entity.summary && <p class="band-lede" set:html={renderInlineMd(entity.summary)} />}
+        <div class="band-facts">
+          <div><a href={typeHref}>{entity.category || typeLabel}</a>{aliases.length > 0 && <span data-pagefind-weight="10"> · {aliases.join(', ')}</span>}</div>
+          {(dateValue || locations.length > 0) && <div>{dateValue}{dateValue && locations.length > 0 && ' · '}{locations.join(', ')}</div>}
+          <div>Referenced on {entity.mention_count.toLocaleString()} pages{clusterShown && <> · <a href={`/clusters/#c-${clusterShown.id}`}>{clusterShown.label} cluster</a></>}</div>
+          {(entity.bridge_rank || entity.hub_rank) && <div>
+            {entity.bridge_rank && <a href={`/bridges/#br-${entity.id}`}>Bridge #{entity.bridge_rank}</a>}
+            {entity.bridge_rank && entity.hub_rank && ' · '}
+            {entity.hub_rank && <a href={`/bridges/#hu-${entity.id}`}>Hub #{entity.hub_rank}</a>}
+          </div>}
+        </div>
+      </div>
+    </header>
+    <div class="statement-wrap">
+      <div class="statement-read">
+        <TableOfContents entries={entity.toc ?? []} />
+        <div class="prose" set:html={entity.body_html} />
+      </div>
 
     {entity.footnotes.length > 0 && (
       <section class="footnotes-block">
@@ -241,6 +161,7 @@ const mdHref = `/${TYPE_DIRS[entity.type]}/${entity.id}.md`;
       </section>
     )}
 
+
     <RelatedGrid id={entity.id} />
 
     <HiddenConnections id={entity.id} />
@@ -250,5 +171,16 @@ const mdHref = `/${TYPE_DIRS[entity.type]}/${entity.id}.md`;
     <NetworkGraph id={entity.id} title={entity.title} />
 
     <Backlinks id={entity.id} />
+    {entity.tags.length > 0 && <section class="statement-list" data-pagefind-ignore>
+      <h2 class="section-heading">Tags</h2>
+      <div class="statement-chips">{entity.tags.map(t => <a href={tagHref(t)}>{t}</a>)}</div>
+    </section>}
+
+
+    <nav class="entry-pagination" aria-label="Adjacent entries">
+      <span>{previous && <a href={hrefFor(previous)}>← {previous.title}</a>}</span>
+      <span>{next && <a href={hrefFor(next)}>{next.title} →</a>}</span>
+    </nav>
+    </div>
   </article>
 </Base>

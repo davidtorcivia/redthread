@@ -98,7 +98,7 @@ function rangeFor(e: Entity): { text: string; years: number } | null {
 }
 ---
 <Base
-  title="Timeline — The Info Web"
+  title="Timeline | The Info Web"
   description="Entries plotted by their primary date."
 >
   <header class="browse-header">
@@ -106,7 +106,7 @@ function rangeFor(e: Entity): { text: string; years: number } | null {
     <h1>Timeline</h1>
     <p class="lead">
       {total === 0
-        ? 'No entries currently carry frontmatter date fields. Once a backfill pass populates born / died / start / end / date, they appear here automatically.'
+        ? 'Entries with dates will appear here, grouped by decade.'
         : `${total.toLocaleString()} entr${total === 1 ? 'y' : 'ies'} with a known date, grouped by decade.`}
     </p>
   </header>
@@ -181,7 +181,7 @@ function rangeFor(e: Entity): { text: string; years: number } | null {
           </header>
           <p class="tl-decade-meta">
             <span class="tl-decade-meta-total">
-              {g.total} {g.total === 1 ? 'entry' : 'entries'}
+              {g.total}{' '}{g.total === 1 ? 'entry' : 'entries'}
             </span>
             {g.typeBreakdown.slice(0, 3).map((tb) => (
               <span class="tl-decade-meta-type">

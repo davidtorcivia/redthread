@@ -1,0 +1,3 @@
+# A fresh URL avoids previously immutable cached workers with the old CSP.
+# Keep this in sync with Base.astro and build.sh.
+output_subdir: search-index

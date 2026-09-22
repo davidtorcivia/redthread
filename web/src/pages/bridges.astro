@@ -10,38 +10,24 @@ const hubs = hubEntities();
 const topBridgeScore = bridges[0]?.bridge_score ?? 1;
 const topHubScore = hubs[0]?.hub_score ?? 1;
 
-// Median rank-1 mention count is a useful frame for understanding
-// what each metric surfaces. Bridges should skew low (the whole point
-// of the metric is to surface low-mention connectors); Hubs should
-// skew high (PageRank rewards well-evidenced central nodes).
-function medianMentions(list: typeof bridges): number {
-  if (list.length === 0) return 0;
-  const xs = list.slice(0, 10).map((e) => e.mention_count).sort((a, b) => a - b);
-  return xs[Math.floor(xs.length / 2)];
-}
-const medianBridgeMentions = medianMentions(bridges);
-const medianHubMentions = medianMentions(hubs);
-
 // Cross-reference maps so each row can show "also appears in the
 // other list at rank #N" — the most interesting entities sit on both.
 const hubRankOf = new Map(hubs.map((e) => [e.id, e.hub_rank!]));
 const bridgeRankOf = new Map(bridges.map((e) => [e.id, e.bridge_rank!]));
 ---
 <Base
-  title="Bridges & Hubs — The Info Web"
-  description="Two complementary frames on what holds the network together: Bridges (entries cited from distant clusters) and Hubs (the famous, well-evidenced central nodes)."
+  bodyClass="utility"
+  title="Bridges & Hubs | The Info Web"
+  description="Entries that connect different clusters, and entries with the strongest connections across the site."
 >
   <article class="bridges-article">
     <div class="entity-eyebrow">
       <span>Tools</span>
     </div>
-    <h1 class="entity-title">Structure</h1>
+    <h1 class="entity-title">Bridges &amp; hubs</h1>
     <p class="entity-dek">
-      Two complementary lenses on the network. <strong>Bridges</strong> surface
-      the entries cited from otherwise-distant clusters — usually the most
-      overlooked ones. <strong>Hubs</strong> surface the famous,
-      well-evidenced central nodes — usually the most obvious. Some entries
-      appear in both.
+      Bridges connect different clusters. Hubs have strong links to other
+      well-connected entries. Choose a list to explore either kind of connection.
     </p>
 
     <div class="br-toggle" role="tablist" aria-label="Structure view">
@@ -71,67 +57,23 @@ const bridgeRankOf = new Map(bridges.map((e) => [e.id, e.bridge_rank!]));
     </div>
 
     <section class="br-explain" data-view="bridges" id="panel-bridges-explain" role="tabpanel" aria-labelledby="tab-bridges" tabindex="0">
-      <h2 class="br-heading">What's a bridge?</h2>
-      <p>
-        Most entries connect tightly within their own neighborhood — a Cold-War
-        politician mostly co-occurs with other Cold-War politicians; a
-        parapsychology researcher mostly co-occurs with other parapsychology
-        researchers. A <strong>bridge</strong> is an entry that gets cited from
-        many of those neighborhoods at once.
-      </p>
-      <p>
-        Ranked by <em>community-span entropy of the citing pages</em>: we
-        partition the vault into clusters with weighted Louvain modularity,
-        then for each entry look at the pages that link to it and measure how
-        evenly those pages are spread across the clusters. Score =
-        H(p) · log(1 + k) / √m, where p is the fraction of citing pages in
-        each community, k is the count of distinct communities present, and
-        m is the number of citing pages.
-      </p>
-      <p>
-        Citing pages, not the entry's own links: a stub whose one page
-        wikilinks ten entities across ten clusters has a maximally diverse
-        neighborhood without anyone else ever mentioning it. The question a
-        researcher wants answered is which entries keep turning up in
-        unrelated narratives. The √m divisor keeps the mega-hubs (cited from
-        every cluster trivially) off the top; the median top-10 bridge in this
-        vault has {medianBridgeMentions} mentions.
-      </p>
-      <p class="br-footer-note">
-        Computed against the full link graph (explicit wikilinks plus
-        NER-inferred mentions, weighted by co-occurrence count). Eligibility:
-        at least 4 citing pages from at least 2 communities. Places are
-        excluded because countries and cities span every cluster by nature.
-        Recomputed on every build with a fixed Louvain seed so rankings stay
-        stable unless the underlying graph changes.
-      </p>
+      <h2 class="br-heading">Bridges</h2>
+      <p>A bridge is an entry mentioned by pages from several different clusters.
+        It can help you find connections between subjects you might otherwise read separately.</p>
+      <p>The ranking favors entries whose mentions are spread across clusters.
+        Widely mentioned entries receive less weight, which makes smaller connections easier to find.</p>
+      <p class="br-footer-note">An entry needs mentions from at least four pages in at least
+        two clusters to qualify. Places are excluded. Ranks change as entries and links are added.</p>
     </section>
 
     <section class="br-explain" data-view="hubs" id="panel-hubs-explain" role="tabpanel" aria-labelledby="tab-hubs" tabindex="0" hidden>
-      <h2 class="br-heading">What's a hub?</h2>
-      <p>
-        A <strong>hub</strong> is a node that sits at the center of the
-        attention graph — heavily mentioned, and mentioned by other
-        well-mentioned entities. The CIAs, Reagans, and KGBs of this vault.
-        Useful as anchors for navigation, but rarely surprising.
-      </p>
-      <p>
-        Ranked by <em>weighted PageRank</em>: an entry is a hub if it's
-        connected to other hubs, with edge weight from co-occurrence count.
-        Damping factor 0.85 (the Brin/Page default), so each entry's score
-        reflects the inflow from its weighted neighborhood plus a small
-        baseline from the random-jump component.
-      </p>
-      <p>
-        Hub overlaps with Bridge for the genuinely backbone entities — those
-        appear in both lists with a small chip showing their other rank. The
-        median top-10 hub in this vault has {medianHubMentions} mentions
-        (compare {medianBridgeMentions} for bridges).
-      </p>
-      <p class="br-footer-note">
-        Computed against the same weighted graph as the Bridge metric, so
-        the two are directly comparable. Recomputed on every build.
-      </p>
+      <h2 class="br-heading">Hubs</h2>
+      <p>A hub has strong links to other well-connected entries.
+        These pages are useful starting points for browsing a subject.</p>
+      <p>The score uses PageRank, which considers the strength of each connection
+        and how well connected the other entry is.</p>
+      <p class="br-footer-note">Some entries appear in both lists.
+        Their other rank is shown beside the title.</p>
     </section>
 
     <section class="br-list-section" data-view="bridges" id="panel-bridges-list" role="tabpanel" aria-labelledby="tab-bridges" tabindex="0">
@@ -152,19 +94,19 @@ const bridgeRankOf = new Map(bridges.map((e) => [e.id, e.bridge_rank!]));
                   {e.category && <span class="br-cat">{e.category}</span>}
                   <span class="br-mentions">{e.mention_count.toLocaleString()} mentions</span>
                   {e.community_span && (
-                    <span class="br-span" title="Distinct Louvain communities present in this entry's 1-hop neighborhood — the higher, the more disparate clusters it links.">
+                    <span class="br-span" title="Number of clusters among the pages that mention this entry.">
                       spans {e.community_span} communities
                     </span>
                   )}
                   {alsoHub && (
-                    <a class="br-also" href={`#hu-${e.id}`} title="Also a top hub — high PageRank as well as high community-span. The structural backbones of the vault.">
+                    <a class="br-also" href={`#hu-${e.id}`} title="This entry also appears in the Hubs list.">
                       also Hub #{alsoHub}
                     </a>
                   )}
                 </div>
                 <a class="br-title" href={hrefFor({ id: e.id, type: e.type })}>{e.title}</a>
                 {e.summary && <p class="br-summary" set:html={renderInlineMd(e.summary)} />}
-                <div class="br-score-row" title={`Bridge score: ${score.toFixed(4)} — neighborhood entropy times log(1 + community span).`}>
+                <div class="br-score-row" title={`Bridge score: ${score.toFixed(4)}. Based on how mentions are spread across clusters.`}>
                   <div class="br-score-bar" aria-hidden="true">
                     <div class="br-score-fill" style={`width: ${barWidth}%`}></div>
                   </div>
@@ -196,14 +138,14 @@ const bridgeRankOf = new Map(bridges.map((e) => [e.id, e.bridge_rank!]));
                   {e.category && <span class="br-cat">{e.category}</span>}
                   <span class="br-mentions">{e.mention_count.toLocaleString()} mentions</span>
                   {alsoBridge && (
-                    <a class="br-also" href={`#br-${e.id}`} title="Also a top bridge — both a hub and a community-spanner. Structural backbone.">
+                    <a class="br-also" href={`#br-${e.id}`} title="This entry also appears in the Bridges list.">
                       also Bridge #{alsoBridge}
                     </a>
                   )}
                 </div>
                 <a class="br-title" href={hrefFor({ id: e.id, type: e.type })}>{e.title}</a>
                 {e.summary && <p class="br-summary" set:html={renderInlineMd(e.summary)} />}
-                <div class="br-score-row" title={`Hub score: ${score.toFixed(5)} — weighted PageRank, share of the network's stationary attention that lands on this entry.`}>
+                <div class="br-score-row" title={`Hub score: ${score.toFixed(5)}. Based on weighted PageRank.`}>
                   <div class="br-score-bar" aria-hidden="true">
                     <div class="br-score-fill" style={`width: ${barWidth}%`}></div>
                   </div>
@@ -218,7 +160,7 @@ const bridgeRankOf = new Map(bridges.map((e) => [e.id, e.bridge_rank!]));
     </section>
 
     <p class="br-cta">
-      See how any two entities chain together — try the <a href="/path/">path finder</a>,
+      Find the links between two entries with the <a href="/path/">path finder</a>,
       or explore the <a href="/network/">full network</a>.
     </p>
   </article>
@@ -231,7 +173,7 @@ const bridgeRankOf = new Map(bridges.map((e) => [e.id, e.bridge_rank!]));
     // (#br-foo or #hu-foo) auto-selects the matching view.
     (function () {
       const tabs = document.querySelectorAll('.br-tab');
-      const sections = document.querySelectorAll('[data-view]');
+      const sections = document.querySelectorAll('section[data-view]');
 
       function setView(view) {
         tabs.forEach((t) => {

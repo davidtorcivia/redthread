@@ -1,182 +1,58 @@
 ---
 import Base from '../layouts/Base.astro';
-import { entities, entitiesByType, hrefFor, renderInlineMd, topHubs, TYPE_DIRS, TYPE_LABELS, TYPE_PLURALS } from '../lib/data.ts';
+import { entities, activity, communities, CLUSTER_MIN_SIZE, hrefFor, renderInlineMd, topHubs, TYPE_DIRS, TYPE_LABELS, TYPE_PLURALS } from '../lib/data.ts';
 import type { EntityType } from '../lib/types.ts';
 
 const total = entities().length;
-const headlineTypes: EntityType[] = ['person', 'organization', 'program', 'event', 'concept', 'place'];
-
-// "In focus" rotation. Curated list of entity slugs — the homepage
-// cycles through whichever of these are present in the vault. Add or
-// reorder freely; missing slugs are skipped silently so renames don't
-// break the homepage. Order = display order.
-const featuredIds = [
-  'promis',
-  'the-com',
-];
+const types: EntityType[] = ['person', 'organization', 'program', 'event', 'concept', 'place'];
 const byId = new Map(entities().map((e) => [e.id, e]));
-const featuredList = featuredIds.map((id) => byId.get(id)).filter(Boolean) as ReturnType<typeof entities>;
-
-// Most-mentioned by type — top 8 each (PageRank hubs live on /bridges/)
-const peopleHubs = topHubs(8, 'person');
-const orgHubs = topHubs(8, 'organization');
-
-const counts = headlineTypes.map((t) => ({
-  type: t,
-  label: TYPE_PLURALS[t],
-  dir: TYPE_DIRS[t],
-  count: entitiesByType(t).length,
-}));
+const featured = ['promis', 'remote-viewing', 'dark-alliance'].flatMap(id => byId.has(id) ? [byId.get(id)!] : []);
+const clusters = communities().filter(c => c.size >= CLUSTER_MIN_SIZE);
+const featuredClusters = [...clusters].sort((a, b) => b.size - a.size).slice(0, 4);
+const recent = activity().slice(0, 6);
+const shortDate = (iso: string) => {
+  const date = new Date(iso);
+  return Number.isNaN(date.getTime()) ? '' : date.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', timeZone: 'UTC' });
+};
 ---
-<Base
-  title="The Info Web"
-  description="A research vault on intelligence operations, parapsychology, government programs, and the parapolitical record."
->
-  <section class="home-hero">
-    <div class="masthead">An Index of the Parapolitical Record</div>
-    <h1>The Info Web</h1>
-    <p class="tagline">
-      {total.toLocaleString()} cross-linked entries on intelligence operations, parapsychology research,
-      government programs, scandals, and the people who moved through them.
-    </p>
-  </section>
-
-  {featuredList.length > 0 && (
-    <section class="home-section">
-      <h2 class="section-heading">In focus</h2>
-      <div
-        class="featured-cycle"
-        data-cycle-interval="7000"
-        aria-live="polite"
-        aria-roledescription="carousel"
-      >
-        {featuredList.map((e, i) => (
-          <article
-            class={`featured-card fc-slide${i === 0 ? ' is-active' : ''}`}
-            data-cycle-slide={i}
-            aria-hidden={i === 0 ? 'false' : 'true'}
-          >
-            <div class="fc-eyebrow">{TYPE_LABELS[e.type]} · {e.category ?? 'Featured'}</div>
-            <a href={hrefFor(e)} class="fc-title">{e.title}</a>
-            {e.summary && <p class="fc-dek" set:html={renderInlineMd(e.summary)} />}
-            <div class="fc-meta">Referenced on {e.mention_count.toLocaleString()} pages</div>
-          </article>
-        ))}
-        {featuredList.length > 1 && (
-          <div class="fc-dots" role="tablist" aria-label="In focus selector">
-            {featuredList.map((e, i) => (
-              <button
-                type="button"
-                role="tab"
-                class={`fc-dot${i === 0 ? ' is-active' : ''}`}
-                data-cycle-target={i}
-                aria-selected={i === 0 ? 'true' : 'false'}
-                aria-label={`Show: ${e.title}`}
-              ></button>
-            ))}
-          </div>
-        )}
+<Base title="The Info Web" bodyClass="home" description="A research vault on intelligence operations, parapsychology, government programs, and the parapolitical record.">
+  <section class="statement-band home-band">
+    <h1>The Info<br />Web</h1>
+    <div class="band-row">
+      <p class="band-lede">An index of the parapolitical record: intelligence operations, parapsychology research, government programs, scandals, and the people who moved through them. Every entry lists what it links to, what links back, and what it names without linking.</p>
+      <div class="band-facts">
+        <div>{total.toLocaleString()} entries · <a href="/clusters/">{clusters.length} clusters</a></div>
+        <div><a href="/network/">Network</a> · <a href="/path/">Path</a> · <a href="/bridges/">Bridges</a> · <a href="/clusters/">Clusters</a> · <a href="/tags/">Tags</a> · <a href="/timeline/">Timeline</a></div>
+        <div><a href="/random/">Random</a> · <a href="/changelog/">Changelog</a></div>
       </div>
-    </section>
-  )}
-
-  {featuredList.length > 1 && (
-    <script is:inline>
-      (function () {
-        const cycle = document.querySelector('.featured-cycle');
-        if (!cycle) return;
-        const slides = Array.from(cycle.querySelectorAll('.fc-slide'));
-        const dots = Array.from(cycle.querySelectorAll('.fc-dot'));
-        if (slides.length < 2) return;
-        const interval = Number(cycle.dataset.cycleInterval) || 7000;
-        // Respect users who've asked the OS to reduce motion — they get
-        // the dots for manual nav, no auto-advance.
-        const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-
-        let i = 0;
-        let timer = null;
-
-        function show(next) {
-          if (next === i) return;
-          slides[i].classList.remove('is-active');
-          slides[i].setAttribute('aria-hidden', 'true');
-          dots[i] && dots[i].classList.remove('is-active');
-          dots[i] && dots[i].setAttribute('aria-selected', 'false');
-          i = (next + slides.length) % slides.length;
-          slides[i].classList.add('is-active');
-          slides[i].setAttribute('aria-hidden', 'false');
-          dots[i] && dots[i].classList.add('is-active');
-          dots[i] && dots[i].setAttribute('aria-selected', 'true');
-        }
-        function advance() { show(i + 1); }
-        function start() { stop(); if (!reduce) timer = setInterval(advance, interval); }
-        function stop() { if (timer) { clearInterval(timer); timer = null; } }
-
-        dots.forEach((dot) => {
-          dot.addEventListener('click', () => {
-            show(Number(dot.dataset.cycleTarget));
-            start(); // reset the auto-advance window after a manual pick
-          });
-        });
-        // Pause on hover/focus so a reader isn't yanked off mid-sentence.
-        cycle.addEventListener('mouseenter', stop);
-        cycle.addEventListener('mouseleave', start);
-        cycle.addEventListener('focusin', stop);
-        cycle.addEventListener('focusout', start);
-        // Pause while the tab is hidden — avoids burning CPU on bg tabs
-        // and means the cycle resumes from where the user last saw it.
-        document.addEventListener('visibilitychange', () => {
-          if (document.hidden) stop(); else start();
-        });
-
-        start();
-      })();
-    </script>
-  )}
-
-  <section class="home-section">
-    <h2 class="section-heading">Most mentioned · People</h2>
-    <ol class="hub-list">
-      {peopleHubs.map((e, i) => (
-        <li>
-          <span class="hub-rank">{(i + 1).toString().padStart(2, '0')}</span>
-          <a href={hrefFor(e)}>{e.title}</a>
-          <span class="hub-count">{e.mention_count}</span>
-        </li>
-      ))}
-    </ol>
-  </section>
-
-  <section class="home-section">
-    <h2 class="section-heading">Most mentioned · Organizations</h2>
-    <ol class="hub-list">
-      {orgHubs.map((e, i) => (
-        <li>
-          <span class="hub-rank">{(i + 1).toString().padStart(2, '0')}</span>
-          <a href={hrefFor(e)}>{e.title}</a>
-          <span class="hub-count">{e.mention_count}</span>
-        </li>
-      ))}
-    </ol>
-  </section>
-
-  <section class="home-section">
-    <h2 class="section-heading">Browse</h2>
-    <div class="type-strip">
-      {counts.map((c) => (
-        <a href={`/${c.dir}/`}>
-          <span class="ts-label">{c.label}</span>
-          <span class="ts-count">{c.count.toLocaleString()} entries</span>
-        </a>
-      ))}
-      <a href="/network/">
-        <span class="ts-label">Network</span>
-        <span class="ts-count">Full graph</span>
-      </a>
-      <a href="/bridges/">
-        <span class="ts-label">Bridges</span>
-        <span class="ts-count">Connectors &amp; hubs</span>
-      </a>
     </div>
   </section>
+  <div class="statement-wrap">
+    {featured.length > 0 && <section class="statement-list">
+      <h2 class="section-heading">In focus</h2>
+      {featured.map(e => <article class="statement-item">
+        <div class="item-facts"><b>{e.mention_count} pages</b> · {TYPE_LABELS[e.type]}{e.category && <i>{e.category}</i>}</div>
+        <a class="item-title" href={hrefFor(e)}>{e.title}</a>
+        {e.summary && <p class="item-dek" set:html={renderInlineMd(e.summary)} />}
+      </article>)}
+    </section>}
+    <section class="statement-list">
+      <h2 class="section-heading">Most mentioned</h2>
+      <div class="statement-cols">{types.map(type => <div>
+        <h3>{TYPE_PLURALS[type]} <a href={`/${TYPE_DIRS[type]}/`} aria-label={`All ${TYPE_PLURALS[type].toLowerCase()}`}>all</a></h3>
+        <ol>{topHubs(8, type).map(e => <li><a href={hrefFor(e)}>{e.title}</a><span>{e.mention_count}</span></li>)}</ol>
+      </div>)}</div>
+    </section>
+    {clusters.length > 0 && <section class="statement-list">
+      <h2 class="section-heading">Clusters <span><a href="/clusters/">{featuredClusters.length} largest communities · all {clusters.length}</a></span></h2>
+      {featuredClusters.map(c => <div class="statement-item">
+        <span class="item-facts"><b>{c.size} entries</b></span>
+        <a class="item-title" href={`/clusters/#c-${c.id}`}>{c.label}</a>
+      </div>)}
+    </section>}
+    {recent.length > 0 && <section class="statement-list">
+      <h2 class="section-heading">Recently edited <span><a href="/changelog/">changelog</a></span></h2>
+      <div class="statement-chips">{recent.map(e => <a href={hrefFor(e)}>{e.title}<i>{shortDate(e.mtime)}</i></a>)}</div>
+    </section>}
+  </div>
 </Base>

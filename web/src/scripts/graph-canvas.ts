@@ -63,8 +63,8 @@ const PROFILES = {
 // Second-hop nodes render at this fraction of first-hop opacity.
 const HOP2_OPACITY = 0.6;
 
-export function readColors(): Record<string, string> {
-  const cs = getComputedStyle(document.documentElement);
+export function readColors(scope: Element = document.documentElement): Record<string, string> {
+  const cs = getComputedStyle(scope);
   const get = (v: string, f: string) => (cs.getPropertyValue(v).trim() || f);
   return {
     person: get('--t-person', '#8a5a1f'),
@@ -79,14 +79,14 @@ export function readColors(): Record<string, string> {
     accent: get('--accent', '#94322a'),
     accentSoft: get('--accent-soft', '#c97a6a'),
     ink: get('--ink', '#1a1814'),
-    paper: get('--paper', '#f7f2e7'),
+    paper: get('--graph-paper', '#fafaf8'),
     gold: get('--gold', '#8a6e25'),
   };
 }
 
 /** Golden-angle hue spacing: any number of communities, neighbours distinct. */
-export function communityColor(c: number): string {
-  return `hsl(${Math.round((c * 137.508) % 360)}, 46%, 40%)`;
+export function communityColor(c: number, dark = false): string {
+  return `hsl(${Math.round((c * 137.508) % 360)}, ${dark ? 52 : 46}%, ${dark ? 65 : 40}%)`;
 }
 
 function hexToRgba(hex: string, a: number): string {
@@ -152,7 +152,12 @@ export class GraphEngine {
     this.ctx = this.canvas.getContext('2d') as CanvasRenderingContext2D;
     this.tooltip = root.querySelector('.net-tooltip') as HTMLElement;
     this.panel = root.querySelector('.net-selection') as HTMLElement;
-    this.COLORS = readColors();
+    this.COLORS = readColors(this.root);
+    window.addEventListener('themechange', () => {
+      this.COLORS = readColors(this.root);
+      this.recolor();
+      this.requestDraw();
+    });
     this.showImplicit = opts.showImplicit;
     this.currentLayout = opts.layouts[0]?.key ?? 'force';
     window.addEventListener('resize', () => { if (this.nodes.length) this.resize(); });
@@ -180,11 +185,12 @@ export class GraphEngine {
     this.hoveredEdge = -1;
     this.recolor();
     this.recomputeFocus();
+    this.updateStats();
   }
   recolor(): void {
     for (const n of this.nodes) {
       n.color = (this.colorMode === 'community' && n.community >= 0)
-        ? communityColor(n.community)
+        ? communityColor(n.community, document.documentElement.dataset.theme === 'dark')
         : (this.COLORS[n.type] || this.COLORS.muted);
     }
   }
@@ -266,6 +272,7 @@ export class GraphEngine {
     }
     this.recomputeFocus();
     this.updateSelectionPanel();
+    this.updateStats();
     this.requestDraw();
   }
   clearSelection(): void {
@@ -283,203 +290,118 @@ export class GraphEngine {
   }
 
   // --- Drawing ------------------------------------------------------------
+  private radius(n: GraphNode): number {
+    const full = this.opts.profile === 'full';
+    const scaled = n.size * Math.sqrt(Math.max(.01, this.view.scale));
+    return n.isFocal ? Math.max(9, Math.min(20, scaled)) : Math.max(full ? 1.7 : 3, Math.min(full ? 9 : 12, scaled));
+  }
+
   draw(): void {
-    const { nodes, edges, ctx, COLORS, P, view } = this;
-    if (!nodes.length) return;
+    const { nodes, edges, ctx, COLORS, view } = this;
     const { W, H } = this.canvasSize();
+    if (!W || !H) return;
     ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
+    ctx.globalAlpha = 1;
     ctx.fillStyle = COLORS.paper;
     ctx.fillRect(0, 0, W, H);
-
-    const vp = {
-      x0: (-50 - view.tx) / view.scale, y0: (-50 - view.ty) / view.scale,
-      x1: (W + 50 - view.tx) / view.scale, y1: (H + 50 - view.ty) / view.scale,
-    };
+    // A quiet plotting field, independent of the topology.
+    ctx.fillStyle = hexToRgba(COLORS.line, .22);
+    for (let x = 24; x < W; x += 32) for (let y = 24; y < H; y += 32) ctx.fillRect(x, y, .8, .8);
+    if (!nodes.length) return;
     const hasSelection = this.selectedNodes.size > 0 || this.selectedEdges.size > 0;
-    const impl = this.implicitEdgeIdx;
-
-    const focusEdges = new Set<number>();
-    const hoverEdges = new Set<number>();
-    if (this.edgesVisible) {
-      if (this.selectedNodes.size > 0) {
-        for (let i = 0; i < edges.length; i++) {
-          const e = edges[i];
-          if (this.selectedNodes.has(e[0]) || this.selectedNodes.has(e[1])) focusEdges.add(i);
-        }
-      }
-      for (const k of this.selectedEdges) focusEdges.add(k);
-      if (this.hoveredIdx >= 0 && !this.selectedNodes.has(this.hoveredIdx)) {
-        for (let i = 0; i < edges.length; i++) {
-          const e = edges[i];
-          if (e[0] === this.hoveredIdx || e[1] === this.hoveredIdx) hoverEdges.add(i);
-        }
-      }
-      if (this.hoveredEdge >= 0 && !this.selectedEdges.has(this.hoveredEdge)) hoverEdges.add(this.hoveredEdge);
-    }
-
-    const segment = (i: number): boolean => {
-      const e = edges[i];
-      const a = nodes[e[0]], b = nodes[e[1]];
-      if (!a.visible || !b.visible) return false;
-      if ((a.x < vp.x0 && b.x < vp.x0) || (a.x > vp.x1 && b.x > vp.x1) ||
-          (a.y < vp.y0 && b.y < vp.y0) || (a.y > vp.y1 && b.y > vp.y1)) return false;
-      ctx.moveTo(this.sx(a.x), this.sy(a.y));
-      ctx.lineTo(this.sx(b.x), this.sy(b.y));
-      return true;
+    const hoverFocus = !hasSelection && this.hoveredIdx >= 0
+      ? new Set([this.hoveredIdx, ...(this.neighborSets[this.hoveredIdx] || [])]) : null;
+    const focus = this.focusNodes || hoverFocus;
+    const points = nodes.map(n => ({x:this.sx(n.x),y:this.sy(n.y),r:this.radius(n)}));
+    const visibleEdge = (i: number) => {
+      const [a,b] = edges[i];
+      if (!nodes[a].visible || !nodes[b].visible) return false;
+      const p=points[a], q=points[b];
+      return !((p.x<0 && q.x<0)||(p.x>W && q.x>W)||(p.y<0 && q.y<0)||(p.y>H && q.y>H));
     };
-    const strokeSet = (set: Iterable<number>, wantImplicit: boolean, filter?: (i: number) => boolean) => {
-      ctx.beginPath();
-      for (const i of set) {
-        if (impl.has(i) !== wantImplicit) continue;
-        if (filter && !filter(i)) continue;
-        segment(i);
-      }
-      ctx.stroke();
+    const activeEdge = (i: number) => {
+      const [a,b] = edges[i];
+      return this.selectedEdges.has(i) || this.selectedNodes.has(a) || this.selectedNodes.has(b) ||
+        a === this.hoveredIdx || b === this.hoveredIdx || i === this.hoveredEdge;
     };
-
     if (this.edgesVisible) {
-      const fadedAlpha = 0.32 - (0.32 - 0.06) * this.highlightStrength;
-      const bgAlpha = hasSelection ? fadedAlpha : P.bgAlpha;
-      const claimed = (i: number) => focusEdges.has(i) || hoverEdges.has(i);
-      const touchesBridge = (i: number) => !!(nodes[edges[i][0]].bridgeRank || nodes[edges[i][1]].bridgeRank);
-      const all: number[] = [];
-      for (let i = 0; i < edges.length; i++) if (!claimed(i)) all.push(i);
-
-      // Background: explicit solid (plain, then gold for bridge-touching).
-      ctx.lineWidth = P.lineW;
+      for (const active of [false,true]) for (const inferred of [false,true]) {
+        if (inferred && !this.showImplicit) continue;
+        ctx.beginPath();
+        ctx.setLineDash(inferred ? [3,5] : []);
+        ctx.lineWidth = active ? 1.3 : .65;
+        ctx.strokeStyle = active ? hexToRgba(COLORS.accent,.72) :
+          hexToRgba(COLORS.line, focus ? .09 : this.opts.profile === 'full' ? .25 : .4);
+        for (let i=0;i<edges.length;i++) {
+          if (this.implicitEdgeIdx.has(i)!==inferred || activeEdge(i)!==active || !visibleEdge(i)) continue;
+          const [a,b]=edges[i], p=points[a], q=points[b];
+          ctx.moveTo(p.x,p.y); ctx.lineTo(q.x,q.y);
+        }
+        ctx.stroke();
+      }
       ctx.setLineDash([]);
-      ctx.strokeStyle = hexToRgba(COLORS.accentSoft || COLORS.line, bgAlpha);
-      strokeSet(all, false, (i) => !touchesBridge(i));
-      ctx.strokeStyle = hexToRgba(COLORS.gold, bgAlpha * 0.85);
-      strokeSet(all, false, touchesBridge);
-      // Background: inferred, dashed, only when toggled on.
-      if (this.showImplicit) {
-        ctx.setLineDash([5, 4]);
-        ctx.lineWidth = P.implW;
-        ctx.strokeStyle = hexToRgba(COLORS.accentSoft || COLORS.line, bgAlpha);
-        strokeSet(all, true, (i) => !touchesBridge(i));
-        ctx.strokeStyle = hexToRgba(COLORS.gold, bgAlpha * 0.85);
-        strokeSet(all, true, touchesBridge);
-        ctx.setLineDash([]);
+    }
+    for (let i=0;i<nodes.length;i++) {
+      const n=nodes[i], p=points[i];
+      if (!n.visible || p.x+p.r<0 || p.x-p.r>W || p.y+p.r<0 || p.y-p.r>H) continue;
+      const selected=this.selectedNodes.has(i), active=selected || i===this.hoveredIdx || n.isFocal;
+      const inFocus=!focus || focus.has(i);
+      ctx.globalAlpha = active ? 1 : (inFocus ? .88 : .13 + .27*(1-this.highlightStrength)) *
+        this.opacityMult * (n.hop===2 ? .62 : 1);
+      if (active) {
+        ctx.fillStyle=hexToRgba(COLORS.accent,.1);
+        ctx.beginPath();ctx.arc(p.x,p.y,p.r+7,0,Math.PI*2);ctx.fill();
       }
-      // Hover overlay: always includes inferred edges of the hovered node.
-      if (hoverEdges.size) {
-        ctx.lineWidth = P.hoverW;
-        ctx.strokeStyle = hexToRgba(COLORS.accent, 0.6);
-        ctx.setLineDash([]);
-        strokeSet(hoverEdges, false);
-        ctx.setLineDash([4, 3]);
-        strokeSet(hoverEdges, true);
-        ctx.setLineDash([]);
+      ctx.fillStyle=n.isFocal ? COLORS.accent : n.color || COLORS.muted;
+      ctx.beginPath();ctx.arc(p.x,p.y,p.r,0,Math.PI*2);ctx.fill();
+      if (p.r>3) {
+        ctx.strokeStyle=COLORS.paper;ctx.lineWidth=1.3;ctx.stroke();
       }
-      // Selected overlay; edges between two selected nodes go gold.
-      if (focusEdges.size) {
-        const gold = new Set<number>();
-        if (this.selectedNodes.size > 1) {
-          for (const i of focusEdges) {
-            const e = edges[i];
-            if (this.selectedNodes.has(e[0]) && this.selectedNodes.has(e[1])) gold.add(i);
-          }
-        }
-        const notGold = (i: number) => !gold.has(i);
-        ctx.lineWidth = P.selW;
-        ctx.strokeStyle = COLORS.accent;
-        ctx.setLineDash([]);
-        strokeSet(focusEdges, false, notGold);
-        ctx.setLineDash([5, 4]);
-        strokeSet(focusEdges, true, notGold);
-        ctx.setLineDash([]);
-        if (gold.size) {
-          ctx.lineWidth = P.goldW;
-          ctx.strokeStyle = COLORS.gold;
-          strokeSet(gold, false);
-          ctx.setLineDash([5, 4]);
-          strokeSet(gold, true);
-          ctx.setLineDash([]);
-        }
+      if (n.bridgeRank && inFocus && p.r>2) {
+        ctx.strokeStyle=COLORS.gold;ctx.lineWidth=1;
+        ctx.beginPath();ctx.arc(p.x,p.y,p.r+2,0,Math.PI*2);ctx.stroke();
       }
+      if (active) {
+        ctx.strokeStyle=COLORS.accent;ctx.lineWidth=1.5;
+        ctx.beginPath();ctx.arc(p.x,p.y,p.r+3,0,Math.PI*2);ctx.stroke();
+      }
+      ctx.globalAlpha=1;
     }
 
-    // Nodes
-    const fadeAlpha = 0.55 - (0.55 - 0.08) * this.highlightStrength;
-    for (let i = 0; i < nodes.length; i++) {
-      const n = nodes[i];
-      if (!n.visible) continue;
-      const sx = this.sx(n.x), sy = this.sy(n.y), sr = n.size * view.scale;
-      if (sx + sr < 0 || sx - sr > W || sy + sr < 0 || sy - sr > H) continue;
-      const isSelected = this.selectedNodes.has(i);
-      const isMain = isSelected || i === this.hoveredIdx || !!n.isFocal;
-      const inFocus = !this.focusNodes || this.focusNodes.has(i);
-      const base = isMain ? 1 : (inFocus ? P.focusAlpha : fadeAlpha);
-      const hopMult = (n.hop === 2 && !isMain) ? HOP2_OPACITY : 1;
-      ctx.globalAlpha = (isMain ? base : base * this.opacityMult) * hopMult;
-      ctx.fillStyle = n.color || COLORS.muted;
-      ctx.beginPath();
-      ctx.arc(sx, sy, sr, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.globalAlpha = 1;
-      if (n.isFocal) {
-        ctx.strokeStyle = COLORS.accent; ctx.lineWidth = 3;
-        ctx.beginPath(); ctx.arc(sx, sy, sr + 3, 0, Math.PI * 2); ctx.stroke();
-      }
-      if (n.bridgeRank) {
-        ctx.strokeStyle = inFocus ? COLORS.gold : hexToRgba(COLORS.gold, 0.2);
-        ctx.lineWidth = 2;
-        ctx.beginPath(); ctx.arc(sx, sy, sr + 1.2, 0, Math.PI * 2); ctx.stroke();
-      }
-      if (isSelected && !n.isFocal) {
-        ctx.strokeStyle = COLORS.accent; ctx.lineWidth = 3;
-        ctx.beginPath(); ctx.arc(sx, sy, sr + 3, 0, Math.PI * 2); ctx.stroke();
-      } else if (i === this.hoveredIdx && !isSelected && !n.isFocal) {
-        ctx.strokeStyle = COLORS.accent; ctx.lineWidth = 2;
-        ctx.beginPath(); ctx.arc(sx, sy, sr + 2, 0, Math.PI * 2); ctx.stroke();
-      }
-    }
-
-    // Labels with collision detection. Tier 0 always wins; lower tiers
-    // are skipped when they would overlap an already-placed label.
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'top';
-    const suppressOuter = hasSelection && this.highlightStrength > 0.4;
-    const candidates: { i: number; n: GraphNode; sx: number; sy: number; sr: number; tier: number; isHover: boolean }[] = [];
-    for (let i = 0; i < nodes.length; i++) {
-      const n = nodes[i];
-      if (!n.visible) continue;
-      if (suppressOuter && this.focusNodes && !this.focusNodes.has(i) && i !== this.hoveredIdx) continue;
-      const sx = this.sx(n.x), sy = this.sy(n.y);
-      if (sx < -200 || sx > W + 200 || sy < -40 || sy > H + 40) continue;
-      const sr = n.size * view.scale;
-      const isHover = i === this.hoveredIdx || this.selectedNodes.has(i);
-      const inFocusSet = !!(this.focusNodes && this.focusNodes.has(i));
-      let tier: number;
-      if (isHover || n.isFocal) tier = 0;
-      else if (inFocusSet || n.isLandmark) tier = 1;
-      else if (P.labelAll || sr >= 9) tier = 2;
-      else continue;
-      candidates.push({ i, n, sx, sy, sr, tier, isHover });
-    }
-    candidates.sort((a, b) => a.tier - b.tier || b.n.count - a.n.count);
-    const drawn: { x0: number; x1: number; y0: number; y1: number }[] = [];
+    const candidates=nodes.map((n,i)=>({n,i,p:points[i],
+      tier:this.selectedNodes.has(i)||i===this.hoveredIdx||n.isFocal ? 0 :
+        focus?.has(i) ? 1 : n.isLandmark ? 2 : 3}))
+      .filter(c=>c.n.visible && c.p.x>=0 && c.p.x<=W && c.p.y>=0 && c.p.y<=H &&
+        (!focus || focus.has(c.i) || c.tier===0) &&
+        (c.tier<3 || this.opts.profile==='entity' || c.p.r>=3.3))
+      .sort((a,b)=>a.tier-b.tier||b.n.count-a.n.count);
+    const drawn: {x:number;y:number;w:number;h:number}[]=[];
+    const limit=focus ? 48 : Math.max(10,Math.min(38,Math.floor(W/32)));
+    ctx.textBaseline='top';ctx.textAlign='left';
     for (const c of candidates) {
-      const big = c.isHover || !!c.n.isFocal;
-      const fontSize = big ? P.hoverFont : (c.n.isLandmark ? 11 : 10);
-      ctx.font = `${big || c.n.isLandmark ? 600 : 500} ${fontSize}px "Inter Tight", sans-serif`;
-      const metrics = ctx.measureText(c.n.title);
-      const padX = 4, padY = 2;
-      const labelY = c.sy + c.sr + 4;
-      const box = {
-        x0: c.sx - metrics.width / 2 - padX, x1: c.sx + metrics.width / 2 + padX,
-        y0: labelY - 1, y1: labelY + fontSize + 2 * padY,
-      };
-      if (c.tier > 0 && drawn.some((d) => !(box.x1 < d.x0 || d.x1 < box.x0 || box.y1 < d.y0 || d.y1 < box.y0))) continue;
-      const labelHop = (c.n.hop === 2 && !big) ? HOP2_OPACITY : 1;
-      ctx.globalAlpha = (big ? 1 : this.opacityMult) * labelHop;
-      ctx.fillStyle = hexToRgba(COLORS.paper, c.isHover ? 0.95 : 0.85);
-      ctx.fillRect(box.x0, box.y0, box.x1 - box.x0, box.y1 - box.y0);
-      ctx.fillStyle = c.isHover ? COLORS.accent : COLORS.ink;
-      ctx.fillText(c.n.title, c.sx, labelY + padY - 1);
-      ctx.globalAlpha = 1;
-      drawn.push(box);
+      if (drawn.length>=limit && c.tier>0) continue;
+      const important=c.tier===0, fontSize=important?14:12;
+      ctx.font=`${important?700:500} ${fontSize}px "Archivo", sans-serif`;
+      const maxWidth=Math.min(W-32,important?300:190);
+      let title=c.n.title;
+      while(ctx.measureText(title).width>maxWidth && title.length>4) title=title.slice(0,-2);
+      if(title!==c.n.title) title=title.trimEnd()+'…';
+      const w=ctx.measureText(title).width+10,h=fontSize+8;
+      const positions=[
+        {x:c.p.x+c.p.r+7,y:c.p.y-h/2},
+        {x:c.p.x-c.p.r-7-w,y:c.p.y-h/2},
+        {x:c.p.x-w/2,y:c.p.y+c.p.r+6},
+        {x:c.p.x-w/2,y:c.p.y-c.p.r-6-h}
+      ];
+      let box=positions.map(p=>({x:Math.max(8,Math.min(W-w-8,p.x)),y:Math.max(8,Math.min(H-h-8,p.y)),w,h}))
+        .find(b=>!drawn.some(d=>b.x<d.x+d.w+5&&b.x+b.w+5>d.x&&b.y<d.y+d.h+3&&b.y+b.h+3>d.y));
+      if(!box) continue;
+      ctx.globalAlpha=important?1:this.opacityMult;
+      ctx.fillStyle=hexToRgba(COLORS.paper,.94);
+      ctx.fillRect(box.x,box.y,box.w,box.h);
+      ctx.fillStyle=important?COLORS.accent:COLORS.ink;
+      ctx.fillText(title,box.x+5,box.y+4);
+      ctx.globalAlpha=1;drawn.push(box);
     }
   }
 
@@ -489,7 +411,7 @@ export class GraphEngine {
     for (let i = 0; i < this.nodes.length; i++) {
       const n = this.nodes[i];
       if (!n.visible) continue;
-      const r = Math.max(4, n.size * this.view.scale);
+      const r = Math.max(7, this.radius(n));
       const dx = this.sx(n.x) - px, dy = this.sy(n.y) - py;
       if (dx * dx + dy * dy <= r * r && r > bestR) { best = i; bestR = r; }
     }
@@ -518,11 +440,74 @@ export class GraphEngine {
     return best;
   }
 
+  private updateStats(): void {
+    const stats=this.root.querySelector('.net-stats');
+    if(!stats) return;
+    const count=this.nodes.filter(n=>n.visible).length;
+    const links=this.edges.filter(([a,b],i)=>this.nodes[a].visible&&this.nodes[b].visible&&(this.showImplicit||!this.implicitEdgeIdx.has(i))).length;
+    stats.textContent=`${count.toLocaleString()} entries · ${links.toLocaleString()} connections`;
+  }
+
+  private wireSearch(): void {
+    const input=this.root.querySelector<HTMLInputElement>('.net-search');
+    const list=this.root.querySelector<HTMLElement>('.net-search-results');
+    if(!input||!list)return;
+    let matches: number[]=[], active=-1;
+    const close=()=>{list.hidden=true;input.setAttribute('aria-expanded','false');input.removeAttribute('aria-activedescendant');active=-1;};
+    const select=(index:number)=>{
+      const n=this.nodes[index];
+      this.selectedNodes.clear();this.selectedEdges.clear();this.selectedNodes.add(index);
+      this.selectionChanged();
+      const {W,H}=this.canvasSize();
+      this.view.scale=Math.max(this.view.scale,this.opts.profile==='full'?.8:1.1);
+      this.view.tx=W/2-n.x*this.view.scale;this.view.ty=H/2-n.y*this.view.scale;
+      input.value=n.title;close();this.requestDraw();
+    };
+    const show=()=>{
+      const q=input.value.trim().toLocaleLowerCase();
+      matches=this.nodes.map((n,i)=>({n,i})).filter(({n})=>n.visible&&n.title.toLocaleLowerCase().includes(q))
+        .sort((a,b)=>Number(b.n.title.toLocaleLowerCase().startsWith(q))-Number(a.n.title.toLocaleLowerCase().startsWith(q))||b.n.count-a.n.count)
+        .slice(0,7).map(x=>x.i);
+      list.replaceChildren();active=-1;input.removeAttribute('aria-activedescendant');
+      if(!q){close();return;}
+      list.hidden=false;input.setAttribute('aria-expanded','true');
+      if(!matches.length){const empty=document.createElement('p');empty.textContent='No matching entries in this view.';list.append(empty);}
+      matches.forEach((i,pos)=>{
+        const n=this.nodes[i],item=document.createElement('button');
+        item.type='button';item.id=list.id+'-'+pos;item.setAttribute('role','option');item.setAttribute('aria-selected','false');item.tabIndex=-1;
+        const name=document.createElement('span');name.textContent=n.title;
+        const type=document.createElement('small');type.textContent=TYPE_LABELS[n.type]||n.type;
+        item.append(name,type);item.addEventListener('mousedown',e=>e.preventDefault());item.addEventListener('click',()=>select(i));list.append(item);
+      });
+    };
+    input.addEventListener('input',show);input.addEventListener('focus',show);
+    input.addEventListener('keydown',e=>{
+      if(e.key==='Escape'){close();e.stopPropagation();}
+      if((e.key==='ArrowDown'||e.key==='ArrowUp')&&matches.length){
+        e.preventDefault();if(list.hidden)show();
+        active=active<0 ? (e.key==='ArrowDown'?0:matches.length-1) : (active+(e.key==='ArrowDown'?1:-1)+matches.length)%matches.length;
+        [...list.querySelectorAll('[role=option]')].forEach((el,i)=>el.setAttribute('aria-selected',String(i===active)));
+        input.setAttribute('aria-activedescendant',list.id+'-'+active);
+      }
+      if(e.key==='Enter'&&matches.length&&!list.hidden){e.preventDefault();select(matches[Math.max(0,active)]);}
+    });
+    input.addEventListener('blur',close);
+    this.canvas.addEventListener('keydown',e=>{
+      if(e.key==='Escape'){this.clearSelection();return;}
+      if(e.key==='/' ){e.preventDefault();input.focus();}
+      if(e.key==='0'){e.preventDefault();this.fit();}
+      const deltas:Record<string,[number,number]>={ArrowLeft:[40,0],ArrowRight:[-40,0],ArrowUp:[0,40],ArrowDown:[0,-40]};
+      if(deltas[e.key]){e.preventDefault();this.view.tx+=deltas[e.key][0];this.view.ty+=deltas[e.key][1];this.requestDraw();}
+    });
+  }
+
   // --- Interactions -----------------------------------------------------------
   /** Wire pointer, touch, keyboard and every generic control. Idempotent. */
   wire(): void {
     if (this.wired) return;
     this.wired = true;
+    this.wireSearch();
+    this.canvas.tabIndex = 0;
     const { canvas, tooltip, root } = this;
     let isPanning = false;
     let panStart: { x: number; y: number; tx: number; ty: number } | null = null;
@@ -612,7 +597,7 @@ export class GraphEngine {
     canvas.addEventListener('wheel', (e) => {
       e.preventDefault();
       const p = local(e.clientX, e.clientY);
-      zoomAt(p.x, p.y, e.deltaY < 0 ? 1.15 : 1 / 1.15);
+      zoomAt(p.x, p.y, Math.exp(-Math.max(-100, Math.min(100, e.deltaY)) * .002));
     }, { passive: false });
     canvas.addEventListener('dblclick', (e) => {
       const p = local(e.clientX, e.clientY);
@@ -671,6 +656,8 @@ export class GraphEngine {
       this.applyLayout();
       this.updateForceSliderVisibility();
     });
+    btn('.net-zoom-in')?.addEventListener('click', () => {const {W,H}=this.canvasSize();zoomAt(W/2,H/2,1.35);});
+    btn('.net-zoom-out')?.addEventListener('click', () => {const {W,H}=this.canvasSize();zoomAt(W/2,H/2,1/1.35);});
     btn('.net-fit')?.addEventListener('click', () => this.fit());
     const edgesBtn = btn('.net-edges');
     edgesBtn?.addEventListener('click', () => {
@@ -684,6 +671,7 @@ export class GraphEngine {
       this.showImplicit = !this.showImplicit;
       implicitBtn.setAttribute('aria-pressed', String(this.showImplicit));
       implicitBtn.textContent = this.showImplicit ? '− Inferred' : '+ Inferred';
+      this.updateStats();
       this.requestDraw();
     });
     const multiBtn = btn('.net-multi');
@@ -697,7 +685,7 @@ export class GraphEngine {
       const mode = this.colorMode === 'type' ? 'community' : 'type';
       this.setColorMode(mode);
       colorBtn.setAttribute('aria-pressed', String(mode === 'community'));
-      colorBtn.textContent = mode === 'community' ? 'Colour: Community' : 'Colour: Type';
+      colorBtn.textContent = mode === 'community' ? 'Colour: Cluster' : 'Colour: Type';
       root.classList.toggle('color-by-community', mode === 'community');
     });
     const fsEl = this.opts.fullscreenEl ?? root;
@@ -705,12 +693,16 @@ export class GraphEngine {
     const setFullscreen = (on: boolean) => {
       fsEl.classList.toggle('fullscreen', on);
       fsBtn?.setAttribute('aria-pressed', String(on));
-      if (fsBtn) fsBtn.textContent = on ? 'Exit' : 'Fullscreen';
+      if (fsBtn) fsBtn.textContent = on ? 'Close' : 'Expand';
       document.body.classList.toggle('net-fullscreen-active', on);
       requestAnimationFrame(() => { this.resize(); this.fit(); });
     };
     fsBtn?.addEventListener('click', () => setFullscreen(!fsEl.classList.contains('fullscreen')));
+    document.addEventListener('click',e=>{
+      this.root.querySelectorAll<HTMLDetailsElement>('.graph-options[open]').forEach(panel=>{if(!panel.contains(e.target as Node))panel.open=false;});
+    });
     document.addEventListener('keydown', (e) => {
+      if(e.key==='Escape')this.root.querySelectorAll<HTMLDetailsElement>('.graph-options[open]').forEach(panel=>panel.open=false);
       if (e.key === 'Escape' && fsEl.classList.contains('fullscreen')) setFullscreen(false);
     });
     root.querySelectorAll('.net-drawer-toggle').forEach((toggle) => {

@@ -1,0 +1,40 @@
+---
+interface Props { full?: boolean; id: string }
+const { full = false, id } = Astro.props;
+---
+<div class="graph-toolbar net-controls" id={full ? 'net-controls' : undefined} hidden={full}>
+  <div class="graph-search">
+    <label class="sr-only" for={`${id}-search`}>Find an entry in this graph</label>
+    <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5" /><path d="m16 16 5 5" /></svg>
+    <input id={`${id}-search`} class="net-search" type="search" placeholder="Find in this network…" autocomplete="off" role="combobox" aria-expanded="false" aria-autocomplete="list" aria-controls={`${id}-results`} />
+    <div class="net-search-results" id={`${id}-results`} role="listbox" aria-label="Matching entries" hidden></div>
+  </div>
+  <div class="graph-actions">
+    <button class="graph-btn net-fit" type="button">Fit</button>
+    <button class="graph-btn net-layout" type="button">{full ? 'Layout: Clusters' : 'Layout: Force'}</button>
+    <button class="graph-btn net-color" type="button" aria-pressed={full ? 'true' : 'false'}>{full ? 'Colour: Cluster' : 'Colour: Type'}</button>
+    <details class="graph-options">
+      <summary>Options <span aria-hidden="true">+</span></summary>
+      <div class="graph-options-panel">
+        <div class="graph-option-buttons">
+          {!full && <button class="graph-btn net-twohop" type="button" aria-pressed="false">+ 2-hop</button>}
+          <button class="graph-btn net-edges" type="button" aria-pressed="true">Hide edges</button>
+          <button class="graph-btn net-implicit" type="button" aria-pressed={full ? 'false' : 'true'}>{full ? '+ Inferred' : '− Inferred'}</button>
+          <button class="graph-btn net-multi" type="button" aria-pressed="false">Multi: off</button>
+        </div>
+        {full && <div class="net-filters" id="net-filters" aria-label="Filter by type">
+          <span class="graph-option-label">Show entries</span>
+          {[['person','People'],['organization','Organizations'],['program','Programs'],['event','Events'],['concept','Concepts'],['place','Places']].map(([type,label]) => <button class={`net-chip active type-${type}`} data-type={type} aria-pressed="true">{label}</button>)}
+        </div>}
+        <div class="net-sliders" id={full ? 'net-sliders' : undefined}>
+          {[['opacity','Visibility',0,100],['highlight','Focus',0,100],['force','Spacing',50,400]].map(([key,label,min,max]) => <label class="net-slider" data-force-only={key === 'force' ? '' : undefined}>
+            <span class="net-slider-label">{label}</span>
+            <input type="range" class="net-slider-input" data-slider={key} min={min} max={max} value="100" />
+            <span class="net-slider-val" data-slider-val={key}>100%</span>
+          </label>)}
+        </div>
+      </div>
+    </details>
+    <button class="graph-btn net-fullscreen" type="button" aria-pressed="false">Expand</button>
+  </div>
+</div>

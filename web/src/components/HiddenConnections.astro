@@ -12,13 +12,9 @@ const total = implicitMentions(id).length;
 {items.length > 0 && (
   <section class="hidden-connections" data-pagefind-ignore>
     <h2 class="section-heading">
-      Hidden connections
+      Named without a link
       <span class="hc-count-badge">{total}</span>
     </h2>
-    <p class="hc-blurb">
-      Entities named in this page's prose without an explicit wikilink — surfaced by scanning for known
-      titles and aliases.
-    </p>
     <ul class="hc-list">
       {items.map((m) => (
         <li class={`hc-item type-${m.type}`}>

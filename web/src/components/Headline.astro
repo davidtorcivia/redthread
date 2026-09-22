@@ -1,0 +1,15 @@
+---
+import metrics from '../assets/fonts/headline-metrics.json';
+interface Props { title: string; class?: string }
+const { title, class: className } = Astro.props;
+const words = title.trim().split(/\s+/);
+// Measure the longest intact word in Archivo 800 at width 88. Include the
+// heading's tracking and a small margin for shaping differences.
+const widths = metrics.widths as Record<string, number>;
+const longest = Math.max(1, ...words.map(word => {
+  const chars = [...word.toLocaleUpperCase('en-US')];
+  return chars.reduce((sum, c) => sum + (widths[c] ?? metrics.units), 0) / metrics.units - .05 * Math.max(0, chars.length - 1);
+}));
+const fit = (0.97 / longest).toFixed(5);
+---
+<h1 class={className} style={`--title-fit:calc((100vw - 2 * var(--gutter)) * ${fit})`}>{words.map((word, i) => <>{i > 0 && ' '}<span class="headline-word">{word}</span></>)}</h1>
