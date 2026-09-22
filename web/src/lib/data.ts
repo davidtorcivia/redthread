@@ -412,3 +412,22 @@ export function communities(): Community[] {
 export function communityOf(e: Entity): Community | undefined {
   return e.community_id == null ? undefined : communities()[e.community_id];
 }
+
+export interface Focus {
+  days: number;
+  pages: { id: string; pinned: boolean; reason: string }[];
+  cluster: { id: number; label: string; size: number; edited: number; days: number } | null;
+}
+let _focus: Focus | null = null;
+/** Homepage "In focus": momentum-ranked pages (plus pins from
+ *  `00 - META/IN FOCUS.md`) and the most-edited cluster. */
+export function focus(): Focus {
+  if (!_focus) {
+    try {
+      _focus = loadJson<Focus>('focus.json');
+    } catch {
+      _focus = { days: 30, pages: [], cluster: null };
+    }
+  }
+  return _focus;
+}

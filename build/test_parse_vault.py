@@ -424,5 +424,25 @@ class TestSummarizeCommunities(unittest.TestCase):
         self.assertEqual(out[1]["label"], "Zeta")
 
 
+
+class FocusTests(unittest.TestCase):
+    def test_compute_focus_scores_pins_and_cluster(self):
+        from collections import Counter
+        ents = [
+            {"id": "a", "path": "10/a.md", "type": "person", "summary": "x", "mention_count": 10, "community_id": 0},
+            {"id": "b", "path": "10/b.md", "type": "person", "summary": "x", "mention_count": 1, "community_id": 1},
+            {"id": "c", "path": "10/c.md", "type": "person", "summary": "x", "mention_count": 50, "community_id": 1},
+            {"id": "p", "path": "60/p.md", "type": "place", "summary": "x", "mention_count": 99, "community_id": 0},
+        ]
+        edges = [{"source": "b", "target_id": "c"}]
+        comms = [{"label": "L0", "size": 2}, {"label": "L1", "size": 2}]
+        edits = Counter({"10/a.md": 3, "10/b.md": 1, "60/p.md": 9})
+        f = pv.compute_focus(ents, edges, comms, edits, pins=["c"], slots=2)
+        ids = [p["id"] for p in f["pages"]]
+        self.assertEqual(ids, ["c", "a"])          # pin first, then top edited page; place excluded
+        self.assertTrue(f["pages"][0]["pinned"])
+        self.assertIn("1 linking page edited", f["pages"][0]["reason"])
+        self.assertEqual(f["cluster"]["id"], 0)    # a and p edited in 0, only b in 1
+
 if __name__ == "__main__":
     unittest.main()

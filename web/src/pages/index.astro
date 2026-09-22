@@ -1,12 +1,14 @@
 ---
 import Base from '../layouts/Base.astro';
-import { entities, activity, communities, CLUSTER_MIN_SIZE, hrefFor, renderInlineMd, topHubs, TYPE_DIRS, TYPE_LABELS, TYPE_PLURALS } from '../lib/data.ts';
+import { entities, activity, communities, focus, CLUSTER_MIN_SIZE, hrefFor, renderInlineMd, topHubs, TYPE_DIRS, TYPE_LABELS, TYPE_PLURALS } from '../lib/data.ts';
 import type { EntityType } from '../lib/types.ts';
 
 const total = entities().length;
 const types: EntityType[] = ['person', 'organization', 'program', 'event', 'concept', 'place'];
 const byId = new Map(entities().map((e) => [e.id, e]));
-const featured = ['promis', 'remote-viewing', 'dark-alliance'].flatMap(id => byId.has(id) ? [byId.get(id)!] : []);
+const inFocus = focus();
+const featured = inFocus.pages.flatMap(p => byId.has(p.id) ? [{ e: byId.get(p.id)!, reason: p.reason }] : []);
+const focusCluster = inFocus.cluster;
 const clusters = communities().filter(c => c.size >= CLUSTER_MIN_SIZE);
 const featuredClusters = [...clusters].sort((a, b) => b.size - a.size).slice(0, 4);
 const recent = activity().slice(0, 6);
@@ -29,12 +31,16 @@ const shortDate = (iso: string) => {
   </section>
   <div class="statement-wrap">
     {featured.length > 0 && <section class="statement-list">
-      <h2 class="section-heading">In focus</h2>
-      {featured.map(e => <article class="statement-item">
-        <div class="item-facts"><b>{e.mention_count} pages</b> · {TYPE_LABELS[e.type]}{e.category && <i>{e.category}</i>}</div>
+      <h2 class="section-heading">In focus <span>most worked on, last {inFocus.days} days</span></h2>
+      {featured.map(({ e, reason }) => <article class="statement-item">
+        <div class="item-facts"><b>{e.mention_count} pages</b> · {TYPE_LABELS[e.type]}{e.category && <i>{e.category}</i>}{reason && <i>{reason}</i>}</div>
         <a class="item-title" href={hrefFor(e)}>{e.title}</a>
         {e.summary && <p class="item-dek" set:html={renderInlineMd(e.summary)} />}
       </article>)}
+      {focusCluster && <article class="statement-item">
+        <div class="item-facts"><b>{focusCluster.size} entries</b> · Cluster<i>{focusCluster.edited} pages edited in the last {focusCluster.days} days</i></div>
+        <a class="item-title" href={`/clusters/#c-${focusCluster.id}`}>{focusCluster.label}</a>
+      </article>}
     </section>}
     <section class="statement-list">
       <h2 class="section-heading">Most mentioned</h2>

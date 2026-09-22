@@ -57,6 +57,7 @@ DEFAULT_CONFIG = {
         "DATAVIEW RENDERING.md",
         "00 - META/CHANGELOG.md",
         "00 - META/THE INFO WEB.md",
+        "00 - META/IN FOCUS.md",
         # Dataview/MOC stubs that exist to render index queries
         "DATAVIEW - *.md",
         "DATAVIEW *.md",
@@ -1284,6 +1285,90 @@ def summarize_communities(
     return out
 
 
+# ---------- In focus (homepage) ----------
+
+FOCUS_TYPES = {"person", "organization", "program", "event", "concept"}
+
+
+def git_edit_counts(vault_root: Path, days: int = 30) -> Counter:
+    """Commits per vault-relative path in the last `days` days. Empty when the
+    vault is not a git checkout (file mtimes are useless here: every pull
+    resets them)."""
+    import subprocess
+    try:
+        out = subprocess.run(
+            ["git", "-C", str(vault_root), "log", f"--since={days}.days",
+             "--name-only", "--pretty=format:"],
+            capture_output=True, text=True, timeout=60, check=True,
+        ).stdout
+    except (OSError, subprocess.SubprocessError):
+        return Counter()
+    return Counter(line.strip() for line in out.splitlines() if line.strip().endswith(".md"))
+
+
+def read_focus_pins(vault_root: Path, slug_index: dict[str, str]) -> list[str]:
+    """Wikilinks in `00 - META/IN FOCUS.md`, resolved to entity ids, in order."""
+    try:
+        text = (vault_root / "00 - META" / "IN FOCUS.md").read_text(encoding="utf-8")
+    except OSError:
+        return []
+    ids: list[str] = []
+    for target in re.findall(r"\[\[([^\]|#]+)", text):
+        eid = slug_index.get(normalize_target(target))
+        if eid and eid not in ids:
+            ids.append(eid)
+    return ids
+
+
+def compute_focus(
+    entities: list[dict[str, Any]], edges: list[dict[str, Any]],
+    communities_out: list[dict[str, Any]], edits: Counter,
+    pins: list[str], slots: int = 3, days: int = 30,
+) -> dict[str, Any]:
+    """Pages with momentum: commits touching the page plus half a point per
+    commit touching a page that links to it, scaled by log(mentions). Pins
+    from IN FOCUS.md take the first slots. The cluster slot is the community
+    with the most member pages edited in the window."""
+    by_id = {e["id"]: e for e in entities}
+    own = Counter({e["id"]: edits[e["path"]] for e in entities if edits[e["path"]]})
+    linked: Counter = Counter()
+    for edge in edges:
+        t = edge.get("target_id")
+        if t and t != edge["source"] and own[edge["source"]]:
+            linked[t] += own[edge["source"]]
+    scored = []
+    for e in entities:
+        if e["type"] not in FOCUS_TYPES or not e.get("summary") or not own[e["id"]]:
+            continue
+        # Own edits count whole; edited linkers count as a share of all linkers,
+        # so a mega-hub (CIA, FBI) does not win on volume alone.
+        m = e.get("mention_count", 0)
+        score = own[e["id"]] + (linked[e["id"]] / max(1, m)) * math.log(2 + m)
+        scored.append((score, e["id"]))
+    scored.sort(key=lambda t: (-t[0], t[1]))
+    chosen = [i for i in pins if i in by_id][:slots]
+    chosen += [i for _, i in scored if i not in chosen][: slots - len(chosen)]
+    pages = []
+    for i in chosen:
+        parts = []
+        if own[i]:
+            parts.append(f"{own[i]} edit{'s' if own[i] != 1 else ''}")
+        if linked[i]:
+            parts.append(f"{linked[i]} linking page{'s' if linked[i] != 1 else ''} edited")
+        pages.append({"id": i, "pinned": i in pins,
+                      "reason": (", ".join(parts) + f" in the last {days} days") if parts else ""})
+    edited_in: Counter = Counter()
+    for e in entities:
+        if own[e["id"]] and e.get("community_id") is not None:
+            edited_in[e["community_id"]] += 1
+    cluster = None
+    if edited_in:
+        cid, n = max(edited_in.items(), key=lambda t: (t[1], -t[0]))
+        c = communities_out[cid]
+        cluster = {"id": cid, "label": c["label"], "size": c["size"], "edited": n, "days": days}
+    return {"days": days, "pages": pages, "cluster": cluster}
+
+
 def compute_layout_positions(
     adjacency: dict[str, Any], cache_path: "Path | None" = None
 ) -> list[list[float]]:
@@ -1839,6 +1924,11 @@ def main() -> int:
     # — no per-entity files needed. Pass None so write_outputs skips
     # generating them.
     write_outputs(args.out, entities, slug_index, edges, stats, related, None, adjacency)
+    focus = compute_focus(entities, edges, communities_out, git_edit_counts(vault_root),
+                          read_focus_pins(vault_root, slug_index))
+    (Path(args.out) / "focus.json").write_text(
+        json.dumps(focus, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
+    print(f"[focus] pages={[p['id'] for p in focus['pages']]} cluster={focus['cluster'] and focus['cluster']['label']}")
     (Path(args.out) / "communities.json").write_text(
         json.dumps(communities_out, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
 
