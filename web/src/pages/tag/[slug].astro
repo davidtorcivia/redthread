@@ -78,25 +78,28 @@ const breadcrumbs = [
   breadcrumbs={breadcrumbs}
 >
   <header class="browse-header">
-    <div class="kicker">
-      <a href="/tags/">Tags</a>
-    </div>
     <h1>#{tag}</h1>
-    <p class="lead">
-      {count.toLocaleString()} entr{count === 1 ? 'y' : 'ies'} tagged <em>{tag}</em>.
-    </p>
+    <span class="tag-total">{count.toLocaleString()} {count === 1 ? 'entry' : 'entries'}</span>
   </header>
 
-  <section class="browse-body">
+  <section class="browse-body tag-results" id="tag-results">
+    <div class="tag-results-tools">
+      <label><span class="sr-only">Search entries with this tag</span><input id="tag-result-query" type="search" placeholder="Find an entry in this tag" autocomplete="off" /></label>
+      <div class="tag-type-buttons" aria-label="Filter by entry type">
+        <button type="button" data-type="" aria-pressed="true">All</button>
+        {groups.map((g) => <button type="button" data-type={g.type} aria-pressed="false">{g.label} <span>{g.items.length}</span></button>)}
+      </div>
+    </div>
+    <p class="tag-results-status" id="tag-results-status" role="status" aria-live="polite"></p>
     {groups.map((g) => (
-      <section class="cat-section" data-collapsed="false">
+      <section class="cat-section" data-collapsed="false" data-result-type={g.type}>
         <h2>
           {g.label}
           <span class="count">({g.items.length})</span>
         </h2>
         <ul class="cat-list">
           {g.items.map((e) => (
-            <li>
+            <li data-result-search={`${e.title} ${e.summary ?? ''}`}>
               <a class="entry-title" href={hrefFor({ id: e.id, type: e.type })}>
                 {e.title}
               </a>
@@ -106,5 +109,71 @@ const breadcrumbs = [
         </ul>
       </section>
     ))}
+    <p class="tag-results-empty" id="tag-results-empty" hidden>No entries match that search.</p>
+    <button class="tag-results-more" id="tag-results-more" type="button" hidden>Show 40 more ↓</button>
   </section>
+
+  <script is:inline>
+    (() => {
+      const root = document.getElementById('tag-results');
+      if (!root) return;
+      const sections = [...root.querySelectorAll('[data-result-type]')];
+      const rows = sections.flatMap((section) => [...section.querySelectorAll('li[data-result-search]')]);
+      const buttons = [...root.querySelectorAll('button[data-type]')];
+      const input = root.querySelector('#tag-result-query');
+      const status = root.querySelector('#tag-results-status');
+      const empty = root.querySelector('#tag-results-empty');
+      const more = root.querySelector('#tag-results-more');
+      const params = new URLSearchParams(location.search);
+      const validTypes = new Set(buttons.map((button) => button.dataset.type));
+      let type = validTypes.has(params.get('type')) ? params.get('type') : '';
+      let query = params.get('q') || '';
+      let limit = 40;
+      input.value = query;
+      const normalize = (text) => (text || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+      const sync = (push = false) => {
+        const url = new URL(location.href);
+        url.searchParams.delete('type'); url.searchParams.delete('q');
+        if (type) url.searchParams.set('type', type);
+        if (query.trim()) url.searchParams.set('q', query.trim());
+        history[push ? 'pushState' : 'replaceState'](null, '', url);
+      };
+      const render = () => {
+        const term = normalize(query.trim());
+        const matches = rows.filter((row) => (!type || row.closest('[data-result-type]').dataset.resultType === type) && (!term || normalize(row.dataset.resultSearch).includes(term)));
+        const shown = new Set(matches.slice(0, limit));
+        rows.forEach((row) => { row.hidden = !shown.has(row); });
+        sections.forEach((section) => { section.hidden = !section.querySelector('li[data-result-search]:not([hidden])'); });
+        status.textContent = `${matches.length.toLocaleString()} ${matches.length === 1 ? 'entry' : 'entries'}${matches.length > limit ? ` · showing ${limit}` : ''}`;
+        empty.hidden = matches.length > 0;
+        more.hidden = matches.length <= limit;
+        buttons.forEach((button) => button.setAttribute('aria-pressed', String(button.dataset.type === type)));
+      };
+      input.addEventListener('input', () => { query = input.value; limit = 40; sync(); render(); });
+      buttons.forEach((button) => button.addEventListener('click', () => { type = button.dataset.type; limit = 40; sync(true); render(); }));
+      more.addEventListener('click', () => { limit += 40; render(); });
+      window.addEventListener('popstate', () => { const state = new URLSearchParams(location.search); type = validTypes.has(state.get('type')) ? state.get('type') : ''; query = state.get('q') || ''; input.value = query; limit = 40; render(); });
+      render();
+    })();
+  </script>
 </Base>
+
+<style>
+  .browse-header {display:flex;align-items:end;justify-content:space-between;gap:20px;padding-bottom:32px}
+  .browse-header h1 {margin:0;overflow-wrap:anywhere}
+  .tag-total {font:500 15px/1.4 var(--sans);white-space:nowrap;padding-bottom:8px}
+  .tag-results {padding-top:36px;padding-bottom:90px}
+  .tag-results-tools {display:flex;flex-wrap:wrap;align-items:end;gap:20px 35px;border-bottom:2px solid var(--ink);padding-bottom:18px}
+  .tag-results-tools label {flex:1 1 260px}
+  .tag-results-tools input {width:100%;border:0;border-bottom:1px solid var(--ink);border-radius:0;background:var(--paper);padding:12px 0;color:var(--ink);font:400 18px/1.3 var(--sans)}
+  .tag-type-buttons {display:flex;flex-wrap:wrap;gap:6px}
+  .tag-type-buttons button {border:1px solid var(--line-2);background:var(--paper);color:var(--ink);padding:7px 10px;cursor:pointer;font:500 13px/1.2 var(--sans)}
+  .tag-type-buttons button[aria-pressed=true] {background:var(--ink);color:var(--paper);border-color:var(--ink)}
+  .tag-type-buttons span {opacity:.65;padding-left:4px}
+  .tag-results-status {font:400 14px/1.3 var(--sans);color:var(--muted);margin:15px 0 0}
+  .cat-section[hidden],.cat-list li[hidden],.tag-results-empty[hidden],.tag-results-more[hidden] {display:none}
+  .tag-results-empty {padding:30px 0;font:400 17px/1.4 var(--sans)}
+  .tag-results-more {display:block;border:1px solid var(--ink);background:var(--paper);color:var(--ink);padding:12px 18px;margin:28px auto 0;cursor:pointer;font:600 14px/1.2 var(--sans)}
+  .tag-results-more:hover {background:var(--ink);color:var(--paper)}
+  @media(max-width:600px) {.browse-header {display:block}.tag-total {display:block;margin-top:10px}.tag-results {padding-top:26px}}
+</style>

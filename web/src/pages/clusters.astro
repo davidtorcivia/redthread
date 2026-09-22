@@ -15,16 +15,8 @@ const smallMembers = small.reduce((n, c) => n + c.size, 0);
   description="Groups of entries with more links to one another than to the rest of the site."
 >
   <article class="changelog-article clusters-article">
-    <div class="entity-eyebrow">
-      <span>Tools</span>
-    </div>
     <h1 class="entity-title">Clusters</h1>
-    <p class="entity-dek">
-      {big.length} groups of related entries. Entries in each group have more links to
-      one another than to the rest of the site. Each group shown here has at least
-      {MIN_SIZE} entries and takes its name from its three most-mentioned members.
-      See the same groups in the <a href="/network/">network</a>.
-    </p>
+    <details class="cluster-method"><summary>How are these groups formed?</summary><p>Entries are grouped by denser links within the archive. Each label comes from the group's three most-mentioned members, and groups smaller than {MIN_SIZE} entries appear at the end.</p></details>
 
     {big.map((c) => (
       <section class="cl-group cluster" id={`c-${c.id}`}>
@@ -79,3 +71,9 @@ const smallMembers = small.reduce((n, c) => n + c.size, 0);
     )}
   </article>
 </Base>
+
+<style>
+  .cluster-method {font:400 14px/1.45 var(--sans);color:var(--muted);margin:18px 0 42px;max-width:65ch}
+  .cluster-method summary {cursor:pointer;text-decoration:underline;text-underline-offset:3px}
+  .cluster-method p {margin:10px 0}
+</style>

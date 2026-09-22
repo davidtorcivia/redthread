@@ -5,7 +5,6 @@ import { unresolvedTargets, hrefFor, TYPE_LABELS } from '../lib/data.ts';
 const all = unresolvedTargets();
 const LIMIT = 300;
 const rows = all.slice(0, LIMIT);
-const totalLinks = all.reduce((n, t) => n + t.count, 0);
 const SAMPLE = 6;
 ---
 <Base
@@ -15,15 +14,9 @@ const SAMPLE = 6;
   noindex
 >
   <article class="changelog-article unresolved-article">
-    <div class="entity-eyebrow">
-      <span>Meta</span>
-    </div>
     <h1 class="entity-title">Unresolved links</h1>
     <p class="entity-dek">
-      These names are linked from existing pages but have no matching entry.
-      They may need a new page or an alternate name added to one we already have.
-      Showing {rows.length.toLocaleString()} of {all.length.toLocaleString()} unresolved names,
-      with {totalLinks.toLocaleString()} links in total.
+      Linked names without a matching entry. They may need a page or an alternate name on an existing one.
     </p>
 
     <ol class="ur-list">

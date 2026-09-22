@@ -77,12 +77,7 @@ function anchorFor(title: string): string | undefined {
     ? <DirectoryExplorer items={items} directory={plural} singular={entityType} />
     : <>
   <header class="browse-header">
-    <div class="kicker">Browse</div>
     <h1>{plural}</h1>
-    <p class="lead">
-      {items.length.toLocaleString()}{' '}{plural.toLowerCase()} across {ordered.length} categories.
-      Categories of central interest are expanded; click any heading to expand or collapse.
-    </p>
   </header>
 
   {letters.length > 0 && (

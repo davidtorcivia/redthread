@@ -851,9 +851,17 @@ export class GraphEngine {
     const { tooltip, shell } = this;
     tooltip.removeAttribute('hidden');
     const sr = shell.getBoundingClientRect();
-    const maxX = sr.width - tooltip.offsetWidth - 8;
-    tooltip.style.left = Math.min(Math.max(8, px + 14), maxX) + 'px';
-    tooltip.style.top = Math.max(8, py - tooltip.offsetHeight - 10) + 'px';
+    const width = tooltip.offsetWidth;
+    const height = tooltip.offsetHeight;
+    const minX = Math.max(8, 8 - sr.left);
+    const maxX = Math.min(sr.width - width - 8, innerWidth - sr.left - width - 8);
+    const minY = Math.max(8, 8 - sr.top);
+    const maxY = Math.min(sr.height - height - 8, innerHeight - sr.top - height - 8);
+    const above = py - height - 10;
+    const below = py + 14;
+    const preferredY = above >= minY || below > maxY ? above : below;
+    tooltip.style.left = Math.max(minX, Math.min(px + 14, Math.max(minX, maxX))) + 'px';
+    tooltip.style.top = Math.max(minY, Math.min(preferredY, Math.max(minY, maxY))) + 'px';
   }
   showTooltip(n: GraphNode, px: number, py: number): void {
     this.tooltip.innerHTML =

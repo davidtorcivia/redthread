@@ -359,19 +359,23 @@ const breadcrumbSchema = crumbItems
         }
         function position(el, link) {
           const r = link.getBoundingClientRect();
+          const wasVisible = el.classList.contains('visible');
+          el.style.maxHeight = '';
           el.style.visibility = 'hidden';
           el.classList.add('visible');
           const w = el.offsetWidth || 352;
+          const margin = 8;
+          const gap = 6;
+          const left = Math.max(margin, Math.min(r.left, window.innerWidth - w - margin));
+          const roomBelow = window.innerHeight - r.bottom - gap - margin;
+          const roomAbove = r.top - gap - margin;
+          const below = roomBelow >= el.offsetHeight || roomBelow >= roomAbove;
+          el.style.maxHeight = `${Math.max(60, below ? roomBelow : roomAbove)}px`;
           const h = el.offsetHeight || 180;
-          el.classList.remove('visible');
+          if (!wasVisible) el.classList.remove('visible');
           el.style.visibility = '';
-          let left = r.left + window.scrollX;
-          const maxLeft = window.scrollX + window.innerWidth - w - 12;
-          if (left > maxLeft) left = maxLeft;
-          if (left < window.scrollX + 8) left = window.scrollX + 8;
-          const below = r.bottom + h + 16 < window.scrollY + window.innerHeight ||
-                        r.top < window.innerHeight / 2;
-          const top = below ? r.bottom + window.scrollY + 6 : r.top + window.scrollY - h - 6;
+          const preferredTop = below ? r.bottom + gap : r.top - h - gap;
+          const top = Math.max(margin, Math.min(preferredTop, window.innerHeight - h - margin));
           el.style.left = left + 'px';
           el.style.top = top + 'px';
         }
@@ -407,6 +411,14 @@ const breadcrumbSchema = crumbItems
           currentLink = null;
           scheduleHide();
         });
+        const reposition = () => {
+          if (!pop?.classList.contains('visible') || !currentLink) return;
+          const box = currentLink.getBoundingClientRect();
+          if (box.bottom < 0 || box.top > window.innerHeight) scheduleHide();
+          else position(pop, currentLink);
+        };
+        window.addEventListener('scroll', reposition, { passive: true });
+        window.addEventListener('resize', reposition);
       })();
 
       // Run fn once the DOM is ready. Crucially, fires immediately if the

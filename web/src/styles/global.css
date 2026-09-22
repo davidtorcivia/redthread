@@ -1523,10 +1523,12 @@ body.graph-fullscreen-active { overflow: hidden; }
 
 /* Hover preview popover */
 .hover-preview {
-  position: absolute;
+  position: fixed;
   z-index: 100;
   width: 22rem;
   max-width: calc(100vw - 2rem);
+  max-height: calc(100dvh - 1rem);
+  overflow-y: auto;
   background: var(--card);
   border: 1px solid var(--line-2);
   border-radius: 6px;

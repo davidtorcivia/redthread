@@ -1,244 +1,203 @@
 ---
 import Base from '../layouts/Base.astro';
-import { bridgeEntities, hubEntities, hrefFor, renderInlineMd, TYPE_LABELS } from '../lib/data.ts';
+import { backlinks, bridgeEntities, communities, edges, entity as getEntity, hrefFor, hubEntities, renderInlineMd, TYPE_LABELS, TYPE_PLURALS } from '../lib/data.ts';
+import type { Entity, EntityType } from '../lib/types.ts';
 
 const bridges = bridgeEntities();
 const hubs = hubEntities();
+const communityNames = new Map(communities().map((community) => [community.id, community.label]));
+const explicitSources = new Map<string, Set<string>>();
+for (const edge of edges()) {
+  if (edge.kind !== 'explicit' || !edge.target_id) continue;
+  const set = explicitSources.get(edge.target_id) ?? new Set<string>();
+  set.add(edge.source);
+  explicitSources.set(edge.target_id, set);
+}
+const types: EntityType[] = [...new Set([...bridges, ...hubs].map((item) => item.type))].sort((a, b) => TYPE_LABELS[a].localeCompare(TYPE_LABELS[b]));
+const hubRanks = new Map(hubs.map((item) => [item.id, item.hub_rank]));
+const bridgeRanks = new Map(bridges.map((item) => [item.id, item.bridge_rank]));
 
-// Bar scaling: each list normalizes to its own #1 score so the
-// strongest entry in each view fills the bar.
-const topBridgeScore = bridges[0]?.bridge_score ?? 1;
-const topHubScore = hubs[0]?.hub_score ?? 1;
+function citingPages(item: Entity): Entity[] {
+  const explicit = explicitSources.get(item.id) ?? new Set<string>();
+  return backlinks(item.id)
+    .map((link) => getEntity(link.source_id))
+    .filter((source): source is Entity => Boolean(source))
+    .sort((a, b) => Number(explicit.has(b.id)) - Number(explicit.has(a.id)) || b.mention_count - a.mention_count || a.title.localeCompare(b.title));
+}
 
-// Cross-reference maps so each row can show "also appears in the
-// other list at rank #N" — the most interesting entities sit on both.
-const hubRankOf = new Map(hubs.map((e) => [e.id, e.hub_rank!]));
-const bridgeRankOf = new Map(bridges.map((e) => [e.id, e.bridge_rank!]));
+function bridgeEvidence(item: Entity) {
+  const groups = new Map<number, Entity[]>();
+  for (const source of citingPages(item)) {
+    if (source.community_id == null) continue;
+    const group = groups.get(source.community_id) ?? [];
+    group.push(source);
+    groups.set(source.community_id, group);
+  }
+  return [...groups].sort((a, b) => b[1].length - a[1].length).slice(0, 3).map(([id, sources]) => ({
+    id,
+    label: communityNames.get(id) ?? `Cluster ${id}`,
+    count: sources.length,
+    source: sources[0],
+    direct: explicitSources.get(item.id)?.has(sources[0].id) ?? false,
+  }));
+}
 ---
-<Base
-  bodyClass="utility"
-  title="Bridges & Hubs | The Info Web"
-  description="Entries that connect different clusters, and entries with the strongest connections across the site."
->
-  <article class="bridges-article">
-    <div class="entity-eyebrow">
-      <span>Tools</span>
+<Base bodyClass="utility" title="Bridges & Hubs | The Info Web" description="See which entries span separate clusters and which receive the strongest links, with pages that explain each ranking.">
+  <main class="bridge-explorer" id="bridge-explorer">
+    <header class="browse-header bridge-header"><h1>Bridges &amp; hubs</h1></header>
+    <div class="bridge-inner">
+      <div class="bridge-tabs" role="tablist" aria-label="Network ranking">
+        <button id="bridge-tab" type="button" role="tab" aria-controls="bridge-panel" aria-selected="true" data-view="bridges">Bridges <span>{bridges.length}</span></button>
+        <button id="hub-tab" type="button" role="tab" aria-controls="hub-panel" aria-selected="false" tabindex="-1" data-view="hubs">Hubs <span>{hubs.length}</span></button>
+      </div>
+      <div class="bridge-tools">
+        <label><span class="sr-only">Search ranked entries</span><input id="bridge-query" type="search" placeholder="Find an entry in these rankings" autocomplete="off" /></label>
+        <div class="bridge-types" role="group" aria-label="Entry type">
+          <button type="button" data-type="" aria-pressed="true">All</button>
+          {types.map((type) => <button type="button" data-type={type} aria-pressed="false">{TYPE_PLURALS[type]}</button>)}
+        </div>
+      </div>
+      <p class="bridge-status" id="bridge-status" role="status" aria-live="polite"></p>
+
+      <section class="bridge-panel" id="bridge-panel" role="tabpanel" aria-labelledby="bridge-tab" data-panel="bridges">
+        <div class="bridge-explain">
+          <p>Bridges are named by pages from several different clusters. The examples below show where an entry crosses between subjects.</p>
+          <details><summary>How are bridges ranked?</summary><p>The score favors mentions spread across clusters and gives less weight to names that appear everywhere. An entry needs mentions from at least four pages in two clusters. Places are excluded. A shared mention is a route for investigation, not proof of a direct relationship.</p></details>
+        </div>
+        <ol class="bridge-list">
+          {bridges.map((item) => {
+            const evidence = bridgeEvidence(item);
+            const alsoHub = hubRanks.get(item.id);
+            return <li class={`bridge-row type-${item.type}`} id={`br-${item.id}`} data-type={item.type} data-search={`${item.title} ${item.summary ?? ''} ${item.category ?? ''}`}>
+              <span class="bridge-rank">#{item.bridge_rank}</span>
+              <div class="bridge-entry">
+                <div class="bridge-meta"><span>{TYPE_LABELS[item.type]}</span>{item.category && <span>{item.category}</span>}{item.community_span && <span>{item.community_span} clusters reached</span>}{alsoHub && <a href={`#hu-${item.id}`}>Also Hub #{alsoHub} ↗</a>}</div>
+                <h2><a href={hrefFor(item)}>{item.title}</a></h2>
+                {item.summary && <p class="bridge-summary" set:html={renderInlineMd(item.summary)} />}
+                {evidence.length > 0 && <div class="bridge-evidence"><h3>Seen across</h3><ul>{evidence.map((group) => <li><a class="bridge-cluster" href={`/clusters/#c-${group.id}`}>{group.label}</a><span>{group.count} {group.count === 1 ? 'page' : 'pages'} · {group.direct ? 'linked from' : 'named in'} <a href={hrefFor(group.source)}>{group.source.title}</a></span></li>)}</ul></div>}
+              </div>
+            </li>;
+          })}
+        </ol>
+      </section>
+
+      <section class="bridge-panel" id="hub-panel" role="tabpanel" aria-labelledby="hub-tab" data-panel="hubs" hidden>
+        <div class="bridge-explain">
+          <p>Hubs are entries named by other well-connected pages. These are useful starting points for a subject.</p>
+          <details><summary>How are hubs ranked?</summary><p>Hub rank uses PageRank on the archive's directed mention graph. Links from well-connected pages count more. The pages shown below are examples of where each hub is named.</p></details>
+        </div>
+        <ol class="bridge-list">
+          {hubs.map((item) => {
+            const sources = citingPages(item).slice(0, 3);
+            const alsoBridge = bridgeRanks.get(item.id);
+            return <li class={`bridge-row type-${item.type}`} id={`hu-${item.id}`} data-type={item.type} data-search={`${item.title} ${item.summary ?? ''} ${item.category ?? ''}`}>
+              <span class="bridge-rank">#{item.hub_rank}</span>
+              <div class="bridge-entry">
+                <div class="bridge-meta"><span>{TYPE_LABELS[item.type]}</span>{item.category && <span>{item.category}</span>}<span>{item.mention_count.toLocaleString()} pages mentioning</span>{alsoBridge && <a href={`#br-${item.id}`}>Also Bridge #{alsoBridge} ↗</a>}</div>
+                <h2><a href={hrefFor(item)}>{item.title}</a></h2>
+                {item.summary && <p class="bridge-summary" set:html={renderInlineMd(item.summary)} />}
+                {sources.length > 0 && <div class="bridge-evidence"><h3>Named by</h3><ul>{sources.map((source) => <li><a href={hrefFor(source)}>{source.title}</a><span>{TYPE_LABELS[source.type]}{explicitSources.get(item.id)?.has(source.id) ? ' · direct link' : ' · named in text'}</span></li>)}</ul></div>}
+              </div>
+            </li>;
+          })}
+        </ol>
+      </section>
+      <p class="bridge-empty" id="bridge-empty" hidden>No entries match that filter.</p>
     </div>
-    <h1 class="entity-title">Bridges &amp; hubs</h1>
-    <p class="entity-dek">
-      Bridges connect different clusters. Hubs have strong links to other
-      well-connected entries. Choose a list to explore either kind of connection.
-    </p>
-
-    <div class="br-toggle" role="tablist" aria-label="Structure view">
-      <button
-        type="button"
-        class="br-tab is-active"
-        data-view="bridges"
-        id="tab-bridges"
-        role="tab"
-        aria-selected="true"
-        aria-controls="panel-bridges-explain panel-bridges-list"
-      >
-        Bridges <span class="br-tab-count">{bridges.length}</span>
-      </button>
-      <button
-        type="button"
-        class="br-tab"
-        data-view="hubs"
-        id="tab-hubs"
-        role="tab"
-        aria-selected="false"
-        tabindex="-1"
-        aria-controls="panel-hubs-explain panel-hubs-list"
-      >
-        Hubs <span class="br-tab-count">{hubs.length}</span>
-      </button>
-    </div>
-
-    <section class="br-explain" data-view="bridges" id="panel-bridges-explain" role="tabpanel" aria-labelledby="tab-bridges" tabindex="0">
-      <h2 class="br-heading">Bridges</h2>
-      <p>A bridge is an entry mentioned by pages from several different clusters.
-        It can help you find connections between subjects you might otherwise read separately.</p>
-      <p>The ranking favors entries whose mentions are spread across clusters.
-        Widely mentioned entries receive less weight, which makes smaller connections easier to find.</p>
-      <p class="br-footer-note">An entry needs mentions from at least four pages in at least
-        two clusters to qualify. Places are excluded. Ranks change as entries and links are added.</p>
-    </section>
-
-    <section class="br-explain" data-view="hubs" id="panel-hubs-explain" role="tabpanel" aria-labelledby="tab-hubs" tabindex="0" hidden>
-      <h2 class="br-heading">Hubs</h2>
-      <p>A hub has strong links to other well-connected entries.
-        These pages are useful starting points for browsing a subject.</p>
-      <p>The score uses PageRank, which considers the strength of each connection
-        and how well connected the other entry is.</p>
-      <p class="br-footer-note">Some entries appear in both lists.
-        Their other rank is shown beside the title.</p>
-    </section>
-
-    <section class="br-list-section" data-view="bridges" id="panel-bridges-list" role="tabpanel" aria-labelledby="tab-bridges" tabindex="0">
-      <h2 class="br-heading">Bridges, ranked</h2>
-      <ol class="br-list">
-        {bridges.map((e) => {
-          const score = e.bridge_score ?? 0;
-          const barWidth = topBridgeScore > 0 ? Math.round((score / topBridgeScore) * 100) : 0;
-          const alsoHub = hubRankOf.get(e.id);
-          return (
-            <li class={`br-row type-${e.type}`} id={`br-${e.id}`}>
-              <div class="br-rank-col">
-                <span class="br-rank-num">{e.bridge_rank!.toString().padStart(2, '0')}</span>
-              </div>
-              <div class="br-body">
-                <div class="br-head">
-                  <span class="br-type">{TYPE_LABELS[e.type]}</span>
-                  {e.category && <span class="br-cat">{e.category}</span>}
-                  <span class="br-mentions">{e.mention_count.toLocaleString()} mentions</span>
-                  {e.community_span && (
-                    <span class="br-span" title="Number of clusters among the pages that mention this entry.">
-                      spans {e.community_span} communities
-                    </span>
-                  )}
-                  {alsoHub && (
-                    <a class="br-also" href={`#hu-${e.id}`} title="This entry also appears in the Hubs list.">
-                      also Hub #{alsoHub}
-                    </a>
-                  )}
-                </div>
-                <a class="br-title" href={hrefFor({ id: e.id, type: e.type })}>{e.title}</a>
-                {e.summary && <p class="br-summary" set:html={renderInlineMd(e.summary)} />}
-                <div class="br-score-row" title={`Bridge score: ${score.toFixed(4)}. Based on how mentions are spread across clusters.`}>
-                  <div class="br-score-bar" aria-hidden="true">
-                    <div class="br-score-fill" style={`width: ${barWidth}%`}></div>
-                  </div>
-                  <span class="br-score-val">{score.toFixed(4)}</span>
-                  <span class="br-score-rel">{barWidth}% of #1</span>
-                </div>
-              </div>
-            </li>
-          );
-        })}
-      </ol>
-    </section>
-
-    <section class="br-list-section" data-view="hubs" id="panel-hubs-list" role="tabpanel" aria-labelledby="tab-hubs" tabindex="0" hidden>
-      <h2 class="br-heading">Hubs, ranked</h2>
-      <ol class="br-list">
-        {hubs.map((e) => {
-          const score = e.hub_score ?? 0;
-          const barWidth = topHubScore > 0 ? Math.round((score / topHubScore) * 100) : 0;
-          const alsoBridge = bridgeRankOf.get(e.id);
-          return (
-            <li class={`br-row type-${e.type}`} id={`hu-${e.id}`}>
-              <div class="br-rank-col">
-                <span class="br-rank-num">{e.hub_rank!.toString().padStart(2, '0')}</span>
-              </div>
-              <div class="br-body">
-                <div class="br-head">
-                  <span class="br-type">{TYPE_LABELS[e.type]}</span>
-                  {e.category && <span class="br-cat">{e.category}</span>}
-                  <span class="br-mentions">{e.mention_count.toLocaleString()} mentions</span>
-                  {alsoBridge && (
-                    <a class="br-also" href={`#br-${e.id}`} title="This entry also appears in the Bridges list.">
-                      also Bridge #{alsoBridge}
-                    </a>
-                  )}
-                </div>
-                <a class="br-title" href={hrefFor({ id: e.id, type: e.type })}>{e.title}</a>
-                {e.summary && <p class="br-summary" set:html={renderInlineMd(e.summary)} />}
-                <div class="br-score-row" title={`Hub score: ${score.toFixed(5)}. Based on weighted PageRank.`}>
-                  <div class="br-score-bar" aria-hidden="true">
-                    <div class="br-score-fill" style={`width: ${barWidth}%`}></div>
-                  </div>
-                  <span class="br-score-val">{score.toFixed(5)}</span>
-                  <span class="br-score-rel">{barWidth}% of #1</span>
-                </div>
-              </div>
-            </li>
-          );
-        })}
-      </ol>
-    </section>
-
-    <p class="br-cta">
-      Find the links between two entries with the <a href="/path/">path finder</a>,
-      or explore the <a href="/network/">full network</a>.
-    </p>
-  </article>
+  </main>
 
   <script is:inline>
-    // View toggle: swap visible <section data-view="..."> blocks based on
-    // which tab is active. Uses hidden attr (rather than display:none in
-    // CSS) so screen readers + browser find-in-page skip the inactive
-    // panel cleanly. Also syncs the URL hash so a deep-linked anchor
-    // (#br-foo or #hu-foo) auto-selects the matching view.
-    (function () {
-      const tabs = document.querySelectorAll('.br-tab');
-      const sections = document.querySelectorAll('section[data-view]');
-
-      function setView(view) {
-        tabs.forEach((t) => {
-          const active = t.getAttribute('data-view') === view;
-          t.classList.toggle('is-active', active);
-          t.setAttribute('aria-selected', active ? 'true' : 'false');
-          // Roving tabindex: only the active tab is in the tab order; the
-          // others are reached with arrow keys per the WAI-ARIA tabs pattern.
-          t.setAttribute('tabindex', active ? '0' : '-1');
-        });
-        sections.forEach((s) => {
-          const match = s.getAttribute('data-view') === view;
-          if (match) s.removeAttribute('hidden');
-          else s.setAttribute('hidden', '');
-        });
-      }
-
-      const tabList = Array.from(tabs);
-      tabs.forEach((t, i) => {
-        t.addEventListener('click', () => {
-          const view = t.getAttribute('data-view');
-          setView(view);
-          // Persist the active tab in the URL (replaceState, no history
-          // spam) so a reload or shared link restores it instead of always
-          // snapping back to Bridges.
-          history.replaceState(null, '', '#' + view);
-        });
-        // Left/Right (and Home/End) move between tabs and activate, the
-        // standard keyboard model for an ARIA tablist.
-        t.addEventListener('keydown', (e) => {
-          let next = -1;
-          if (e.key === 'ArrowRight' || e.key === 'ArrowDown') next = (i + 1) % tabList.length;
-          else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') next = (i - 1 + tabList.length) % tabList.length;
-          else if (e.key === 'Home') next = 0;
-          else if (e.key === 'End') next = tabList.length - 1;
-          if (next < 0) return;
-          e.preventDefault();
-          const target = tabList[next];
-          const view = target.getAttribute('data-view');
-          setView(view);
-          history.replaceState(null, '', '#' + view);
-          target.focus();
+    (() => {
+      const root = document.getElementById('bridge-explorer');
+      if (!root) return;
+      const tabs = [...root.querySelectorAll('[role="tab"]')];
+      const panels = [...root.querySelectorAll('[data-panel]')];
+      const typeButtons = [...root.querySelectorAll('button[data-type]')];
+      const input = root.querySelector('#bridge-query');
+      const status = root.querySelector('#bridge-status');
+      const empty = root.querySelector('#bridge-empty');
+      const validTypes = new Set(typeButtons.map((button) => button.dataset.type));
+      const params = new URLSearchParams(location.search);
+      let type = validTypes.has(params.get('type')) ? params.get('type') : '';
+      let query = params.get('q') || '';
+      let view = location.hash === '#hubs' || location.hash.startsWith('#hu-') ? 'hubs' : 'bridges';
+      input.value = query;
+      const normalize = (text) => (text || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+      const syncQuery = (push = false) => {
+        const url = new URL(location.href);
+        url.searchParams.delete('q'); url.searchParams.delete('type');
+        if (query.trim()) url.searchParams.set('q', query.trim());
+        if (type) url.searchParams.set('type', type);
+        history[push ? 'pushState' : 'replaceState'](null, '', url);
+      };
+      const render = () => {
+        tabs.forEach((tab) => { const active = tab.dataset.view === view; tab.setAttribute('aria-selected', String(active)); tab.tabIndex = active ? 0 : -1; });
+        panels.forEach((panel) => { panel.hidden = panel.dataset.panel !== view; });
+        typeButtons.forEach((button) => button.setAttribute('aria-pressed', String(button.dataset.type === type)));
+        const rows = [...root.querySelectorAll(`[data-panel="${view}"] .bridge-row`)];
+        const term = normalize(query.trim());
+        let count = 0;
+        rows.forEach((row) => { row.hidden = Boolean((type && row.dataset.type !== type) || (term && !normalize(row.dataset.search).includes(term))); if (!row.hidden) count++; });
+        status.textContent = `${count} ${count === 1 ? (view === 'hubs' ? 'hub' : 'bridge') : view}`;
+        empty.hidden = count > 0;
+      };
+      tabs.forEach((tab, index) => {
+        tab.addEventListener('click', () => { view = tab.dataset.view; history.replaceState(null, '', `#${view}`); render(); });
+        tab.addEventListener('keydown', (event) => {
+          if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+          event.preventDefault();
+          const next = event.key === 'Home' ? 0 : event.key === 'End' ? tabs.length - 1 : (index + (event.key === 'ArrowRight' ? 1 : -1) + tabs.length) % tabs.length;
+          tabs[next].click(); tabs[next].focus();
         });
       });
-
-      // Auto-select view from URL hash so /bridges/#hu-cia lands on Hubs
-      // and scrolls into view, rather than showing Bridges and silently
-      // missing the anchor. Plain #hubs / #bridges markers (written by the
-      // tab clicks above) select the view without an entity scroll target.
-      function applyHashView() {
-        const h = window.location.hash;
-        if (h === '#hubs' || h.startsWith('#hu-')) setView('hubs');
-        else if (h === '#bridges' || h.startsWith('#br-')) setView('bridges');
-        // Re-trigger the browser's anchor scroll after we've unhidden
-        // the right panel; otherwise the target was hidden when the
-        // browser first tried to focus it.
-        if (h && (h.startsWith('#hu-') || h.startsWith('#br-'))) {
-          requestAnimationFrame(() => {
-            const el = document.querySelector(h);
-            if (el) el.scrollIntoView({ block: 'start' });
-          });
-        }
-      }
-      applyHashView();
-      window.addEventListener('hashchange', applyHashView);
+      input.addEventListener('input', () => { query = input.value; syncQuery(); render(); });
+      typeButtons.forEach((button) => button.addEventListener('click', () => { type = button.dataset.type; syncQuery(true); render(); }));
+      const applyHash = () => { view = location.hash === '#hubs' || location.hash.startsWith('#hu-') ? 'hubs' : 'bridges'; render(); if (/^#(?:br|hu)-/.test(location.hash)) requestAnimationFrame(() => document.getElementById(location.hash.slice(1))?.scrollIntoView({ block: 'start' })); };
+      window.addEventListener('hashchange', applyHash);
+      window.addEventListener('popstate', () => { const state = new URLSearchParams(location.search); type = validTypes.has(state.get('type')) ? state.get('type') : ''; query = state.get('q') || ''; input.value = query; applyHash(); });
+      applyHash();
     })();
   </script>
 </Base>
+
+<style>
+  .bridge-header {padding-bottom:34px}
+  .bridge-inner {max-width:1500px;margin:auto;padding:32px var(--gutter) 100px}
+  .bridge-tabs {display:flex;border-bottom:2px solid var(--ink);gap:28px}
+  .bridge-tabs button {border:0;background:none;color:var(--muted);padding:0 0 14px;cursor:pointer;font:700 clamp(25px,3vw,40px)/1 var(--sans);letter-spacing:-.03em}
+  .bridge-tabs button[aria-selected=true] {color:var(--ink);box-shadow:0 3px 0 var(--ink)}
+  .bridge-tabs span {font-size:14px;font-weight:400;vertical-align:top;letter-spacing:0}
+  .bridge-tools {display:flex;flex-wrap:wrap;gap:18px 32px;align-items:end;border-bottom:1px solid var(--line);padding:20px 0}
+  .bridge-tools label {flex:1 1 280px;max-width:430px}
+  .bridge-tools input {width:100%;border:0;border-bottom:1px solid var(--ink);border-radius:0;background:var(--paper);color:var(--ink);padding:10px 0;font:400 17px/1.3 var(--sans)}
+  .bridge-types {display:flex;flex-wrap:wrap;gap:6px}
+  .bridge-types button {border:1px solid var(--line-2);background:var(--paper);color:var(--ink);padding:7px 10px;cursor:pointer;font:500 13px/1.2 var(--sans)}
+  .bridge-types button[aria-pressed=true] {background:var(--ink);color:var(--paper);border-color:var(--ink)}
+  .bridge-status {font:400 14px/1.3 var(--sans);color:var(--muted);margin:15px 0}
+  .bridge-panel[hidden],.bridge-row[hidden],.bridge-empty[hidden] {display:none}
+  .bridge-explain {max-width:56rem;margin:25px 0 30px}
+  .bridge-explain>p {font:400 clamp(18px,2vw,23px)/1.35 var(--serif);margin:0 0 17px}
+  .bridge-explain details {font:400 14px/1.5 var(--sans);color:var(--muted)}
+  .bridge-explain summary {cursor:pointer;text-decoration:underline;text-underline-offset:3px}
+  .bridge-explain details p {max-width:65ch;margin:10px 0}
+  .bridge-list {list-style:none;margin:0;padding:0}
+  .bridge-row {display:grid;grid-template-columns:80px minmax(0,1fr);gap:20px;border-top:2px solid var(--ink);padding:28px 0 36px;scroll-margin-top:25px}
+  .bridge-row:target {background:var(--paper-2)}
+  .bridge-rank {font:700 19px/1.2 var(--sans);font-variant-numeric:tabular-nums}
+  .bridge-entry {min-width:0}
+  .bridge-meta {display:flex;flex-wrap:wrap;gap:5px 14px;font:500 13px/1.3 var(--sans);color:var(--muted)}
+  .bridge-meta a {color:var(--accent);text-decoration:underline;text-underline-offset:2px}
+  .bridge-entry h2 {font:700 clamp(28px,3.7vw,50px)/1.02 var(--sans);letter-spacing:-.035em;margin:9px 0 10px;overflow-wrap:anywhere}
+  .bridge-entry h2 a:hover {color:var(--accent)}
+  .bridge-summary {font:400 17px/1.4 var(--serif);max-width:64ch;margin:0 0 19px}
+  .bridge-evidence {border-top:1px solid var(--line);padding-top:12px}
+  .bridge-evidence h3 {font:700 12px/1.3 var(--sans);text-transform:uppercase;margin:0 0 9px}
+  .bridge-evidence ul {list-style:none;padding:0;margin:0;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:15px}
+  .bridge-evidence li {font:400 14px/1.3 var(--sans);min-width:0}
+  .bridge-evidence li>a {display:block;font-weight:600;overflow-wrap:anywhere}
+  .bridge-evidence li>a:hover,.bridge-evidence li span a:hover {color:var(--accent)}
+  .bridge-evidence li span {display:block;color:var(--muted);font-size:12px;margin-top:4px}
+  .bridge-evidence li span a {text-decoration:underline;text-underline-offset:2px}
+  .bridge-empty {font:400 18px/1.4 var(--sans);padding:30px 0}
+  @media(max-width:750px) {.bridge-row {grid-template-columns:1fr;gap:6px;padding:22px 0 28px}.bridge-evidence ul {grid-template-columns:1fr}.bridge-evidence li {border-top:1px solid var(--line);padding-top:7px}.bridge-tools label {max-width:none}}
+</style>

@@ -6,7 +6,6 @@ import type { EntityType } from '../lib/types.ts';
 const CHANGELOG_LIMIT = 50;
 const all = activity();
 const entries = all.slice(0, CHANGELOG_LIMIT);
-const hiddenCount = Math.max(0, all.length - entries.length);
 
 // Format in UTC so a bare YYYY-MM-DD mtime (parsed as UTC midnight) renders
 // as the same calendar day regardless of the build host's timezone — west-of-
@@ -37,14 +36,7 @@ for (const e of entries) {
   description="Recent additions and revisions to entries in the vault."
 >
   <article class="changelog-article">
-    <div class="entity-eyebrow">
-      <span>Meta</span>
-    </div>
     <h1 class="entity-title">Changelog</h1>
-    <p class="entity-dek">
-      The {entries.length} most recently updated entries.
-      {hiddenCount > 0 && (<span class="cl-overflow"> Find older entries through search.</span>)}
-    </p>
 
     {entries.length === 0 && (
       <p class="changelog-empty">No activity recorded.</p>
