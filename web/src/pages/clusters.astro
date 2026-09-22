@@ -61,13 +61,17 @@ const smallMembers = small.reduce((n, c) => n + c.size, 0);
         <ul class="hc-list cl-small-grid">
           {small.sort((a, b) => b.size - a.size).map((c) => (
             <li class="cl-small" id={`c-${c.id}`}>
-              {c.top.map((m) => (
-                <a class={`hc-item type-${m.type}`} href={hrefFor({ id: m.id, type: m.type })} data-preview>
-                  <span class="hc-eyebrow">{TYPE_LABELS[m.type as EntityType]}</span>
-                  <span class="hc-title">{m.title}</span>
-                  <span class="hc-mult">{m.mention_count}</span>
-                </a>
-              ))}
+              <ul class="hc-list">
+                {c.top.map((m) => (
+                  <li class={`hc-item type-${m.type}`}>
+                    <a href={hrefFor({ id: m.id, type: m.type })} data-preview>
+                      <span class="hc-eyebrow">{TYPE_LABELS[m.type as EntityType]}</span>
+                      <span class="hc-title">{m.title}</span>
+                      <span class="hc-mult">{m.mention_count}</span>
+                    </a>
+                  </li>
+                ))}
+              </ul>
             </li>
           ))}
         </ul>
