@@ -46,6 +46,11 @@ from markdown_it import MarkdownIt
 
 DEFAULT_CONFIG = {
     "vaultPath": "..",
+    # Louvain community detection for /clusters/: modularity resolution
+    # (higher = more, smaller clusters) and entity types left out of the
+    # detection graph, then attached to their neighbours' community.
+    "clusterResolution": 1.5,
+    "clusterExcludeTypes": ["place", "meta", "source", "misc", "page"],
     "skipPathPatterns": [
         # Maintenance / generator files — not real vault entries
         "CLAUDE.md",
@@ -1130,6 +1135,8 @@ def compute_bridge_scores(
     pair_w: dict[tuple[str, str], int],
     edges: list[dict[str, Any]],
     top_n: int = 50,
+    resolution: float = 1.0,
+    exclude_types: "set[str] | None" = None,
 ) -> tuple[dict[str, dict[str, Any]], dict[str, int]]:
     """Bridge = community-span entropy of the pages that MENTION a node.
 
@@ -1166,17 +1173,36 @@ def compute_bridge_scores(
 
     g, _ = _build_weighted_graph(entities, pair_w)
 
+    # Places (countries, cities) and index-type entries are mentioned from
+    # every narrative, so leaving them in the detection graph glues the
+    # separate stories into one giant "United States · Israel · Iran"
+    # community. Detect on the graph without them, then hang each
+    # excluded node on the community its neighbours mostly belong to, so
+    # it still gets a cluster chip. `exclude_types` / `resolution` come
+    # from config (clusterExcludeTypes / clusterResolution).
+    exclude_types = exclude_types or set()
+    type_of = {e["id"]: e.get("type") for e in entities}
+    excluded = {n for n in g.nodes if type_of.get(n) in exclude_types}
+    g_det = g.subgraph(n for n in g.nodes if n not in excluded)
+
     # seed=42 matches compute_layout_positions; rankings stay stable
     # across rebuilds when the underlying graph is unchanged.
     # resolution=1.0 is the standard modularity weight; raising it
-    # produces more, smaller communities (and would inflate every
-    # node's bridge_score). Leave at default unless we tune later.
-    communities = louvain_communities(g, weight="weight", resolution=1.0, seed=42)
+    # produces more, smaller communities (and inflates every node's
+    # bridge_score).
+    communities = louvain_communities(g_det, weight="weight", resolution=resolution, seed=42)
 
     community_of: dict[str, int] = {}
     for cid, members in enumerate(communities):
         for node in members:
             community_of[node] = cid
+    for node in excluded:
+        votes: Counter = Counter()
+        for nb, attrs in g[node].items():
+            if nb in community_of:
+                votes[community_of[nb]] += attrs.get("weight", 1)
+        if votes:
+            community_of[node] = votes.most_common(1)[0][0]
 
     # Below this many citing pages the entropy maxes out too easily
     # (3 mentions from 3 clusters is noise, not a bridge).
@@ -1238,7 +1264,11 @@ def summarize_communities(
     for cid in range(max(members, default=-1) + 1):
         ids = members.get(cid, [])
         ranked = sorted(ids, key=lambda i: (-by_id[i].get("mention_count", 0), by_id[i]["title"]))
-        namers = [i for i in ranked if by_id[i]["type"] in RANKABLE_TYPES][:3] or ranked[:3]
+        # Name by non-place members: a country in every label says nothing.
+        rankable = [i for i in ranked if by_id[i]["type"] in RANKABLE_TYPES]
+        namers = [i for i in rankable if by_id[i]["type"] != "place"][:3]
+        namers += [i for i in rankable if i not in namers][:3 - len(namers)]
+        namers = namers or ranked[:3]
         types = Counter(by_id[i]["type"] for i in ids)
         out.append({
             "id": cid,
@@ -1692,7 +1722,11 @@ def main() -> int:
 
     print(f"[parse] detecting communities + Bridge entropy...")
     t_br = time.time()
-    bridges, community_of = compute_bridge_scores(entities, pair_w, edges, top_n=50)
+    bridges, community_of = compute_bridge_scores(
+        entities, pair_w, edges, top_n=50,
+        resolution=float(cfg.get("clusterResolution", 1.0)),
+        exclude_types=set(cfg.get("clusterExcludeTypes", ["place", "meta", "source", "misc", "page"])),
+    )
     print(f"[parse] bridges done in {round(time.time() - t_br, 2)}s "
           f"({len(set(community_of.values()))} communities)")
 
