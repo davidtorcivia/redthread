@@ -1,0 +1,101 @@
+---
+// The note text is already on the page. Previews reuse it without changing
+// citations, the vault, or the click-through path to the full source note.
+---
+<script>
+  const refs = document.querySelectorAll<HTMLAnchorElement>('.entity-article .prose .fn-ref a[href^="#fn-"]');
+  if (refs.length) {
+    const pop = document.createElement('div');
+    pop.className = 'footnote-preview';
+    pop.id = 'footnote-preview';
+    pop.role = 'tooltip';
+    pop.hidden = true;
+    pop.innerHTML = '<div class="footnote-preview-label"></div><div class="footnote-preview-text"></div><div class="footnote-preview-hint">Click the number for the full note</div>';
+    document.body.appendChild(pop);
+
+    const label = pop.querySelector<HTMLElement>('.footnote-preview-label')!;
+    const body = pop.querySelector<HTMLElement>('.footnote-preview-text')!;
+    let active: HTMLAnchorElement | null = null;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+
+    function hide() {
+      clearTimeout(timer);
+      if (active) active.removeAttribute('aria-describedby');
+      active = null;
+      pop.hidden = true;
+    }
+
+    function previewText(note: HTMLElement): string {
+      const content = note.querySelector('span')?.cloneNode(true) as HTMLElement | undefined;
+      if (!content) return '';
+      content.querySelectorAll('a').forEach((link) => {
+        const visible = link.textContent?.trim() ?? '';
+        if (/^https?:\/\//i.test(visible)) {
+          try { link.replaceWith(new URL(link.href).hostname); return; } catch { /* keep the label */ }
+        }
+        link.replaceWith(visible);
+      });
+      const text = (content.textContent ?? '').replace(/\s+/g, ' ').trim();
+      return text.length > 320 ? `${text.slice(0, 317).replace(/\s+\S*$/, '').trimEnd()}…` : text;
+    }
+
+    function position(ref: HTMLAnchorElement) {
+      const anchor = ref.getBoundingClientRect();
+      const width = pop.offsetWidth;
+      const height = pop.offsetHeight;
+      const gap = 10;
+      pop.style.left = `${Math.max(12, Math.min(anchor.left, innerWidth - width - 12))}px`;
+      pop.style.top = `${Math.max(12, anchor.bottom + gap + height <= innerHeight - 12 ? anchor.bottom + gap : anchor.top - height - gap)}px`;
+    }
+
+    function show(ref: HTMLAnchorElement, note: HTMLElement) {
+      hide();
+      active = ref;
+      label.textContent = `Source note ${ref.textContent?.trim() || ''}`;
+      body.textContent = previewText(note);
+      pop.style.visibility = 'hidden';
+      pop.hidden = false;
+      position(ref);
+      pop.style.visibility = '';
+      ref.setAttribute('aria-describedby', pop.id);
+    }
+
+    refs.forEach((ref) => {
+      const target = ref.getAttribute('href');
+      const note = target ? document.getElementById(target.slice(1)) : null;
+      if (!note) return;
+      ref.setAttribute('aria-label', `Source note ${ref.textContent?.trim() || ''}`);
+      ref.addEventListener('pointerenter', (event) => {
+        if (event.pointerType === 'touch') return;
+        clearTimeout(timer);
+        timer = setTimeout(() => show(ref, note), 160);
+      });
+      ref.addEventListener('pointerleave', () => { if (document.activeElement !== ref) hide(); });
+      ref.addEventListener('focus', () => show(ref, note));
+      ref.addEventListener('blur', hide);
+      ref.addEventListener('click', hide);
+    });
+    const reposition = () => {
+      if (!active) return;
+      const box = active.getBoundingClientRect();
+      if (box.bottom < 0 || box.top > innerHeight) hide();
+      else position(active);
+    };
+    window.addEventListener('scroll', reposition, { passive: true });
+    window.addEventListener('resize', reposition);
+    document.addEventListener('keydown', (event) => { if (event.key === 'Escape') hide(); });
+  }
+</script>
+
+<style is:global>
+  .footnote-preview {
+    position:fixed;z-index:110;width:min(25rem,calc(100vw - 1.5rem));max-height:min(42vh,18rem);overflow:hidden;
+    padding:14px 17px;background:var(--card);color:var(--ink);border:1px solid var(--line-2);
+    box-shadow:0 12px 35px #0003;pointer-events:none
+  }
+  .footnote-preview[hidden] {display:none}
+  .footnote-preview-label {font:700 12px/1.3 var(--sans);text-transform:uppercase;letter-spacing:.03em;margin-bottom:7px}
+  .footnote-preview-text {font:400 15px/1.45 var(--serif);overflow-wrap:anywhere}
+  .footnote-preview-hint {font:400 12px/1.3 var(--sans);color:var(--muted);border-top:1px solid var(--line);padding-top:9px;margin-top:10px}
+  @media print {.footnote-preview {display:none!important}}
+</style>
