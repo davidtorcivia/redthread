@@ -1,6 +1,6 @@
 ---
 import Base from '../../layouts/Base.astro';
-import PeopleDirectory from '../../components/PeopleDirectory.astro';
+import DirectoryExplorer from '../../components/DirectoryExplorer.astro';
 import { entitiesByType, hrefFor, renderInlineMd, TYPE_DIRS, TYPE_PLURALS } from '../../lib/data.ts';
 import type { EntityType, Entity } from '../../lib/types.ts';
 
@@ -73,7 +73,9 @@ function anchorFor(title: string): string | undefined {
   jsonLd={collectionSchema}
   breadcrumbs={breadcrumbs}
 >
-  {entityType === 'person' ? <PeopleDirectory items={items} /> : <>
+  {entityType === 'person' || entityType === 'organization'
+    ? <DirectoryExplorer items={items} directory={plural} singular={entityType === 'person' ? 'person' : 'organization'} />
+    : <>
   <header class="browse-header">
     <div class="kicker">Browse</div>
     <h1>{plural}</h1>

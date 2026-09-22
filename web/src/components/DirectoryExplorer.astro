@@ -2,7 +2,14 @@
 import type { Entity } from '../lib/types.ts';
 import { hrefFor, renderInlineMd } from '../lib/data.ts';
 
-const { items } = Astro.props as { items: Entity[] };
+const { items, directory = 'People', singular = 'person' } = Astro.props as {
+  items: Entity[];
+  directory?: string;
+  singular?: string;
+};
+const pluralLower = directory.toLowerCase();
+const indefinite = singular === 'organization' ? 'an' : 'a';
+const featuredCategory = directory === 'People' ? 'Key Figures' : 'Key Organizations';
 const categories = new Map<string, Entity[]>();
 for (const item of items) {
   const name = item.category || 'Uncategorized';
@@ -12,8 +19,8 @@ for (const item of items) {
 }
 const rankedCategories = [...categories].sort((a, b) => b[1].length - a[1].length || a[0].localeCompare(b[0]));
 const leadCategories = [
-  ...rankedCategories.filter(([name]) => name === 'Key Figures'),
-  ...rankedCategories.filter(([name]) => name !== 'Key Figures').slice(0, 5),
+  ...rankedCategories.filter(([name]) => name === featuredCategory),
+  ...rankedCategories.filter(([name]) => name !== featuredCategory).slice(0, categories.has(featuredCategory) ? 5 : 6),
 ];
 const leadNames = new Set(leadCategories.map(([name]) => name));
 const otherCategories = rankedCategories.filter(([name]) => !leadNames.has(name));
@@ -23,18 +30,18 @@ const aliasesFor = (item: Entity) => [item.frontmatter.alias, item.frontmatter.a
   .filter((value): value is string => typeof value === 'string')
   .join(' ');
 ---
-<div class="people-directory" id="people-directory">
-  <header class="browse-header people-header">
-    <h1>People</h1>
+<div class="people-directory" id="people-directory" data-directory={directory} data-singular={singular} data-plural={pluralLower}>
+  <header class:list={['browse-header', 'people-header', { 'long-title': directory.length > 10 }]}>
+    <h1>{directory}</h1>
     <span class="people-total">{items.length.toLocaleString()} entries</span>
   </header>
 
   <div class="people-inner">
     <div class="people-tools">
       <section class="people-search-section" aria-labelledby="people-search-label">
-        <div class="people-section-label"><h2 id="people-search-label">Find a person</h2></div>
+        <div class="people-section-label"><h2 id="people-search-label">Find {indefinite} {singular}</h2></div>
         <div class="people-search-wrap">
-          <label class="sr-only" for="people-query">Search people by name, alias, or summary</label>
+          <label class="sr-only" for="people-query">Search {pluralLower} by name, alias, or summary</label>
           <input id="people-query" type="search" placeholder="Name or keyword" autocomplete="off" />
           <span class="people-search-mark" aria-hidden="true">⌕</span>
         </div>
@@ -46,7 +53,7 @@ const aliasesFor = (item: Entity) => [item.frontmatter.alias, item.frontmatter.a
           {leadCategories.map(([name, group]) => (
             <button class="people-category-card" type="button" data-category={name} aria-pressed="false">
               <span class="people-category-name">{name}</span>
-              <span class="people-category-bottom"><span>{group.length.toLocaleString()} people</span><span aria-hidden="true">↗</span></span>
+              <span class="people-category-bottom"><span>{group.length.toLocaleString()} {pluralLower}</span><span aria-hidden="true">↗</span></span>
             </button>
           ))}
         </div>
@@ -57,7 +64,7 @@ const aliasesFor = (item: Entity) => [item.frontmatter.alias, item.frontmatter.a
               {otherCategories.map(([name, group]) => (
                 <button class="people-category-card" type="button" data-category={name} aria-pressed="false">
                   <span class="people-category-name">{name}</span>
-                  <span class="people-category-bottom"><span>{group.length.toLocaleString()} people</span><span aria-hidden="true">↗</span></span>
+                  <span class="people-category-bottom"><span>{group.length.toLocaleString()} {pluralLower}</span><span aria-hidden="true">↗</span></span>
                 </button>
               ))}
             </div>
@@ -69,8 +76,8 @@ const aliasesFor = (item: Entity) => [item.frontmatter.alias, item.frontmatter.a
     <section class="people-index" id="people-index" aria-labelledby="people-index-title">
       <div class="people-index-top">
         <div>
-          <div class="people-section-label"><h2 id="people-index-title">All people</h2></div>
-          <p class="people-result-status" id="people-result-status" role="status" aria-live="polite">{items.length.toLocaleString()} people, A–Z</p>
+          <div class="people-section-label"><h2 id="people-index-title">All {pluralLower}</h2></div>
+          <p class="people-result-status" id="people-result-status" role="status" aria-live="polite">{items.length.toLocaleString()} {pluralLower}, A–Z</p>
         </div>
         <div class="people-index-actions people-tools">
           <label for="people-sort">Sort</label>
@@ -82,7 +89,7 @@ const aliasesFor = (item: Entity) => [item.frontmatter.alias, item.frontmatter.a
         </div>
       </div>
 
-      <nav class="people-letters people-tools" aria-label="Filter people by first letter">
+      <nav class="people-letters people-tools" aria-label={`Filter ${pluralLower} by first letter`}>
         {'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('').map((letter) => letters.has(letter)
           ? <button type="button" data-letter={letter} aria-pressed="false">{letter}</button>
           : <span aria-hidden="true">{letter}</span>
@@ -99,7 +106,7 @@ const aliasesFor = (item: Entity) => [item.frontmatter.alias, item.frontmatter.a
           </li>
         ))}
       </ul>
-      <p class="people-empty" id="people-empty" hidden>No people match that search. Try a name, an alias, or another term.</p>
+      <p class="people-empty" id="people-empty" hidden>No {pluralLower} match that search. Try a name, an alias, or another term.</p>
       <button class="people-load-more people-tools" id="people-load-more" type="button" hidden>Show 30 more <span aria-hidden="true">↓</span></button>
     </section>
   </div>
@@ -111,6 +118,9 @@ const aliasesFor = (item: Entity) => [item.frontmatter.alias, item.frontmatter.a
   (() => {
     const root = document.getElementById('people-directory');
     if (!root) return;
+    const directory = root.dataset.directory;
+    const singular = root.dataset.singular;
+    const plural = root.dataset.plural;
     const input = root.querySelector('#people-query');
     const list = root.querySelector('#people-results');
     const status = root.querySelector('#people-result-status');
@@ -167,10 +177,10 @@ const aliasesFor = (item: Entity) => [item.frontmatter.alias, item.frontmatter.a
       });
       list.replaceChildren(...matches.slice(0, limit).map((row) => row.node));
       const shown = Math.min(limit, matches.length);
-      heading.textContent = category || (letter ? `People: ${letter}` : term ? 'Search results' : 'All people');
+      heading.textContent = category || (letter ? `${directory}: ${letter}` : term ? 'Search results' : `All ${plural}`);
       status.textContent = term || category || letter
-        ? `${matches.length.toLocaleString()} ${matches.length === 1 ? 'person' : 'people'} found${shown < matches.length ? ` · showing ${shown.toLocaleString()}` : ''}`
-        : `Showing ${shown.toLocaleString()} of ${matches.length.toLocaleString()} people`;
+        ? `${matches.length.toLocaleString()} ${matches.length === 1 ? singular : plural} found${shown < matches.length ? ` · showing ${shown.toLocaleString()}` : ''}`
+        : `Showing ${shown.toLocaleString()} of ${matches.length.toLocaleString()} ${plural}`;
       more.hidden = shown >= matches.length;
       empty.hidden = matches.length > 0;
       clear.hidden = !(term || category || letter);
@@ -235,6 +245,7 @@ const aliasesFor = (item: Entity) => [item.frontmatter.alias, item.frontmatter.a
 <style>
   .people-header { border-bottom: 0; }
   .people-header h1 { margin-bottom: 1rem; }
+  .people-header.long-title h1 { font-size:clamp(2rem, 7.2vw, 7rem); white-space:nowrap; }
   .people-total { display:inline-block; font: 700 0.86rem/1.2 var(--sans); letter-spacing:.08em; text-transform:uppercase; border-top:2px solid currentColor; padding-top:.55rem; }
   .people-inner { padding: 0 var(--gutter) 5rem; }
   .people-search-section { padding:2.2rem 0 2.4rem; border-bottom:1px solid var(--line); }
