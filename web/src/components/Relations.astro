@@ -1,0 +1,63 @@
+---
+// Typed, dated, footnoted relationships from frontmatter `relations:`,
+// plus the inverse of every relation other pages declare about this one.
+import { entity as getEntity, hrefFor } from '../lib/data.ts';
+import type { Entity, Relation } from '../lib/types.ts';
+interface Props { e: Entity }
+const { e } = Astro.props;
+const rows: Relation[] = [...(e.relations ?? []), ...(e.relations_in ?? [])];
+const groups = new Map<string, Relation[]>();
+for (const r of rows) {
+  if (!groups.has(r.label)) groups.set(r.label, []);
+  groups.get(r.label)!.push(r);
+}
+for (const g of groups.values()) {
+  g.sort((a, b) => (a.start ?? '').localeCompare(b.start ?? '') || a.other_title.localeCompare(b.other_title));
+}
+const years = (r: Relation) => {
+  const s = r.start?.slice(0, 4), en = r.end?.slice(0, 4);
+  if (s && en) return s === en ? s : `${s}–${en}`;
+  if (s) return `from ${s}`;
+  if (en) return `until ${en}`;
+  return '';
+};
+const fnHref = (r: Relation) => {
+  if (!r.fn) return null;
+  if (r.fn_page === e.id) return `#fn-${r.fn}`;
+  const p = getEntity(r.fn_page);
+  return p ? `${hrefFor(p)}#fn-${r.fn}` : null;
+};
+---
+{rows.length > 0 && (
+  <section class="relations-block" data-pagefind-ignore>
+    <h2 class="section-heading">Relationships <span>{rows.length}</span></h2>
+    {[...groups].map(([label, rs]) => (
+      <div class="statement-item">
+        <div class="rel-label">{label}</div>
+        <ul class="rel-list">
+          {rs.map((r) => {
+            const o = r.other_id ? getEntity(r.other_id) : undefined;
+            const meta = [years(r), r.role].filter(Boolean).join(', ');
+            const fh = fnHref(r);
+            return (
+              <li>
+                {o ? <a href={hrefFor(o)} data-preview>{o.title}</a> : <span class="rel-red">{r.other_title}</span>}
+                {meta && <span class="rel-meta">, {meta}</span>}
+                {fh && <sup class="rel-fn"><a href={fh}>{r.fn}</a></sup>}
+              </li>
+            );
+          })}
+        </ul>
+      </div>
+    ))}
+  </section>
+)}
+
+<style>
+  .relations-block {margin:76px 0 0;padding:0;border-top:2px solid var(--ink)}
+  .rel-label {font-family:var(--sans);font-weight:600;font-size:15px;color:var(--muted)}
+  .rel-list {list-style:none;margin:0;padding:0;font-size:15.5px;line-height:1.5}
+  .rel-meta {color:var(--muted)}
+  .rel-red {color:var(--muted-2)}
+  .rel-fn {font-size:.7em;margin-left:.15em}
+</style>

@@ -7,6 +7,7 @@ import HiddenConnections from '../../components/HiddenConnections.astro';
 import NetworkGraph from '../../components/NetworkGraph.astro';
 import PathWidget from '../../components/PathWidget.astro';
 import RelatedGrid from '../../components/RelatedGrid.astro';
+import Relations from '../../components/Relations.astro';
 import TableOfContents from '../../components/TableOfContents.astro';
 import { entities, hrefFor, communityOf, CLUSTER_MIN_SIZE, tagHref, renderInlineMd, TYPE_DIRS, TYPE_LABELS, TYPE_PLURALS } from '../../lib/data.ts';
 import type { Entity } from '../../lib/types.ts';
@@ -146,6 +147,8 @@ const mdHref = `/${TYPE_DIRS[entity.type]}/${entity.id}.md`;
         <TableOfContents entries={entity.toc ?? []} />
         <div class="prose" set:html={entity.body_html} />
       </div>
+
+    <Relations e={entity} />
 
     {entity.footnotes.length > 0 && (
       <section class="footnotes-block">

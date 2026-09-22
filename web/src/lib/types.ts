@@ -28,6 +28,21 @@ export interface TocEntry {
   id: string;
 }
 
+/** A typed relation from frontmatter `relations:` (see parse_vault.py
+ *  RELATION_TYPES). `other_id` is null when the other side has no page.
+ *  `fn` is a footnote id on the page `fn_page` that declared the relation. */
+export interface Relation {
+  type: string;
+  label: string;
+  other_id: string | null;
+  other_title: string;
+  start: string | null;
+  end: string | null;
+  role: string | null;
+  fn: string | null;
+  fn_page: string;
+}
+
 export interface Entity {
   id: string;
   title: string;
@@ -44,6 +59,10 @@ export interface Entity {
   wikilinks: Wikilink[];
   mention_count: number;
   page_density: number;
+  /** Relations this page is the subject of, and inverses of relations
+   *  other pages declare about it. */
+  relations?: Relation[];
+  relations_in?: Relation[];
   /** File modification time (ISO 8601), emitted by parse_vault. Used as a
    *  dateModified fallback in schema.org and for sitemap lastmod. */
   mtime?: string;

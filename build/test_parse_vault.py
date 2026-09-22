@@ -444,5 +444,48 @@ class FocusTests(unittest.TestCase):
         self.assertIn("1 linking page edited", f["pages"][0]["reason"])
         self.assertEqual(f["cluster"]["id"], 0)    # a and p edited in 0, only b in 1
 
+class TestRelations(unittest.TestCase):
+    def _ents(self):
+        a = {"id": "william-barr", "title": "William Barr", "relations_raw": pv._extract_relations({
+            "relations": [
+                {"type": "employed_by", "with": "[[Central Intelligence Agency|CIA]]", "start": 1973, "end": 1977, "fn": 1},
+                {"type": "appointed", "with": "[[Nicholas J. Bua]]", "start": "1991-11-07", "fn": 2},
+                {"type": "not_a_type", "with": "[[X]]"},
+            ]}, "William Barr")}
+        b = {"id": "sun-streak", "title": "Sun Streak", "relations_raw": pv._extract_relations({
+            "relations": [{"type": "subject_of", "with": "[[Terry Waite]]", "reverse": True, "fn": 9}]}, "Sun Streak")}
+        c = {"id": "central-intelligence-agency", "title": "Central Intelligence Agency", "relations_raw": pv._extract_relations({
+            "relations": [{"type": "employed_by", "with": "[[William Barr]]", "reverse": True, "start": 1973}]}, "CIA")}
+        w = {"id": "terry-waite", "title": "Terry Waite", "relations_raw": []}
+        ents = [a, b, c, w]
+        idx = {"william barr": "william-barr", "sun streak": "sun-streak", "terry waite": "terry-waite",
+               "central intelligence agency": "central-intelligence-agency"}
+        pv.resolve_relations(ents, idx)
+        return {e["id"]: e for e in ents}
+
+    def test_bad_type_dropped_and_target_unwrapped(self):
+        barr = self._ents()["william-barr"]
+        self.assertEqual([r["type"] for r in barr["relations"]], ["employed_by", "appointed"])
+        self.assertEqual(barr["relations"][0]["other_id"], "central-intelligence-agency")
+        self.assertEqual(barr["relations"][0]["start"], "1973")
+
+    def test_unresolved_target_kept_by_title(self):
+        barr = self._ents()["william-barr"]
+        self.assertIsNone(barr["relations"][1]["other_id"])
+        self.assertEqual(barr["relations"][1]["other_title"], "Nicholas J. Bua")
+
+    def test_inverse_on_object_and_no_double_count(self):
+        cia = self._ents()["central-intelligence-agency"]
+        self.assertEqual(len(cia["relations_in"]), 1)
+        self.assertEqual(cia["relations_in"][0]["label"], "Employer of")
+        self.assertEqual(cia["relations_in"][0]["fn_page"], "william-barr")
+
+    def test_reverse_declared_on_object_page(self):
+        e = self._ents()
+        self.assertEqual(e["terry-waite"]["relations"][0]["label"], "Subject of")
+        self.assertEqual(e["terry-waite"]["relations"][0]["fn_page"], "sun-streak")
+        self.assertEqual(e["sun-streak"]["relations_in"][0]["other_id"], "terry-waite")
+
+
 if __name__ == "__main__":
     unittest.main()

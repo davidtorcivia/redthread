@@ -256,6 +256,115 @@ def _extract_location(fm: dict[str, Any]) -> list[str]:
     return []
 
 
+# --------------------------------------------------------------------------
+# Typed relations (frontmatter `relations:`).
+#
+#   relations:
+#     - type: employed_by
+#       with: "[[Central Intelligence Agency]]"
+#       start: 1973
+#       end: 1977
+#       role: "assistant legislative counsel"
+#       fn: 1
+#
+# The page's own subject is the relation's subject; `with` is the object.
+# `reverse: true` flips that, so a program page can record "Terry Waite
+# subject_of Sun Streak" without editing Waite's page. `fn` names the page
+# footnote that sources the fact. The object's page shows the inverse label.
+# There is deliberately no generic "associate" type: untyped co-mention is
+# already computed (related / backlinks / implicit mentions).
+# --------------------------------------------------------------------------
+RELATION_TYPES: dict[str, tuple[str, str]] = {
+    "employed_by": ("Employed by", "Employer of"),
+    "member_of": ("Member of", "Members"),
+    "director_of": ("Director of", "Directors"),
+    "head_of": ("Head of", "Headed by"),
+    "founded": ("Founded", "Founded by"),
+    "owned": ("Owned", "Owned by"),
+    "funded": ("Funded", "Funded by"),
+    "contractor_to": ("Contractor to", "Contractors"),
+    "represented": ("Represented", "Represented by"),
+    "appointed": ("Appointed", "Appointed by"),
+    "reported_to": ("Reported to", "Supervised"),
+    "investigated": ("Investigated", "Investigated by"),
+    "prosecuted": ("Prosecuted", "Prosecuted by"),
+    "participant_in": ("Took part in", "Participants"),
+    "subject_of": ("Subject of", "Subjects"),
+    "informant_for": ("Informant for", "Informants"),
+    "partner_of": ("Partner of", "Partner of"),
+    "relative_of": ("Relative of", "Relative of"),
+    "spouse_of": ("Spouse of", "Spouse of"),
+}
+
+_REL_TARGET = re.compile(r"^\[\[([^\]|#]+)(?:#[^\]|]*)?(?:\|[^\]]*)?\]\]$")
+
+
+def _extract_relations(fm: dict[str, Any], title: str) -> list[dict[str, Any]]:
+    raw = fm.get("relations")
+    if not isinstance(raw, list):
+        return []
+    out: list[dict[str, Any]] = []
+    for r in raw:
+        if not isinstance(r, dict):
+            continue
+        rtype = str(r.get("type") or "").strip()
+        target = str(r.get("with") or "").strip()
+        if rtype not in RELATION_TYPES or not target:
+            sys.stderr.write(f"[warn] bad relation on {title}: {r}\n")
+            continue
+        m = _REL_TARGET.match(target)
+        if m:
+            target = m.group(1).strip()
+        out.append({
+            "type": rtype,
+            "with_title": target,
+            "reverse": bool(r.get("reverse")),
+            "start": _date_str(r.get("start")),
+            "end": _date_str(r.get("end")),
+            "role": (str(r["role"]).strip() if r.get("role") else None),
+            "fn": (str(r["fn"]).strip() if r.get("fn") is not None else None),
+        })
+    return out
+
+
+def resolve_relations(entities: list[dict[str, Any]], slug_index: dict[str, str]) -> None:
+    """Attach `relations` (subject side) and `relations_in` (object side) to
+    each entity. A fact is kept once per (subject, type, object, start), so
+    declaring it on both pages does not double it; a reverse relation declared
+    on the object's page lands on the subject as if the subject declared it."""
+    by_id = {e["id"]: e for e in entities}
+    seen: set[tuple] = set()
+    facts: list[dict[str, Any]] = []
+    for e in entities:
+        for r in e.get("relations_raw", []):
+            other_id = slug_index.get(normalize_target(r["with_title"]))
+            if r["reverse"]:
+                subj = (other_id, r["with_title"]); obj = (e["id"], e["title"])
+            else:
+                subj = (e["id"], e["title"]); obj = (other_id, r["with_title"])
+            key = (subj[0] or subj[1].lower(), r["type"], obj[0] or obj[1].lower(), r["start"])
+            if key in seen:
+                continue
+            seen.add(key)
+            facts.append({**r, "subj": subj, "obj": obj, "declared_on": e["id"]})
+    for e in entities:
+        e["relations"] = []
+        e["relations_in"] = []
+    for f in facts:
+        label, inverse = RELATION_TYPES[f["type"]]
+        # A footnote number only means something on the page that declared it.
+        common = {"type": f["type"], "start": f["start"], "end": f["end"], "role": f["role"],
+                  "fn": f["fn"], "fn_page": f["declared_on"]}
+        if f["subj"][0] in by_id:
+            by_id[f["subj"][0]]["relations"].append(
+                {**common, "label": label, "other_id": f["obj"][0], "other_title": f["obj"][1]})
+        if f["obj"][0] in by_id:
+            by_id[f["obj"][0]]["relations_in"].append(
+                {**common, "label": inverse, "other_id": f["subj"][0], "other_title": f["subj"][1]})
+    for e in entities:
+        e.pop("relations_raw", None)
+
+
 def parse_file(path: Path, vault_root: Path, type_map: dict[str, str]) -> dict[str, Any] | None:
     """Return an entity record, or None if the file is unparseable."""
     try:
@@ -314,6 +423,7 @@ def parse_file(path: Path, vault_root: Path, type_map: dict[str, str]) -> dict[s
         "mtime": mtime,
         "dates": _extract_dates(fm),
         "locations": _extract_location(fm),
+        "relations_raw": _extract_relations(fm, title),
     }
 
 
@@ -1770,6 +1880,7 @@ def main() -> int:
 
     slug_index = build_slug_index(entities)
     edges, unresolved = resolve_links(entities, slug_index)
+    resolve_relations(entities, slug_index)
 
     # NER pass: discover entity mentions in prose that aren't wikilinked.
     # Must run BEFORE render_html so the wikilink-style edges still describe
