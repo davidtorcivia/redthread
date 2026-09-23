@@ -1,6 +1,6 @@
 ---
 import Base from '../layouts/Base.astro';
-import { communities, CLUSTER_MIN_SIZE, hrefFor, TYPE_LABELS, TYPE_PLURALS } from '../lib/data.ts';
+import { communities, entities, CLUSTER_MIN_SIZE, hrefFor, TYPE_LABELS, TYPE_PLURALS } from '../lib/data.ts';
 import type { EntityType } from '../lib/types.ts';
 
 const MIN_SIZE = CLUSTER_MIN_SIZE;
@@ -8,6 +8,19 @@ const all = communities();
 const big = all.filter((c) => c.size >= MIN_SIZE).sort((a, b) => b.size - a.size);
 const small = all.filter((c) => c.size < MIN_SIZE);
 const smallMembers = small.reduce((n, c) => n + c.size, 0);
+const members = new Map<number, ReturnType<typeof entities>>();
+for (const entity of entities()) {
+  if (entity.community_id == null) continue;
+  const group = members.get(entity.community_id) ?? [];
+  group.push(entity);
+  members.set(entity.community_id, group);
+}
+const overflow = new Map(big.map((c) => {
+  const visible = new Set(c.top.map((m) => m.id));
+  return [c.id, (members.get(c.id) ?? [])
+    .filter((m) => !visible.has(m.id))
+    .sort((a, b) => b.mention_count - a.mention_count || a.title.localeCompare(b.title))];
+}));
 ---
 <Base
   bodyClass="utility"
@@ -41,6 +54,25 @@ const smallMembers = small.reduce((n, c) => n + c.size, 0);
             </li>
           ))}
         </ul>
+        {(overflow.get(c.id)?.length ?? 0) > 0 && (
+          <details class="cluster-overflow">
+            <summary>
+              <span class="cluster-expand">Show {overflow.get(c.id)!.length.toLocaleString()} more pages</span>
+              <span class="cluster-collapse">Hide additional pages</span>
+            </summary>
+            <ul class="hc-list cluster-members">
+              {overflow.get(c.id)!.map((m) => (
+                <li class={'hc-item type-' + m.type}>
+                  <a href={hrefFor({ id: m.id, type: m.type })} data-preview>
+                    <span class="hc-eyebrow">{TYPE_LABELS[m.type as EntityType]}</span>
+                    <span class="hc-title">{m.title}</span>
+                    <span class="hc-mult">{m.mention_count}</span>
+                  </a>
+                </li>
+              ))}
+            </ul>
+          </details>
+        )}
       </section>
     ))}
 
@@ -76,4 +108,13 @@ const smallMembers = small.reduce((n, c) => n + c.size, 0);
   .cluster-method {font:400 14px/1.45 var(--sans);color:var(--muted);margin:18px 0 42px;max-width:65ch}
   .cluster-method summary {cursor:pointer;text-decoration:underline;text-underline-offset:3px}
   .cluster-method p {margin:10px 0}
+  .cluster-members {grid-template-columns:repeat(auto-fill,minmax(min(100%,20rem),1fr))}
+  .cluster-overflow {margin-top:12px}
+  .cluster-overflow summary {cursor:pointer;width:fit-content;padding:10px 0;font:500 14px/1.45 var(--sans);color:var(--ink)}
+  .cluster-overflow summary:hover {color:var(--accent)}
+  .cluster-overflow summary:focus-visible {outline:2px solid var(--accent);outline-offset:4px}
+  .cluster-overflow .cluster-collapse {display:none}
+  .cluster-overflow[open] .cluster-expand {display:none}
+  .cluster-overflow[open] .cluster-collapse {display:inline}
+  .cluster-overflow[open] .cluster-members {margin-top:8px}
 </style>
