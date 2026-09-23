@@ -138,7 +138,8 @@ const breadcrumbSchema = crumbItems
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <script is:inline>
+    {/* Theme must run before paint, including behind Cloudflare Rocket Loader. */}
+    <script is:inline data-cfasync="false">
       try {
         const saved = localStorage.getItem('iw-theme');
         document.documentElement.dataset.theme = saved === 'dark' || saved === 'light'
