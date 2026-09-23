@@ -1,0 +1,263 @@
+---
+import Base from '../../layouts/Base.astro';
+import { sourceRecords } from '../../lib/source-index.ts';
+
+const records = sourceRecords();
+const initial = records.slice(0, 40);
+const description = 'Search the citations used across The Info Web and see which archive pages rely on each reference.';
+const collectionSchema = {
+  '@context': 'https://schema.org',
+  '@type': 'CollectionPage',
+  name: 'Sources | The Info Web',
+  description,
+  url: Astro.site ? new URL('/sources/', Astro.site).href : '/sources/',
+  mainEntity: { '@type': 'ItemList', numberOfItems: records.length },
+};
+---
+<Base title="Sources | The Info Web" description={description} jsonLd={collectionSchema} breadcrumbs={[{ name: 'Sources', item: '/sources/' }]}>
+  <div class="source-index" id="source-index">
+    <header class="browse-header source-header"><h1>Sources</h1></header>
+    <div class="source-inner">
+      <div class="source-tools">
+        <label class="source-search"><span class="sr-only">Search sources</span><input id="source-query" type="search" placeholder="Find a work, website, or citing page" autocomplete="off" /></label>
+        <label class="source-select"><span>Link</span><select id="source-link"><option value="all">All references</option><option value="online">Online source</option><option value="citation">Citation only</option></select></label>
+        <label class="source-select"><span>Order</span><select id="source-sort"><option value="cited">Most cited</option><option value="title">Title A–Z</option></select></label>
+      </div>
+      <div class="source-meta">
+        <p id="source-status" role="status" aria-live="polite">{records.length.toLocaleString()} references</p>
+        <details class="source-method"><summary>How are references grouped?</summary><p>Notes with one online link are grouped by that URL. Notes without a link, or with several links, are grouped only when their citation text matches. A citation note can name more than one work; this index leaves those notes intact. Page counts show reuse within the archive, not independent corroboration.</p></details>
+      </div>
+      <div id="source-rows" class="source-rows">
+        {initial.map((source) => <details class="source-row" id={`s-${source.id}`} data-source={source.id}>
+          <summary>
+            <span class="source-main"><strong>{source.title}</strong><span class="source-citation">{source.citation}</span>{source.urls.length > 0 && <span class="source-domain">{source.domain || 'Multiple online links'}</span>}</span>
+            <span class="source-count">{source.pageCount.toLocaleString()} {source.pageCount === 1 ? 'page' : 'pages'} <i aria-hidden="true">+</i></span>
+          </summary>
+          <div class="source-detail">
+            {source.urls.length > 0 && <div class="source-links">{source.urls.map((url, index) => <a href={url} target="_blank" rel="noopener noreferrer">{source.urls.length > 1 ? `Open link ${index + 1} ↗` : 'Open source ↗'}</a>)}</div>}
+            <h3>Cited on</h3>
+            <ul>{source.uses.slice(0, 4).map((use) => <li><a href={`${use.href}#fn-${encodeURIComponent(use.notes[0].id)}`}>{use.title}</a><small>{use.notes.length} {use.notes.length === 1 ? 'note' : 'notes'}</small></li>)}</ul>
+            {source.pageCount > 4 && <p class="source-js-note">Enable JavaScript to see every citing page here, or use search to find a specific page.</p>}
+          </div>
+        </details>)}
+      </div>
+      <p class="source-empty" id="source-empty" hidden>No references match those filters.</p>
+      <button class="source-more" id="source-more" type="button" hidden={records.length <= 40}>Show 40 more ↓</button>
+      <noscript><p class="source-noscript"><a href="/sources/all/">Browse every reference without JavaScript</a></p></noscript>
+    </div>
+  </div>
+
+  <script is:inline>
+    (() => {
+      const root = document.getElementById('source-index');
+      if (!root) return;
+      const input = root.querySelector('#source-query');
+      const linkSelect = root.querySelector('#source-link');
+      const sortSelect = root.querySelector('#source-sort');
+      const rowsEl = root.querySelector('#source-rows');
+      const status = root.querySelector('#source-status');
+      const more = root.querySelector('#source-more');
+      const empty = root.querySelector('#source-empty');
+      const params = new URLSearchParams(location.search);
+      let query = params.get('q') || '';
+      let link = ['all', 'online', 'citation'].includes(params.get('link')) ? params.get('link') : 'all';
+      let sort = params.get('sort') === 'title' ? 'title' : 'cited';
+      let ref = /^[a-f0-9]{16}$/.test(params.get('ref') || '') ? params.get('ref') : '';
+      let limit = 40;
+      let index = null;
+      let indexPending = null;
+      let uses = null;
+      let usesPending = null;
+      input.value = query;
+      linkSelect.value = link;
+      sortSelect.value = sort;
+
+      const normalize = (text) => (text || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+      const fetchIndex = () => {
+        if (index) return Promise.resolve(index);
+        if (!indexPending) indexPending = fetch('/sources-index.json').then((response) => { if (!response.ok) throw Error('Source index unavailable'); return response.json(); }).then((data) => { index = data; return data; }).finally(() => { indexPending = null; });
+        return indexPending;
+      };
+      const fetchUses = () => {
+        if (uses) return Promise.resolve(uses);
+        if (!usesPending) usesPending = fetch('/sources-uses.json').then((response) => { if (!response.ok) throw Error('Source citations unavailable'); return response.json(); }).then((data) => { uses = data; return data; }).finally(() => { usesPending = null; });
+        return usesPending;
+      };
+      const make = (tag, className, text) => {
+        const el = document.createElement(tag);
+        if (className) el.className = className;
+        if (text != null) el.textContent = text;
+        return el;
+      };
+      const syncUrl = (push = false) => {
+        const url = new URL(location.href);
+        for (const key of ['q', 'link', 'sort', 'ref']) url.searchParams.delete(key);
+        if (query.trim()) url.searchParams.set('q', query.trim());
+        if (link !== 'all') url.searchParams.set('link', link);
+        if (sort !== 'cited') url.searchParams.set('sort', sort);
+        if (ref) url.searchParams.set('ref', ref);
+        history[push ? 'pushState' : 'replaceState'](null, '', url);
+      };
+      const addLink = (parent, href, label, className = '') => {
+        const a = make('a', className, label);
+        a.href = href;
+        parent.append(a);
+        return a;
+      };
+      const sourceRow = (source) => {
+        const row = make('details', 'source-row');
+        row.id = `s-${source.id}`;
+        row.dataset.source = source.id;
+        const summary = make('summary');
+        const main = make('span', 'source-main');
+        main.append(make('strong', '', source.title), make('span', 'source-citation', source.citation));
+        if (source.urls.length) main.append(make('span', 'source-domain', source.domain || 'Multiple online links'));
+        const count = make('span', 'source-count');
+        count.append(document.createTextNode(`${source.pageCount.toLocaleString()} ${source.pageCount === 1 ? 'page' : 'pages'} `), make('i', '', '+'));
+        count.lastChild.setAttribute('aria-hidden', 'true');
+        summary.append(main, count);
+        row.append(summary, make('div', 'source-detail', 'Open to load citing pages.'));
+        return row;
+      };
+      const render = () => {
+        if (!index) return;
+        const term = normalize(query.trim());
+        let matches = index.filter((source) => (!term || normalize(source.search).includes(term)) && (link === 'all' || (link === 'online' ? source.urls.length > 0 : source.urls.length === 0)));
+        if (sort === 'title') matches = [...matches].sort((a, b) => a.title.localeCompare(b.title) || b.pageCount - a.pageCount);
+        if (ref) {
+          const selected = index.find((source) => source.id === ref);
+          if (selected && !matches.some((source) => source.id === ref)) matches = [selected, ...matches];
+          else if (selected) matches = [selected, ...matches.filter((source) => source.id !== ref)];
+        }
+        const fragment = document.createDocumentFragment();
+        for (const source of matches.slice(0, limit)) fragment.append(sourceRow(source));
+        rowsEl.replaceChildren(fragment);
+        status.textContent = `${matches.length.toLocaleString()} ${matches.length === 1 ? 'reference' : 'references'}${matches.length > limit ? ` · showing ${limit}` : ''}`;
+        more.hidden = matches.length <= limit;
+        empty.hidden = matches.length > 0;
+      };
+      const update = async (push = false) => {
+        syncUrl(push);
+        status.textContent = 'Loading references…';
+        try { await fetchIndex(); render(); }
+        catch { status.textContent = 'Could not load the source index. Reload to try again.'; }
+      };
+      const fillDetail = async (row) => {
+        const panel = row.querySelector('.source-detail');
+        if (row.dataset.loaded) return;
+        const existingLinks = panel.querySelector('.source-links')?.cloneNode(true);
+        panel.textContent = 'Loading citing pages…';
+        try {
+          const all = await fetchUses();
+          if (!row.isConnected) return;
+          const source = index?.find((item) => item.id === row.dataset.source);
+          const cited = all[row.dataset.source] || [];
+          panel.replaceChildren();
+          if (source?.urls.length) {
+            const links = make('div', 'source-links');
+            source.urls.forEach((url, i) => addLink(links, url, source.urls.length > 1 ? `Open link ${i + 1} ↗` : 'Open source ↗'));
+            links.querySelectorAll('a').forEach((a) => { a.target = '_blank'; a.rel = 'noopener noreferrer'; });
+            panel.append(links);
+          } else if (existingLinks) panel.append(existingLinks);
+          panel.append(make('h3', '', 'Cited on'));
+          const list = make('ul');
+          const button = make('button', 'source-use-more', 'Show 30 more ↓');
+          button.type = 'button';
+          let shown = 30;
+          const renderUses = () => {
+            const fragment = document.createDocumentFragment();
+            for (const use of cited.slice(0, shown)) {
+              const li = make('li');
+              addLink(li, `${use.href}#fn-${encodeURIComponent(use.notes[0].id)}`, use.title);
+              const notes = make('small');
+              notes.append(document.createTextNode('Note '));
+              use.notes.forEach((note, index) => {
+                if (index) notes.append(document.createTextNode(', '));
+                addLink(notes, `${use.href}#fn-${encodeURIComponent(note.id)}`, note.id);
+              });
+              li.append(notes);
+              fragment.append(li);
+            }
+            list.replaceChildren(fragment);
+            button.hidden = cited.length <= shown;
+          };
+          button.addEventListener('click', () => { shown += 30; renderUses(); });
+          renderUses();
+          panel.append(list, button);
+          row.dataset.loaded = 'true';
+        } catch { panel.textContent = 'Could not load citing pages. Close and reopen to try again.'; }
+      };
+      rowsEl.addEventListener('toggle', (event) => {
+        const row = event.target.closest?.('.source-row');
+        if (row?.open) fillDetail(row);
+      }, true);
+      input.addEventListener('input', () => { query = input.value; ref = ''; limit = 40; update(); });
+      linkSelect.addEventListener('change', () => { link = linkSelect.value; ref = ''; limit = 40; update(true); });
+      sortSelect.addEventListener('change', () => { sort = sortSelect.value; ref = ''; limit = 40; update(true); });
+      more.addEventListener('click', () => { limit += 40; update(); });
+      window.addEventListener('popstate', () => {
+        const state = new URLSearchParams(location.search);
+        query = state.get('q') || '';
+        link = ['all', 'online', 'citation'].includes(state.get('link')) ? state.get('link') : 'all';
+        sort = state.get('sort') === 'title' ? 'title' : 'cited';
+        ref = /^[a-f0-9]{16}$/.test(state.get('ref') || '') ? state.get('ref') : '';
+        input.value = query; linkSelect.value = link; sortSelect.value = sort;
+        if (index) render(); else if (query || link !== 'all' || sort !== 'cited' || ref) update();
+      });
+      if (query || link !== 'all' || sort !== 'cited' || ref) {
+        update().then(() => {
+          const target = ref && document.getElementById(`s-${ref}`);
+          if (target) { target.open = true; target.scrollIntoView({ block: 'start' }); }
+        });
+      }
+    })();
+  </script>
+</Base>
+
+<style is:global>
+  .source-header {padding-bottom:34px}
+  .source-inner {max-width:1500px;margin:auto;padding:34px var(--gutter) 100px}
+  .source-tools {display:flex;flex-wrap:wrap;align-items:end;gap:18px 30px;border-bottom:2px solid var(--ink);padding-bottom:22px}
+  .source-search {flex:1 1 440px}
+  .source-search input {width:100%;border:0;border-bottom:1px solid var(--ink);border-radius:0;background:var(--paper);color:var(--ink);padding:10px 0;font:400 19px/1.3 var(--sans)}
+  .source-select {display:flex;flex-direction:column;gap:6px;font:600 12px/1.2 var(--sans);text-transform:uppercase}
+  .source-select select {min-width:155px;border:1px solid var(--line-2);border-radius:0;background:var(--paper);color:var(--ink);padding:9px 10px;font:500 14px/1.2 var(--sans);text-transform:none}
+  .source-meta {display:flex;align-items:baseline;justify-content:space-between;flex-wrap:wrap;gap:10px 25px;padding:16px 0 20px;color:var(--muted);font:400 14px/1.4 var(--sans)}
+  .source-meta p {margin:0}
+  .source-method {max-width:55ch}
+  .source-method summary {cursor:pointer;text-decoration:underline;text-underline-offset:3px}
+  .source-method p {padding:10px 0 0}
+  .source-row {border-top:1px solid var(--line);scroll-margin-top:20px}
+  .source-row:last-child {border-bottom:1px solid var(--line)}
+  .source-row summary {display:flex;align-items:start;justify-content:space-between;gap:20px;cursor:pointer;list-style:none;padding:17px 0}
+  .source-row summary::-webkit-details-marker {display:none}
+  .source-row summary:hover strong {color:var(--accent)}
+  .source-main {display:flex;flex-direction:column;gap:7px;min-width:0}
+  .source-main strong {font:700 clamp(19px,1.8vw,25px)/1.12 var(--sans);letter-spacing:-.025em;overflow-wrap:anywhere}
+  .source-citation {display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden;font:400 14px/1.35 var(--serif);color:var(--ink-2);max-width:95ch;overflow-wrap:anywhere}
+  .source-row[open] .source-citation {display:block;overflow:visible}
+  .source-domain {font:500 12px/1.3 var(--sans);color:var(--muted)}
+  .source-count {flex:none;font:600 13px/1.3 var(--sans);color:var(--muted);white-space:nowrap}
+  .source-count i {display:inline-block;font-size:23px;line-height:.6;font-weight:300;font-style:normal;vertical-align:middle;margin-left:8px}
+  .source-row[open] .source-count i {transform:rotate(45deg)}
+  .source-detail {padding:0 0 25px 0;color:var(--ink);font:400 15px/1.4 var(--sans)}
+  .source-detail h3 {font:700 12px/1.2 var(--sans);text-transform:uppercase;letter-spacing:.04em;margin:22px 0 10px}
+  .source-links {display:flex;flex-wrap:wrap;gap:8px;margin:2px 0 14px}
+  .source-links a {border:1px solid var(--ink);padding:8px 12px;font:600 13px/1.2 var(--sans)}
+  .source-links a:hover {background:var(--ink);color:var(--paper)}
+  .source-detail ul {list-style:none;margin:0;padding:0;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0 30px}
+  .source-detail li {display:flex;flex-direction:column;gap:3px;min-width:0;border-top:1px solid var(--line);padding:9px 0}
+  .source-detail li>a {font-weight:600;overflow-wrap:anywhere}
+  .source-detail li>a:hover,.source-detail small a:hover {color:var(--accent)}
+  .source-detail small {color:var(--muted);font:400 12px/1.3 var(--sans)}
+  .source-detail small a {text-decoration:underline;text-underline-offset:2px}
+  .source-js-note {color:var(--muted);font-size:13px;margin:14px 0 0}
+  .source-more,.source-use-more {display:block;border:1px solid var(--ink);background:var(--paper);color:var(--ink);padding:12px 18px;margin:28px auto 0;cursor:pointer;font:600 14px/1.2 var(--sans)}
+  .source-use-more {margin:18px 0 0}
+  .source-more[hidden],.source-use-more[hidden],.source-empty[hidden] {display:none}
+  .source-more:hover,.source-use-more:hover {background:var(--ink);color:var(--paper)}
+  .source-empty {padding:30px 0;font:400 17px/1.4 var(--sans)}
+  .source-noscript {font:400 14px/1.4 var(--sans)}
+  .source-noscript a {text-decoration:underline}
+  @media(max-width:650px) {.source-tools {gap:15px}.source-search {flex-basis:100%}.source-select {flex:1}.source-select select {min-width:0;width:100%}.source-row summary {display:block}.source-main strong {font-size:19px}.source-count {display:block;margin-top:10px}.source-detail ul {grid-template-columns:1fr}}
+</style>

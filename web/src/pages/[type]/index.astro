@@ -1,151 +1,28 @@
 ---
 import Base from '../../layouts/Base.astro';
 import DirectoryExplorer from '../../components/DirectoryExplorer.astro';
-import { entitiesByType, hrefFor, renderInlineMd, TYPE_DIRS, TYPE_PLURALS } from '../../lib/data.ts';
-import type { EntityType, Entity } from '../../lib/types.ts';
+import { entitiesByType, TYPE_DIRS, TYPE_PLURALS } from '../../lib/data.ts';
+import type { EntityType } from '../../lib/types.ts';
 
 export function getStaticPaths() {
-  const types: EntityType[] = ['person', 'organization', 'program', 'event', 'concept', 'place', 'source'];
-  return types.map((t) => ({ params: { type: TYPE_DIRS[t] }, props: { entityType: t } }));
+  const types: EntityType[] = ['person', 'organization', 'program', 'event', 'concept', 'place'];
+  return types.map((type) => ({ params: { type: TYPE_DIRS[type] }, props: { entityType: type } }));
 }
 
 const { entityType } = Astro.props as { entityType: EntityType };
 const items = entitiesByType(entityType).sort((a, b) => a.title.localeCompare(b.title));
-
-// Group by category
-const byCategory = new Map<string, Entity[]>();
-for (const e of items) {
-  const cat = e.category ?? 'Uncategorized';
-  if (!byCategory.has(cat)) byCategory.set(cat, []);
-  byCategory.get(cat)!.push(e);
-}
-
-// Categories: put "Key Figures" / "Key Events" etc. first, then alphabetical
-const featuredKeys = ['Key Figures', 'Key Events', 'Key Organizations', 'Key Programs', 'Key Places', 'Key Concepts'];
-const allCats = Array.from(byCategory.keys());
-const ordered = [
-  ...featuredKeys.filter((k) => byCategory.has(k)),
-  ...allCats.filter((c) => !featuredKeys.includes(c)).sort(),
-];
-
-// Alphabet index: letters present in any title
-const letters = Array.from(new Set(items.map((e) => e.title[0]?.toUpperCase()).filter((l) => /[A-Z]/.test(l ?? '')))).sort();
-const allAlpha = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('');
-
 const plural = TYPE_PLURALS[entityType];
-
-// For each category, mark whether it should be expanded by default.
-// Featured ones expanded; others collapsed if there are many.
-const expandedSet = new Set(featuredKeys);
-const manyCategories = ordered.length > 4;
-
-// Unique, count-bearing description so this listing gets a meaningful SERP
-// snippet instead of falling through to a generic site default.
 const dir = TYPE_DIRS[entityType];
-const description = `${items.length.toLocaleString()} ${plural.toLowerCase()} across ${ordered.length} categories in The Info Web.`;
+const description = `Explore ${plural.toLowerCase()} in The Info Web by name and category.`;
 const collectionSchema = {
   '@context': 'https://schema.org',
   '@type': 'CollectionPage',
   name: `${plural} | The Info Web`,
   description,
   url: Astro.site ? new URL(`/${dir}/`, Astro.site).href : `/${dir}/`,
-  ...(Astro.site ? { isPartOf: { '@id': `${new URL('/', Astro.site).href}#website` } } : {}),
   mainEntity: { '@type': 'ItemList', numberOfItems: items.length },
 };
-const breadcrumbs = [{ name: plural, item: `/${dir}/` }];
-
-// Anchor placement for the alphabet jump-nav. Display order is category-
-// grouped (not globally alphabetical), so we attach #letter-X to the FIRST
-// entity in render order whose title starts with X. This guarantees one id
-// per letter (no duplicate ids) and that every present letter resolves to a
-// real on-page target. seenLetters is consumed during render below.
-const seenLetters = new Set<string>();
-function anchorFor(title: string): string | undefined {
-  const L = title[0]?.toUpperCase();
-  if (!L || !/[A-Z]/.test(L) || seenLetters.has(L)) return undefined;
-  seenLetters.add(L);
-  return `letter-${L}`;
-}
 ---
-<Base
-  title={`${plural} | The Info Web`}
-  description={description}
-  jsonLd={collectionSchema}
-  breadcrumbs={breadcrumbs}
->
-  {entityType !== 'source'
-    ? <DirectoryExplorer items={items} directory={plural} singular={entityType} />
-    : <>
-  <header class="browse-header">
-    <h1>{plural}</h1>
-  </header>
-
-  {letters.length > 0 && (
-    <nav class="alphabet-nav" aria-label="Jump to letter">
-      {allAlpha.map((L) => letters.includes(L)
-        ? <a href={`#letter-${L}`}>{L}</a>
-        : <span class="disabled" aria-hidden="true">{L}</span>
-      )}
-    </nav>
-  )}
-
-  {/* With JS off the toggle buttons are inert, so reveal every list and hide
-      the dead controls — a static reference shouldn't hide content behind JS. */}
-  <noscript>
-    <style>
-      .cat-section[data-collapsed='true'] .cat-list { display: grid; }
-      .cat-section[data-collapsed='true'] .cat-peek { display: none; }
-      .cat-section h2 .toggle { display: none; }
-    </style>
-  </noscript>
-
-  <div class="browse-body">
-    {ordered.map((cat, ci) => {
-      const list = byCategory.get(cat)!;
-      const collapsed = manyCategories && !expandedSet.has(cat);
-      const listId = `cat-list-${ci}`;
-      return (
-        <section class="cat-section" data-collapsed={String(collapsed)}>
-          <h2>
-            {cat}
-            <span class="count">{list.length.toLocaleString()}</span>
-            <button
-              type="button"
-              class="toggle"
-              data-toggle
-              aria-expanded={String(!collapsed)}
-              aria-controls={listId}
-            >
-              {collapsed ? 'Expand' : 'Collapse'}
-            </button>
-          </h2>
-          <p class="cat-peek">
-            Peek: {list.slice(0, 3).map((e) => e.title).join(' · ')}{list.length > 3 ? '…' : ''}
-          </p>
-          <ul class="cat-list" id={listId}>
-            {list.map((e) => (
-              <li id={anchorFor(e.title)}>
-                <a class="entry-title" href={hrefFor(e)}>{e.title}</a>
-                {e.summary && <span class="entry-summary" set:html={renderInlineMd(e.summary)} />}
-              </li>
-            ))}
-          </ul>
-        </section>
-      );
-    })}
-  </div>
-
-  <script is:inline>
-    document.querySelectorAll('[data-toggle]').forEach((btn) => {
-      btn.addEventListener('click', () => {
-        const section = btn.closest('.cat-section');
-        if (!section) return;
-        const collapsed = section.getAttribute('data-collapsed') === 'true';
-        section.setAttribute('data-collapsed', String(!collapsed));
-        btn.setAttribute('aria-expanded', String(collapsed));
-        btn.textContent = collapsed ? 'Collapse' : 'Expand';
-      });
-    });
-  </script>
-  </>}
+<Base title={`${plural} | The Info Web`} description={description} jsonLd={collectionSchema} breadcrumbs={[{ name: plural, item: `/${dir}/` }]}>
+  <DirectoryExplorer items={items} directory={plural} singular={entityType} />
 </Base>

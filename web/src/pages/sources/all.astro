@@ -1,0 +1,43 @@
+---
+import Base from '../../layouts/Base.astro';
+import { sourceRecords } from '../../lib/source-index.ts';
+
+const ordered = [...sourceRecords()].sort((a, b) => a.title.localeCompare(b.title));
+const byLetter = new Map<string, typeof ordered>();
+for (const source of ordered) {
+  const letter = source.title.normalize('NFD').replace(/[\u0300-\u036f]/g, '').match(/[A-Za-z]/)?.[0]?.toUpperCase() || '#';
+  const group = byLetter.get(letter) ?? [];
+  group.push(source);
+  byLetter.set(letter, group);
+}
+---
+<Base title="All sources | The Info Web" description="Alphabetical list of cited references across the archive." noindex>
+  <div class="source-all">
+    <header class="browse-header"><h1>All sources</h1></header>
+    <div class="source-all-inner">
+      <p><a href="/sources/">← Source search</a></p>
+      <nav aria-label="Jump to letter">{[...byLetter.keys()].sort().map((letter) => <a href={`#letter-${letter}`}>{letter}</a>)}</nav>
+      {[...byLetter].sort(([a], [b]) => a.localeCompare(b)).map(([letter, sources]) => <section id={`letter-${letter}`}>
+        <h2>{letter}</h2>
+        <ul>{sources.map((source) => <li>
+          <a href={`${source.uses[0].href}#fn-${encodeURIComponent(source.uses[0].notes[0].id)}`}>{source.title}</a>
+          <span>{source.pageCount} {source.pageCount === 1 ? 'page' : 'pages'}</span>
+        </li>)}</ul>
+      </section>)}
+    </div>
+  </div>
+</Base>
+
+<style>
+  .source-all-inner {max-width:1500px;margin:auto;padding:35px var(--gutter) 100px}
+  .source-all-inner>p {font:500 14px/1.3 var(--sans);margin:0 0 25px}
+  .source-all-inner>p a:hover,.source-all a:hover {color:var(--accent)}
+  .source-all nav {display:flex;flex-wrap:wrap;gap:8px 14px;padding-bottom:30px;border-bottom:2px solid var(--ink);font:700 14px/1 var(--sans)}
+  .source-all section {scroll-margin-top:20px;padding:35px 0;border-bottom:1px solid var(--line)}
+  .source-all h2 {font:700 42px/1 var(--sans);margin:0 0 20px}
+  .source-all ul {list-style:none;margin:0;padding:0;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0 35px}
+  .source-all li {display:flex;justify-content:space-between;align-items:start;gap:15px;padding:9px 0;border-top:1px solid var(--line);font:500 15px/1.3 var(--sans)}
+  .source-all li a {overflow-wrap:anywhere}
+  .source-all li span {flex:none;color:var(--muted);font-size:12px;white-space:nowrap}
+  @media(max-width:700px) {.source-all ul {grid-template-columns:1fr}}
+</style>
