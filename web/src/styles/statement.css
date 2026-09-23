@@ -276,3 +276,10 @@ body.utility header.site .bar {padding-bottom:18px}
 #pf-close:hover,#pf-reload:hover {color:var(--accent)}
 #pf-reload {text-decoration:underline;padding:0}
 #pf-error {font:400 16px/1.5 var(--sans);margin:8px 0 16px}
+
+/* Show the action available for the current reading theme. */
+header.site .theme-toggle {display:inline-flex;align-items:center;justify-content:center;min-width:44px;min-height:44px}
+.theme-icon {flex:none}
+.theme-icon-sun {display:none}
+:root[data-theme=dark] .theme-icon-moon {display:none}
+:root[data-theme=dark] .theme-icon-sun {display:block}
