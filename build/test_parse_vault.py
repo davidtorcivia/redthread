@@ -486,6 +486,26 @@ class TestRelations(unittest.TestCase):
         self.assertEqual(e["terry-waite"]["relations"][0]["fn_page"], "sun-streak")
         self.assertEqual(e["sun-streak"]["relations_in"][0]["other_id"], "terry-waite")
 
+    def _kin(self, son_role=True):
+        rel = lambda w, role: pv._extract_relations(
+            {"relations": [{"type": "relative_of", "with": f"[[{w}]]", "role": role}]}, "x")
+        dad = {"id": "dad", "title": "Dad", "relations_raw": rel("Kid", "father")}
+        kid = {"id": "kid", "title": "Kid", "relations_raw": rel("Dad", "son") if son_role else []}
+        ents = [dad, kid]
+        pv.resolve_relations(ents, {"dad": "dad", "kid": "kid"})
+        return {e["id"]: [(r["other_id"], r["role"]) for r in e["relations"] + e["relations_in"]]
+                for e in ents}
+
+    def test_symmetric_declared_twice_is_one_row_with_other_persons_role(self):
+        e = self._kin()
+        self.assertEqual(e["dad"], [("kid", "son")])
+        self.assertEqual(e["kid"], [("dad", "father")])
+
+    def test_symmetric_one_side_inverts_role(self):
+        e = self._kin(son_role=False)
+        self.assertEqual(e["dad"], [("kid", "child")])
+        self.assertEqual(e["kid"], [("dad", "father")])
+
 
 if __name__ == "__main__":
     unittest.main()

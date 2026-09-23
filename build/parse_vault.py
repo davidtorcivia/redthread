@@ -296,6 +296,20 @@ RELATION_TYPES: dict[str, tuple[str, str]] = {
     "spouse_of": ("Spouse of", "Spouse of"),
 }
 
+# Types whose two directions read the same. A `role` on one of these names
+# what the declaring page's subject is to the other ("father", "son"), so a
+# row showing the other person must show the other person's role instead.
+SYMMETRIC_RELATIONS = {t for t, (a, b) in RELATION_TYPES.items() if a == b}
+# Fallback when only one page declares a role: what the other person must be.
+# Roles not listed here have no safe inverse and are dropped from that side.
+_ROLE_INVERSE = {
+    "father": "child", "mother": "child", "parent": "child",
+    "son": "parent", "daughter": "parent", "child": "parent",
+    "brother": "sibling", "sister": "sibling", "sibling": "sibling",
+    "husband": "spouse", "wife": "spouse", "spouse": "spouse",
+    "cousin": "cousin", "distant cousin": "distant cousin", "partner": "partner",
+}
+
 _REL_TARGET = re.compile(r"^\[\[([^\]|#]+)(?:#[^\]|]*)?(?:\|[^\]]*)?\]\]$")
 
 
@@ -331,10 +345,11 @@ def resolve_relations(entities: list[dict[str, Any]], slug_index: dict[str, str]
     """Attach `relations` (subject side) and `relations_in` (object side) to
     each entity. A fact is kept once per (subject, type, object, start), so
     declaring it on both pages does not double it; a reverse relation declared
-    on the object's page lands on the subject as if the subject declared it."""
+    on the object's page lands on the subject as if the subject declared it.
+    Symmetric types are undirected: A->B and B->A are one fact, and each
+    page's `role` is kept as that page's own role (see SYMMETRIC_RELATIONS)."""
     by_id = {e["id"]: e for e in entities}
-    seen: set[tuple] = set()
-    facts: list[dict[str, Any]] = []
+    facts: dict[tuple, dict[str, Any]] = {}
     for e in entities:
         for r in e.get("relations_raw", []):
             other_id = slug_index.get(normalize_target(r["with_title"]))
@@ -342,25 +357,40 @@ def resolve_relations(entities: list[dict[str, Any]], slug_index: dict[str, str]
                 subj = (other_id, r["with_title"]); obj = (e["id"], e["title"])
             else:
                 subj = (e["id"], e["title"]); obj = (other_id, r["with_title"])
-            key = (subj[0] or subj[1].lower(), r["type"], obj[0] or obj[1].lower(), r["start"])
-            if key in seen:
-                continue
-            seen.add(key)
-            facts.append({**r, "subj": subj, "obj": obj, "declared_on": e["id"]})
+            sk, ok = subj[0] or subj[1].lower(), obj[0] or obj[1].lower()
+            sym = r["type"] in SYMMETRIC_RELATIONS
+            key = (r["type"], frozenset((sk, ok)), r["start"]) if sym else (sk, r["type"], ok, r["start"])
+            f = facts.get(key)
+            if f is None:
+                f = facts[key] = {**r, "subj": subj, "obj": obj, "declared_on": e["id"], "roles": {}}
+            if sym and r["role"]:
+                f["roles"].setdefault(e["id"], r["role"])
     for e in entities:
         e["relations"] = []
         e["relations_in"] = []
-    for f in facts:
+
+    def role_of(f: dict[str, Any], who: tuple, other: tuple) -> str | None:
+        """Role to print beside `who` on `other`'s page, for a symmetric fact."""
+        own = f["roles"].get(who[0])
+        if own:
+            return own
+        mirror = f["roles"].get(other[0])
+        return _ROLE_INVERSE.get(mirror.lower()) if mirror else None
+
+    for f in facts.values():
         label, inverse = RELATION_TYPES[f["type"]]
+        sym = f["type"] in SYMMETRIC_RELATIONS
         # A footnote number only means something on the page that declared it.
-        common = {"type": f["type"], "start": f["start"], "end": f["end"], "role": f["role"],
+        common = {"type": f["type"], "start": f["start"], "end": f["end"],
                   "fn": f["fn"], "fn_page": f["declared_on"]}
         if f["subj"][0] in by_id:
+            role = role_of(f, f["obj"], f["subj"]) if sym else f["role"]
             by_id[f["subj"][0]]["relations"].append(
-                {**common, "label": label, "other_id": f["obj"][0], "other_title": f["obj"][1]})
+                {**common, "role": role, "label": label, "other_id": f["obj"][0], "other_title": f["obj"][1]})
         if f["obj"][0] in by_id:
+            role = role_of(f, f["subj"], f["obj"]) if sym else f["role"]
             by_id[f["obj"][0]]["relations_in"].append(
-                {**common, "label": inverse, "other_id": f["subj"][0], "other_title": f["subj"][1]})
+                {**common, "role": role, "label": inverse, "other_id": f["subj"][0], "other_title": f["subj"][1]})
     for e in entities:
         e.pop("relations_raw", None)
 
