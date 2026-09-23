@@ -501,6 +501,17 @@ class TestRelations(unittest.TestCase):
         self.assertEqual(e["dad"], [("kid", "son")])
         self.assertEqual(e["kid"], [("dad", "father")])
 
+    def test_symmetric_each_page_shows_its_own_footnote(self):
+        rel = lambda w, role, fn: pv._extract_relations(
+            {"relations": [{"type": "relative_of", "with": f"[[{w}]]", "role": role, "fn": fn}]}, "x")
+        dad = {"id": "dad", "title": "Dad", "relations_raw": rel("Kid", "father", 1)}
+        kid = {"id": "kid", "title": "Kid", "relations_raw": rel("Dad", "son", 2)}
+        ents = [dad, kid]
+        pv.resolve_relations(ents, {"dad": "dad", "kid": "kid"})
+        rows = {e["id"]: (e["relations"] + e["relations_in"])[0] for e in ents}
+        self.assertEqual((rows["dad"]["fn"], rows["dad"]["fn_page"]), ("1", "dad"))
+        self.assertEqual((rows["kid"]["fn"], rows["kid"]["fn_page"]), ("2", "kid"))
+
     def test_symmetric_one_side_inverts_role(self):
         e = self._kin(son_role=False)
         self.assertEqual(e["dad"], [("kid", "child")])

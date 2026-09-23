@@ -362,9 +362,11 @@ def resolve_relations(entities: list[dict[str, Any]], slug_index: dict[str, str]
             key = (r["type"], frozenset((sk, ok)), r["start"]) if sym else (sk, r["type"], ok, r["start"])
             f = facts.get(key)
             if f is None:
-                f = facts[key] = {**r, "subj": subj, "obj": obj, "declared_on": e["id"], "roles": {}}
+                f = facts[key] = {**r, "subj": subj, "obj": obj, "declared_on": e["id"], "roles": {}, "fns": {}}
             if sym and r["role"]:
                 f["roles"].setdefault(e["id"], r["role"])
+            if sym and r["fn"]:
+                f["fns"].setdefault(e["id"], r["fn"])
     for e in entities:
         e["relations"] = []
         e["relations_in"] = []
@@ -383,14 +385,20 @@ def resolve_relations(entities: list[dict[str, Any]], slug_index: dict[str, str]
         # A footnote number only means something on the page that declared it.
         common = {"type": f["type"], "start": f["start"], "end": f["end"],
                   "fn": f["fn"], "fn_page": f["declared_on"]}
+
+        def own_fn(page_id: str | None) -> dict[str, Any]:
+            # A symmetric fact declared on both pages shows each page its own footnote.
+            if sym and page_id in f["fns"]:
+                return {"fn": f["fns"][page_id], "fn_page": page_id}
+            return {}
         if f["subj"][0] in by_id:
             role = role_of(f, f["obj"], f["subj"]) if sym else f["role"]
             by_id[f["subj"][0]]["relations"].append(
-                {**common, "role": role, "label": label, "other_id": f["obj"][0], "other_title": f["obj"][1]})
+                {**common, **own_fn(f["subj"][0]), "role": role, "label": label, "other_id": f["obj"][0], "other_title": f["obj"][1]})
         if f["obj"][0] in by_id:
             role = role_of(f, f["subj"], f["obj"]) if sym else f["role"]
             by_id[f["obj"][0]]["relations_in"].append(
-                {**common, "role": role, "label": inverse, "other_id": f["subj"][0], "other_title": f["subj"][1]})
+                {**common, **own_fn(f["obj"][0]), "role": role, "label": inverse, "other_id": f["subj"][0], "other_title": f["subj"][1]})
     for e in entities:
         e.pop("relations_raw", None)
 
