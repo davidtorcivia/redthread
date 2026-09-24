@@ -1,4 +1,6 @@
 /* A readable route from one entry to another. */
+/* Lifts the suggestion list above the network toolbar (z-index 8) in the next section. */
+.path-widget {position:relative;z-index:10}
 .path-widget .pw-head {align-items:center;gap:16px;margin:0}
 .path-widget .pw-full {font:500 13px/1.4 var(--sans);text-transform:none;letter-spacing:0;white-space:nowrap}
 .path-widget .pw-intro {font:400 18px/1.45 var(--serif);color:var(--muted);margin:4px 0 24px;max-width:48em}
