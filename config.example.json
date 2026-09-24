@@ -1,24 +1,15 @@
 {
-  "vaultPath": "..",
-  "siteTitle": "The Info Web",
-  "siteUrl": "https://infoweb.local",
-  "skipPathPatterns": [
-    "DATAVIEW - *.md",
-    "MOC - *.md",
-    "KEY *.md",
-    "TEMP/**",
-    ".obsidian/**",
-    "IMAGES/**"
-  ],
   "typeMap": {
-    "10 - PEOPLE": "person",
-    "20 - ORGANIZATIONS": "organization",
-    "30 - PROGRAMS & PROJECTS": "program",
-    "40 - EVENTS": "event",
-    "50 - CONCEPTS & TECHNOLOGY": "concept",
-    "60 - PLACES": "place",
-    "80 - SOURCES": "source",
-    "00 - META": "meta",
-    "90 - MISC": "misc"
-  }
+    "10 - People": "person",
+    "20 - Organizations": "organization",
+    "30 - Programs": "program",
+    "40 - Events": "event",
+    "50 - Concepts": "concept",
+    "60 - Places": "place",
+    "80 - Sources": "source",
+    "00 - Meta": "meta"
+  },
+  "skipPathPatterns": ["Templates/**", "*.excalidraw.md"],
+  "focusFile": "00 - Meta/In Focus.md",
+  "clusterResolution": 1.5
 }

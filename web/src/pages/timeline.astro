@@ -23,8 +23,8 @@ for (const record of initial) initialYearCounts.set(record.year, (initialYearCou
 const initialPeak = Math.max(1, ...initialYearCounts.values());
 const heatHeight = (count: number, peak: number) => count ? `${Math.round((0.16 + 0.84 * count / peak) * 100)}%` : '0';
 ---
-<Base title="Timeline | The Info Web" description="Follow dated events and programs across the archive, with other entry types available as filters.">
-  <main class="chronology" id="chronology">
+<Base title="Timeline" description="Follow dated events and programs across the archive, with other entry types available as filters.">
+  <div class="chronology" id="chronology">
     <header class="browse-header chron-header"><h1>Timeline</h1></header>
     <div class="chron-inner">
       <div class="chron-tools">
@@ -59,7 +59,7 @@ const heatHeight = (count: number, peak: number) => count ? `${Math.round((0.16 
       </div>
       <p class="chron-empty" id="chron-empty" hidden>No dated entries match those filters.</p>
     </div>
-  </main>
+  </div>
 
   <script is:inline>
     (() => {

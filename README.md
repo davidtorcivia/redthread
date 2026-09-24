@@ -1,364 +1,49 @@
-# redthread
+# Redthread
 
-> *Pull on the thread.*
+Turn an Obsidian vault into a website people can explore by connection.
 
-A static-site reading layer for connection-rich Obsidian vaults.
-Turns a research vault — people, organizations, programs, events,
-concepts — into a navigable web with searchable entity pages, a
-full-vault network graph, NER-discovered "hidden" connections,
-bridge scoring (cited across the most communities), hub-avoiding path-finding between any two entries,
-hover previews, tags, timeline, and full-text search.
+![Homepage](docs/screenshots/home.png)
 
-Replaces Obsidian Publish for the kind of vaults where the connective
-tissue *is* the point. Self-hostable. Source vault stays in Obsidian;
-this pipeline reads it as input and emits a static site.
+Redthread reads a folder of linked markdown notes and builds a fast static site from it. Every note gets its own page. Every link becomes a thread you can follow, map, and trace. Keep writing in Obsidian, and the site rebuilds when your notes change.
 
-Originally built for [The Info Web](https://git.disinfo.zone/disinfozone/The_Info_Web)
-— a parapolitical research vault — but generic: point it at any
-markdown vault that uses Obsidian-style `[[wikilinks]]`.
+See it live at [The Info Web](https://theinfoweb.disinfo.zone).
 
-## Architecture
+## What you get
 
-```
-┌──────────────┐    parse_vault.py     ┌────────────┐    npm run build   ┌──────────┐
-│  vault/*.md  │  ──────────────────▶  │  data/*    │  ───────────────▶  │   dist/  │  ──▶ nginx
-│  (Obsidian)  │  parses, NER,         │  JSON      │  Astro + Pagefind  │  static  │
-│              │  centrality, layout   │  indices   │                    │  site    │
-└──────────────┘                       └────────────┘                    └──────────┘
-```
+- **Entry pages** with backlinks, footnote previews, a table of contents, and a local network graph.
+- **The full network** of every entry on one canvas, grouped into clusters.
+- **Path finding** between any two entries. It routes around the obvious hubs to find the connections that matter.
+- **Hidden connections**: names that appear together but were never linked.
+- **Hubs, bridges, and clusters** that show which entries hold the network together.
+- **Tags, timeline, sources, and full-text search.**
+- **Social cards, a sitemap, an Atom feed, and markdown copies** of every page for search engines and LLMs.
+- **Plain static files.** Visitors only ever talk to nginx.
 
-- **Parser** (`build/parse_vault.py`, Python): walks every markdown file
-  in the vault, extracts wikilinks + frontmatter + footnotes, computes
-  co-occurrence / mention counts, runs NER for implicit links, computes
-  directed PageRank (hubs), community-span entropy (bridges), and pre-computes a force-directed
-  layout via `networkx.spring_layout`. Emits JSON indices to `data/`.
-- **Astro site** (`web/`): consumes the JSON at build time. Renders
-  entity pages, browse pages, `/network/` (full canvas graph; the canvas
-  engine in `web/src/scripts/graph-canvas.ts` is shared with the
-  per-entity Local network widget), `/path/`
-  (hub-avoiding path finder), `/bridges/`, `/tags/`, `/timeline/`, `/changelog/`.
-- **Pagefind**: search index built post-Astro, surfaces a Cmd-K modal.
-- **nginx in Docker** (`deploy/`): serves the built `dist/` directory.
-
-Everything is static. The only server-side runtime is nginx.
-
-## Pages
-
-| Route | What |
+| | |
 |---|---|
-| `/` | Editorial homepage: featured entity, network hubs, type strip |
-| `/<type>/` | Browse pages (people / organizations / programs / events / concepts / places) |
-| `/<type>/<slug>/` | Entity page: prose, Connected to, Hidden Connections, Local network, Mentioned in |
-| `/network/` | Full vault as one canvas graph |
-| `/path/` | BFS between any two entities |
-| `/bridges/` | Top-50 bridges (entries cited from the most distinct communities) and hubs (directed PageRank) |
-| `/clusters/` | Louvain communities of the link graph, each named after its most-mentioned members |
-| `/tags/`, `/tag/<slug>/` | Tag index + per-tag entry list |
-| `/timeline/` | Entries grouped by decade (consumes future date-backfill) |
-| `/changelog/` | Most-recently-edited entries from vault mtime |
-| `/unresolved/` | Wikilink targets with no entry, ranked by link count (editor-facing) |
-| `/random/` | Redirects to a random entry |
-| `/404`, `/5xx` | Styled error pages, wired in nginx |
+| ![Entry page](docs/screenshots/entry.png) | ![Local network](docs/screenshots/local-network.png) |
+| ![Full network](docs/screenshots/network.png) | ![Path finder](docs/screenshots/path.png) |
 
-## Local development
+## Quick start
 
-### Requirements
-- **Python 3.11+** — parser
-- **Node 22+** — Astro build
-- **Docker + Docker Compose** — nginx runtime (optional, you can also run `astro dev`)
-- A markdown vault in Obsidian format
+You need Docker and a vault.
 
-### One-time setup
-```bash
-# From _web/:
-pip install -r build/requirements.txt   # parser deps
-npm --prefix web install                # Astro deps
+```sh
+git clone https://github.com/davidtorcivia/redthread.git && cd redthread
+cp .env.example .env                  # set VAULT_PATH, SITE_URL, SITE_TITLE
+cp config.example.json config.json    # map your folders to entry types
+docker compose up -d
 ```
 
-### Build the site
-```bash
-./build.sh                              # Linux / macOS / Git Bash
-./build.ps1                             # PowerShell on Windows
-```
-Both scripts parse the vault, copy generated JSON into Astro's
-`public/`, then build the site. `build.sh` builds into `web/.dist-build/`
-and rsyncs into `web/dist/` so a served `dist/` is never empty mid-build;
-`build.ps1` still runs `npm run build` in place.
+Open http://localhost:8080. The first build takes a few minutes, and after that the builder checks for changes every five minutes.
 
-By default the vault is the parent directory of `_web/`. Override:
-```bash
-VAULT_PATH=/path/to/your/vault ./build.sh
-```
+## Docs
 
-### Run with nginx in Docker
-```bash
-docker compose up -d --build
-# Open http://localhost:8080
-```
-
-### Astro dev server (hot reload of UI; vault data is still pre-built)
-```bash
-cd web
-npm run dev
-# Open http://localhost:4321
-```
-
-## Production deployment
-
-The recommended setup uses two git repos on the server: the **vault**
-(content source) and **this repo** (build pipeline). A cron job pulls
-the vault every few minutes and rebuilds the site if anything changed.
-
-### Server layout
-
-```
-/srv/info-web/
-├── vault/                 # clone of your vault repo
-├── redthread/             # clone of this repo
-│   ├── build.sh
-│   ├── docker-compose.yml
-│   └── ...
-└── (rebuild.sh lives in redthread/deploy/)
-```
-
-### Initial server setup
-
-```bash
-sudo mkdir -p /srv/info-web && cd /srv/info-web
-
-# Clone the vault (your private repo)
-git clone https://git.disinfo.zone/you/your-vault.git vault
-
-# Clone this pipeline
-git clone https://github.com/davidtorcivia/redthread.git
-
-# Install dependencies (system-wide or in a venv)
-pip install -r redthread/build/requirements.txt
-# Node + Docker installed separately via your package manager
-
-# First build — verifies everything wires up
-cd redthread
-SITE_URL=https://your.domain.com VAULT_PATH=/srv/info-web/vault ./build.sh
-
-# Production compose: localhost-only binding on a configurable port
-echo 'PORT=8080' > .env
-chmod 600 .env
-docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
-
-# Verify locally
-curl -I http://127.0.0.1:8080/
-```
-
-`SITE_URL` matters: it's baked into the canonical URLs, Open Graph
-tags, sitemap.xml, and robots.txt.
-
-### Exposing the site (Cloudflare Tunnel, reverse proxy, etc.)
-
-The prod overlay binds the container to **`127.0.0.1:$PORT`** —
-public network interfaces stay closed. Point whatever you use to
-front the server at that port.
-
-Cloudflare Tunnel (the common case here):
-
-1. In your existing `cloudflared` config or the Zero Trust dashboard,
-   add a public hostname routing `your.domain.com → http://localhost:8080`
-   (substitute whatever `PORT` value you set).
-2. Confirm the tunnel is healthy in the dashboard.
-3. Hit the domain — should land on the homepage.
-
-Other fronts (Caddy, nginx-proxy, Traefik, plain SSH tunnel) work the
-same way: point them at `127.0.0.1:$PORT`.
-
-To change the port without rebuilding, edit `.env` and rerun:
-
-```bash
-docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
-```
-
-The base `docker-compose.yml` is still the dev/local mode (binds
-`0.0.0.0:8080` on all interfaces). The prod overlay restricts that
-to loopback only and adds `restart: unless-stopped`.
-
-### Auto-rebuild on vault push
-
-The vault syncs via the **obsidian-git** community plugin (auto-commit
-and push on a schedule from inside Obsidian). The server polls every
-few minutes and rebuilds only when the vault has changed.
-
-1. In Obsidian, install **obsidian-git** from Community Plugins
-2. Configure it to auto-push every 5–10 min, on save, or whatever
-   cadence you prefer
-3. On the server, set up the rebuild cron (see `deploy/rebuild.sh`):
-
-   ```bash
-   crontab -e
-   # Pull vault every 5 minutes, rebuild if anything changed
-   */5 * * * * /srv/info-web/deploy/rebuild.sh >> /var/log/info-web.log 2>&1
-   ```
-
-`rebuild.sh` is a small wrapper provided in `deploy/`. It exits cheaply
-when there's nothing to do; full rebuilds take ~35s.
-
-### Webhook alternative (faster than polling)
-
-If 5-minute lag bothers you, replace the cron with a Gitea webhook
-pointing at a tiny rebuild endpoint. Gitea fires on push; the server
-runs the same `rebuild.sh`. Worth ~50 lines of glue (Flask, Fastify,
-or [adnanh/webhook](https://github.com/adnanh/webhook)) and an HTTPS
-reverse-proxy route. Not necessary for v1.
-
-## Configuration
-
-| Env var | Default | Purpose |
-|---|---|---|
-| `VAULT_PATH` | parent of `_web/` | Where to find the markdown vault |
-| `SITE_URL` | `http://localhost:8080` | Canonical site URL (SEO, sitemap, OG tags) |
-| `PORT` | `8080` | Host port for the nginx Docker container |
-| `ANALYTICS_SRC` | _(off)_ | URL of an analytics script — Umami, Plausible, Fathom, etc. Setting this *and* `ANALYTICS_ID` injects a `<script defer>` tag into every page's `<head>`. |
-| `ANALYTICS_ID` | _(off)_ | Site identifier to set on the analytics script tag. |
-| `ANALYTICS_ID_ATTR` | `data-website-id` | Attribute name for the ID. Defaults to Umami's convention; use `data-domain` for Plausible, `data-site` for Fathom. |
-
-Both `build.sh` and `build.ps1` auto-source `_web/.env` if it exists (the
-same file `docker compose` already loads), so the simplest setup is a
-single `_web/.env`:
-
-```bash
-SITE_URL=https://your.domain.com
-PORT=8080
-ANALYTICS_SRC=https://umami.your-host.com/script.js
-ANALYTICS_ID=00000000-0000-0000-0000-000000000000
-```
-
-`build/parse_vault.py` accepts the same overrides via `--vault` and
-`--out` flags. See `--help`.
-
-### Files / paths excluded from the parse
-
-Defined in `parse_vault.py` `DEFAULT_CONFIG.skipPathPatterns`. Out of
-the box, these never become entities:
-
-- `CLAUDE.md`, `DATAVIEW - *.md`, `DATAVIEW *.md`, `MOC - *.md`, `KEY *.md`
-- `00 - META/CHANGELOG.md`, `00 - META/THE INFO WEB.md`
-- `TEMP/**`, `.obsidian/**`, `.obsidian-*/**`, `.claude/**`, `.git/**`
-- `IMAGES/**`, `_web/**`
-
-Override with a `config.json` next to `parse_vault.py` (template in
-`config.example.json`).
-
-## Layout of this repo
-
-```
-redthread/
-├── build/
-│   ├── parse_vault.py         # The whole parser + NER + centrality + layout
-│   └── requirements.txt
-├── web/                       # Astro site
-│   ├── astro.config.mjs
-│   ├── package.json
-│   └── src/
-│       ├── layouts/Base.astro
-│       ├── components/
-│       │   ├── NetworkGraph.astro    # Canvas-based per-entity graph
-│       │   ├── PathWidget.astro
-│       │   ├── RelatedGrid.astro
-│       │   ├── HiddenConnections.astro
-│       │   ├── Backlinks.astro
-│       │   └── TableOfContents.astro
-│       ├── lib/
-│       │   ├── data.ts                # Loads data/*.json at build time
-│       │   └── types.ts
-│       ├── pages/
-│       │   ├── index.astro
-│       │   ├── [type]/[slug].astro
-│       │   ├── [type]/index.astro
-│       │   ├── network.astro          # Full vault canvas
-│       │   ├── path.astro
-│       │   ├── bridges.astro
-│       │   ├── tags.astro, tag/[slug].astro
-│       │   ├── timeline.astro
-│       │   ├── changelog.astro
-│       │   ├── random.astro
-│       │   ├── 404.astro, 5xx.astro
-│       │   ├── sitemap.xml.ts, robots.txt.ts
-│       └── styles/global.css
-├── deploy/
-│   ├── Dockerfile
-│   ├── nginx.conf
-│   └── rebuild.sh             # Pull vault → rebuild if changed (server use)
-├── docker-compose.yml
-├── build.sh, build.ps1        # Local build entry points
-└── config.example.json
-```
-
-## Security
-
-The build is hardened against supply-chain attacks that come in via
-freshly-published malicious releases on npm or PyPI (a recurring
-pattern: maintainer account compromised → bad version published →
-downstream installs pull it within hours).
-
-Defenses, in layers:
-
-- **Pinned manifests.** `build/requirements.txt` uses `==` exact
-  versions, not `>=`. `web/package.json` is paired with a committed
-  `package-lock.json`.
-- **Strict lockfile install.** The Dockerfile runs `npm ci`, which
-  fails the build if `package-lock.json` is missing, out of sync, or
-  references unexpected versions. No silent upgrades.
-- **7-day release-age gate.** `renovate.json` sets `minimumReleaseAge:
-  "7 days"` for every ecosystem. Renovate will not open an update PR
-  until a version has been public for at least a week — long enough
-  that compromised releases are usually yanked or flagged before they
-  can land in this repo. Astro itself is held back 14 days.
-- **No npm audit telemetry during build.** `npm ci --no-audit
-  --no-fund` skips the registry round-trips that aren't needed inside
-  a sealed build.
-- **Vulnerability alerts bypass the age gate.** Renovate's
-  `vulnerabilityAlerts` block lets security-critical patches through
-  without the 7-day wait.
-
-What this does *not* defend against: a malicious version that's been
-public for longer than 7 days without being caught, or a compromise of
-an already-pinned version's tarball on the registry. For higher
-assurance, mirror dependencies to a private registry / Verdaccio /
-JFrog and build from there.
-
-Found something? Open an issue on
-[the repo](https://github.com/davidtorcivia/redthread/issues) or
-email the address in `git log`.
+- [Configuration](docs/configuration.md): settings, folder mapping, and the frontmatter Redthread understands.
+- [Deployment](docs/deployment.md): Docker, building without Docker, auto-rebuilds, and putting the site online.
+- [Development](docs/development.md): how the pieces fit, running locally, and tests.
+- [Security](docs/security.md): headers, dependency policy, and reporting issues.
 
 ## License
 
-MIT — see [LICENSE](LICENSE). The build pipeline is open; the vault
-content it consumes lives in its own repo and is governed by whatever
-license that repo uses (it's not part of this distribution).
-
-
-## Frontend checks
-
-The browser smoke test checks responsive headings, mobile contents, resolved and
-missing link styles, both path finders, Bridges/Hubs tabs, full-text search,
-graph controls, and search loading failure. Run it against a built preview or
-the deployed site:
-
-```sh
-cd web
-npm ci
-npm test
-npx playwright install chromium
-BASE_URL=http://127.0.0.1:4321 npm run test:ui
-```
-
-Use `PLAYWRIGHT_CHANNEL=chrome` to test with an installed Chrome browser.
-The preview must include the search index, so run `npm run build` before
-`npm run preview`.
-
-Search assets live at `/search-index/`, configured in `web/pagefind.yml`.
-Nginx revalidates the loader, worker, manifest, and WASM. Content-hashed index
-files keep their long cache lifetime. The site's CSP permits WebAssembly for
-Pagefind while keeping JavaScript eval disabled.
-
-After replacing `deploy/nginx.conf` on a running deployment, restart the web
-container so its file bind mount picks up the new file. Reloading nginx alone
-can keep the previous file mounted. Then check the response headers from the
-running container.
+MIT. See [LICENSE](LICENSE).

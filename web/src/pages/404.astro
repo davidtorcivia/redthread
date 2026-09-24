@@ -1,24 +1,10 @@
 ---
 import Base from '../layouts/Base.astro';
-import { entities, hrefFor } from '../lib/data.ts';
-
-// Inline a small pool of URLs so the "random entry" link works
-// without a separate fetch — same trick the /random/ page uses.
-const pool = entities()
-  .filter((e) => e.type !== 'meta' && e.type !== 'misc')
-  .map((e) => hrefFor({ id: e.id, type: e.type }));
-const browseDirs: { dir: string; label: string }[] = [
-  { dir: 'people',        label: 'People' },
-  { dir: 'organizations', label: 'Organizations' },
-  { dir: 'programs',      label: 'Programs' },
-  { dir: 'events',        label: 'Events' },
-  { dir: 'concepts',      label: 'Concepts' },
-  { dir: 'places',        label: 'Places' },
-];
+import { BROWSE_TYPES, TYPE_DIRS, TYPE_PLURALS } from '../lib/data.ts';
 ---
 <Base
   bodyClass="utility"
-  title="404 | The Info Web"
+  title="404"
   description="The page you're looking for isn't in the vault."
   noindex
 >
@@ -34,14 +20,14 @@ const browseDirs: { dir: string; label: string }[] = [
       <button type="button" class="error-btn primary" id="error-search">
         Search the vault <kbd>⌘ K</kbd>
       </button>
-      <a class="error-btn" href="/random/" id="error-random">Jump to a random entry &rarr;</a>
+      <a class="error-btn" href="/random/">Jump to a random entry &rarr;</a>
     </div>
 
     <section class="error-browse">
       <h2 class="section-heading">Or browse by type</h2>
       <ul class="error-browse-list">
-        {browseDirs.map((b) => (
-          <li><a href={`/${b.dir}/`}>{b.label}</a></li>
+        {BROWSE_TYPES.map((t) => (
+          <li><a href={`/${TYPE_DIRS[t]}/`}>{TYPE_PLURALS[t]}</a></li>
         ))}
         <li><a href="/tags/">Tags</a></li>
         <li><a href="/timeline/">Timeline</a></li>
@@ -50,25 +36,11 @@ const browseDirs: { dir: string; label: string }[] = [
     </section>
   </article>
 
-  <script is:inline define:vars={{ pool }}>
-    // Random-jump button picks from the inlined pool. We can't 302
-    // server-side because this is a static error page; client redirect
-    // is the simplest equivalent.
-    const rand = document.getElementById('error-random');
-    if (rand && pool.length) {
-      rand.addEventListener('click', (e) => {
-        e.preventDefault();
-        const pick = pool[Math.floor(Math.random() * pool.length)];
-        window.location.href = pick;
-      });
-    }
-    // Search button triggers the existing Cmd-K modal.
-    const searchBtn = document.getElementById('error-search');
-    if (searchBtn) {
-      searchBtn.addEventListener('click', () => {
-        const trigger = document.getElementById('search-open');
-        if (trigger) trigger.click();
-      });
+  <script is:inline>
+    {
+      const button = document.getElementById('error-search');
+      button.addEventListener('click', () => document.getElementById('search-open').click());
+      if (!/Mac|iPhone|iPad|iPod/.test(navigator.platform || navigator.userAgent)) button.querySelector('kbd').textContent = 'Ctrl K';
     }
   </script>
 </Base>

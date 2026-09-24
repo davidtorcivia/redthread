@@ -5,15 +5,15 @@ import { allTags } from '../../lib/data.ts';
 const tags = [...allTags()].sort((a, b) => a.tag.localeCompare(b.tag));
 const letters = [...new Set(tags.map((tag) => tag.tag[0]?.toUpperCase() || '#'))];
 ---
-<Base title="All tags | The Info Web" description="Complete alphabetical index of tags in the archive." noindex>
-  <main class="all-tags">
+<Base title="All tags" description="Complete alphabetical index of tags in the archive." noindex>
+  <div class="all-tags">
     <header class="browse-header"><h1>All tags</h1></header>
     <div class="all-tags-inner">
       <a href="/tags/">← Search tags</a>
       <nav aria-label="Jump to letter">{letters.map((letter) => <a href={`#letter-${letter}`}>{letter}</a>)}</nav>
       {letters.map((letter) => <section id={`letter-${letter}`}><h2>{letter}</h2><ul>{tags.filter((tag) => (tag.tag[0]?.toUpperCase() || '#') === letter).map((tag) => <li><a href={`/tag/${tag.slug}/`}>{tag.tag}</a><span>{tag.count}</span></li>)}</ul></section>)}
     </div>
-  </main>
+  </div>
 </Base>
 <style>
   .all-tags-inner {max-width:1100px;margin:auto;padding:30px var(--gutter) 90px;font-family:var(--sans)}

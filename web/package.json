@@ -1,5 +1,5 @@
 {
-  "name": "info-web",
+  "name": "redthread",
   "version": "0.1.0",
   "type": "module",
   "private": true,
@@ -8,16 +8,17 @@
     "build": "astro build && pagefind --site dist",
     "preview": "astro preview",
     "test": "node --experimental-strip-types --test tests/*.test.mjs",
-    "test:ui": "node tests/ui-smoke.mjs"
+    "test:ui": "node --experimental-strip-types tests/ui-smoke.mjs",
+    "test:theme": "node --experimental-strip-types tests/theme-flash.mjs"
   },
   "dependencies": {
-    "@resvg/resvg-js": "^2.6.2",
-    "astro": "^5.0.0",
-    "pagefind": "^1.5.2",
-    "satori": "^0.26.0"
+    "@resvg/resvg-js": "2.6.2",
+    "astro": "5.18.1",
+    "pagefind": "1.5.2",
+    "satori": "0.26.0"
   },
   "devDependencies": {
-    "@types/node": "^25.8.0",
+    "@types/node": "25.8.0",
     "playwright": "1.63.0"
   }
 }

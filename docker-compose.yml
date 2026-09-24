@@ -1,20 +1,48 @@
+# Settings live in .env (copy .env.example). The site is served on 127.0.0.1:$PORT.
 services:
-  web:
-    container_name: info-web
-    build:
-      context: ..
-      dockerfile: _web/deploy/Dockerfile
-      args:
-        SITE_URL: ${SITE_URL:-}
-        ANALYTICS_SRC: ${ANALYTICS_SRC:-}
-        ANALYTICS_ID: ${ANALYTICS_ID:-}
-        ANALYTICS_ID_ATTR: ${ANALYTICS_ID_ATTR:-}
-    ports:
-      - "${PORT:-8080}:80"
+  builder:
+    image: ghcr.io/davidtorcivia/redthread:latest
+    build: .
     restart: unless-stopped
+    init: true
+    env_file: .env
+    environment:
+      VAULT_PATH: /vault
+    volumes:
+      - ${VAULT_PATH:?Set VAULT_PATH in .env}:/vault
+      - type: bind
+        source: ./config.json
+        target: /app/config.json
+        read_only: true
+        bind:
+          create_host_path: false
+      - site:/site
+      - og-cache:/app/web/.og-cache
+
+  web:
+    image: nginx:1-alpine
+    restart: unless-stopped
+    # The builder must create the site volume so it owns it.
+    depends_on: [builder]
+    ports:
+      - "127.0.0.1:${PORT:-8080}:80"
+    environment:
+      ANALYTICS_ORIGIN: ${ANALYTICS_ORIGIN:-}
+      NGINX_ENVSUBST_FILTER: ^ANALYTICS_ORIGIN$$
+    volumes:
+      - type: volume
+        source: site
+        target: /usr/share/nginx/html
+        read_only: true
+        volume:
+          nocopy: true
+      - ./deploy/nginx.conf:/etc/nginx/templates/default.conf.template:ro
     healthcheck:
-      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost/"]
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1/"]
       interval: 30s
       timeout: 3s
       retries: 3
-      start_period: 10s
+
+volumes:
+  site:
+  og-cache:

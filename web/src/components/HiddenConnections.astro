@@ -6,14 +6,14 @@ interface Props {
   limit?: number;
 }
 const { id, limit = 30 } = Astro.props;
-const items = implicitMentions(id).slice(0, limit);
-const total = implicitMentions(id).length;
+const all = implicitMentions(id);
+const items = all.slice(0, limit);
 ---
 {items.length > 0 && (
   <section class="hidden-connections" data-pagefind-ignore>
     <h2 class="section-heading">
       Named without a link
-      <span class="hc-count-badge">{total}</span>
+      <span class="hc-count-badge">{all.length}</span>
     </h2>
     <ul class="hc-list">
       {items.map((m) => (

@@ -8,6 +8,7 @@ export interface TagDirectoryRow {
   letter: string;
 }
 
+// Tags that differ only by case, accents or punctuation share a row.
 const keyFor = (name: string) => name.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]/g, '');
 
 export function tagDirectoryRows(): TagDirectoryRow[] {

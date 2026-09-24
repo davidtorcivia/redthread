@@ -1,20 +1,13 @@
 ---
 import Base from '../../layouts/Base.astro';
+import { collectionPage, SITE_TITLE } from '../../lib/site.ts';
 import { sourceRecords } from '../../lib/source-index.ts';
 
 const records = sourceRecords();
 const initial = records.slice(0, 40);
-const description = 'Search the citations used across The Info Web and see which archive pages rely on each reference.';
-const collectionSchema = {
-  '@context': 'https://schema.org',
-  '@type': 'CollectionPage',
-  name: 'Sources | The Info Web',
-  description,
-  url: Astro.site ? new URL('/sources/', Astro.site).href : '/sources/',
-  mainEntity: { '@type': 'ItemList', numberOfItems: records.length },
-};
+const description = `Search the citations used across ${SITE_TITLE} and see which archive pages rely on each reference.`;
 ---
-<Base title="Sources | The Info Web" description={description} jsonLd={collectionSchema} breadcrumbs={[{ name: 'Sources', item: '/sources/' }]}>
+<Base title="Sources" description={description} jsonLd={collectionPage('Sources', description, '/sources/', records.length)} breadcrumbs={[{ name: 'Sources', item: '/sources/' }]}>
   <div class="source-index" id="source-index">
     <header class="browse-header source-header"><h1>Sources</h1></header>
     <div class="source-inner">

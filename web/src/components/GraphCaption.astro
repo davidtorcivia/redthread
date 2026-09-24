@@ -1,3 +1,4 @@
+{/* Shared by the entity Local network and /network/. */}
 <div class="graph-caption">
   <span class="net-stats" role="status" aria-live="polite">Loading connections…</span>
   <span>Select to explore · double-click to open</span>
@@ -6,3 +7,36 @@
     <button type="button" class="net-zoom-in" aria-label="Zoom in">+</button>
   </div>
 </div>
+<details class="net-legend">
+  <summary>How to read the graph</summary>
+  <div class="net-legend-body">
+    <div class="nl-group">
+      <span class="nl-group-label">Colour shows the entry type or cluster</span>
+      <ul class="nl-types">
+        <li><span class="nl-dot t-person"></span>People</li>
+        <li><span class="nl-dot t-organization"></span>Organizations</li>
+        <li><span class="nl-dot t-program"></span>Programs</li>
+        <li><span class="nl-dot t-event"></span>Events</li>
+        <li><span class="nl-dot t-concept"></span>Concepts</li>
+        <li><span class="nl-dot t-place"></span>Places</li>
+      </ul>
+    </div>
+    <div class="nl-group">
+      <span class="nl-group-label">Node size</span>
+      <p class="nl-row">
+        <span class="nl-dot nl-dot-sm"></span><span class="nl-dot nl-dot-lg"></span>
+        Larger = more mentions across the vault.
+      </p>
+    </div>
+    <div class="nl-group">
+      <span class="nl-group-label">Connections</span>
+      <p class="nl-row"><span class="nl-line"></span> A link from one entry to another.</p>
+      <p class="nl-row"><span class="nl-line dashed"></span> A name mentioned in an entry without a direct link. Toggle these with “Inferred”.</p>
+    </div>
+    <div class="nl-group">
+      <span class="nl-group-label">Highlights</span>
+      <p class="nl-row"><span class="nl-ring gold"></span> Gold rings mark entries mentioned across several clusters.</p>
+      <p class="nl-row"><span class="nl-ring accent"></span> Orange rings mark your selection.</p>
+    </div>
+  </div>
+</details>

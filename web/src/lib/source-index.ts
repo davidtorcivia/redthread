@@ -23,6 +23,7 @@ export interface SourceRecord {
 
 export type SourceSummary = Omit<SourceRecord, 'uses'>;
 
+/** http(s) links in a footnote: its anchors if rendered, else bare URLs in the text. */
 function urlsIn(html: string, text: string): string[] {
   const links = [...html.matchAll(/<a\b[^>]*\bhref=(['"])(.*?)\1/gi)].map((match) => match[2].replace(/&amp;/g, '&'));
   const candidates = links.length ? links : text.match(/https?:\/\/[^\s<>"']+/gi) ?? [];
@@ -47,6 +48,7 @@ function citationText(raw: string): string {
     .trim();
 }
 
+/** A quoted or italicized title if the citation has one. */
 function titleFor(raw: string, citation: string): string {
   const quoted = raw.match(/[“"]([^”"]{8,180})[”"]/);
   const italic = raw.match(/\*([^*]{8,180})\*/);
@@ -59,6 +61,7 @@ function textKey(raw: string): string {
     .replace(/[*_`]/g, '').replace(/\s+/g, ' ').trim();
 }
 
+/** Groups every footnote in the vault into distinct cited works, most-cited first. */
 export function buildSourceIndex(input: Entity[]): SourceRecord[] {
   const grouped = new Map<string, { title: string; citation: string; urls: string[]; uses: Map<string, SourceUse>; noteCount: number }>();
   for (const entity of input) {

@@ -1,28 +1,20 @@
 ---
 import Base from '../../layouts/Base.astro';
 import DirectoryExplorer from '../../components/DirectoryExplorer.astro';
-import { entitiesByType, TYPE_DIRS, TYPE_PLURALS } from '../../lib/data.ts';
+import { BROWSE_TYPES, entitiesByType, TYPE_DIRS, TYPE_PLURALS } from '../../lib/data.ts';
+import { collectionPage, SITE_TITLE } from '../../lib/site.ts';
 import type { EntityType } from '../../lib/types.ts';
 
 export function getStaticPaths() {
-  const types: EntityType[] = ['person', 'organization', 'program', 'event', 'concept', 'place'];
-  return types.map((type) => ({ params: { type: TYPE_DIRS[type] }, props: { entityType: type } }));
+  return BROWSE_TYPES.map((type) => ({ params: { type: TYPE_DIRS[type] }, props: { entityType: type } }));
 }
 
 const { entityType } = Astro.props as { entityType: EntityType };
 const items = entitiesByType(entityType).sort((a, b) => a.title.localeCompare(b.title));
 const plural = TYPE_PLURALS[entityType];
-const dir = TYPE_DIRS[entityType];
-const description = `Explore ${plural.toLowerCase()} in The Info Web by name and category.`;
-const collectionSchema = {
-  '@context': 'https://schema.org',
-  '@type': 'CollectionPage',
-  name: `${plural} | The Info Web`,
-  description,
-  url: Astro.site ? new URL(`/${dir}/`, Astro.site).href : `/${dir}/`,
-  mainEntity: { '@type': 'ItemList', numberOfItems: items.length },
-};
+const path = `/${TYPE_DIRS[entityType]}/`;
+const description = `Explore ${plural.toLowerCase()} in ${SITE_TITLE} by name and category.`;
 ---
-<Base title={`${plural} | The Info Web`} description={description} jsonLd={collectionSchema} breadcrumbs={[{ name: plural, item: `/${dir}/` }]}>
+<Base title={plural} description={description} jsonLd={collectionPage(plural, description, path, items.length)} breadcrumbs={[{ name: plural, item: path }]}>
   <DirectoryExplorer items={items} directory={plural} singular={entityType} />
 </Base>

@@ -1,3 +1,9 @@
+/** Leading four-digit year of a "YYYY" or "YYYY-MM-DD" date. */
+export function yearOf(s?: string): number | null {
+  const m = s?.match(/^(\d{4})/);
+  return m ? Number(m[1]) : null;
+}
+
 /** Describe only known dates; a missing end date does not establish ongoing activity. */
 export function formatDates(dates: { born?: string; died?: string; start?: string; end?: string; date?: string }): string {
   const year = (s?: string) => s?.match(/^(-?\d{1,4})(?:-|$)/)?.[1] || s;

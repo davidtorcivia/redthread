@@ -42,8 +42,8 @@ function bridgeEvidence(item: Entity) {
   }));
 }
 ---
-<Base bodyClass="utility" title="Bridges & Hubs | The Info Web" description="See which entries span separate clusters and which receive the strongest links, with pages that explain each ranking.">
-  <main class="bridge-explorer" id="bridge-explorer">
+<Base bodyClass="utility" title="Bridges & Hubs" description="See which entries span separate clusters and which receive the strongest links, with pages that explain each ranking.">
+  <div class="bridge-explorer" id="bridge-explorer">
     <header class="browse-header bridge-header"><h1>Bridges &amp; hubs</h1></header>
     <div class="bridge-inner">
       <div class="bridge-tabs" role="tablist" aria-label="Network ranking">
@@ -104,7 +104,7 @@ function bridgeEvidence(item: Entity) {
       </section>
       <p class="bridge-empty" id="bridge-empty" hidden>No entries match that filter.</p>
     </div>
-  </main>
+  </div>
 
   <script is:inline>
     (() => {

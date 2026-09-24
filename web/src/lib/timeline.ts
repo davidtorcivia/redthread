@@ -1,4 +1,6 @@
-import { entitiesWithDates, hrefFor, primaryYear, TYPE_LABELS } from './data.ts';
+import { entities, hrefFor, primaryYear, TYPE_LABELS } from './data.ts';
+import { yearOf } from './dates.ts';
+import { plainText } from './inline-md.ts';
 import type { Entity, EntityType } from './types.ts';
 
 export interface TimelineRecord {
@@ -14,11 +16,7 @@ export interface TimelineRecord {
   search: string;
 }
 
-function yearOf(value?: string): number | null {
-  const match = value?.match(/^(\d{4})/);
-  return match ? Number(match[1]) : null;
-}
-
+/** What happened in `year`, for the row label. */
 function kindFor(entity: Entity, year: number): string {
   const dates = entity.dates ?? {};
   if (yearOf(dates.born) === year) return 'Born';
@@ -29,18 +27,14 @@ function kindFor(entity: Entity, year: number): string {
   return 'Dated';
 }
 
-function plainSummary(value: string | null): string {
-  const text = (value ?? '')
-    .replace(/\[\[([^|\]]+)\|([^\]]+)\]\]/g, '$2')
-    .replace(/\[\[([^\]]+)\]\]/g, '$1')
-    .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
-    .replace(/[*_`]/g, '')
-    .replace(/\s+/g, ' ').trim();
+function shortSummary(value: string | null): string {
+  const text = plainText(value);
   return text.length > 220 ? `${text.slice(0, 217).replace(/\s+\S*$/, '').trimEnd()}…` : text;
 }
 
+/** Every dated entry, newest first. */
 export function timelineRecords(): TimelineRecord[] {
-  return entitiesWithDates().flatMap((entity) => {
+  return entities().flatMap((entity) => {
     const year = primaryYear(entity);
     if (year == null) return [];
     const dates = entity.dates ?? {};
@@ -56,7 +50,7 @@ export function timelineRecords(): TimelineRecord[] {
       year,
       kind: kindFor(entity, year),
       range,
-      summary: plainSummary(entity.summary),
+      summary: shortSummary(entity.summary),
       search: [entity.title, entity.summary ?? '', ...(entity.tags ?? []), String(year), range].join(' ').toLowerCase(),
     }];
   }).sort((a, b) => b.year - a.year || a.title.localeCompare(b.title));

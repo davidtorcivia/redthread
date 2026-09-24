@@ -4,13 +4,6 @@ interface Props {
   fromTitle: string;
 }
 const { fromId, fromTitle } = Astro.props;
-
-// NOTE: the autocomplete pool is deliberately NOT inlined here. It used to
-// be passed through define:vars, which forced this whole script inline and
-// stamped ~275 KB of identical entity JSON into all ~2,600 entity pages
-// (~720 MB of dist/, re-downloaded on every navigation). adjacency.json
-// already carries ids/titles/types for every entity and is preloaded on
-// entity pages, so the pool is built from it on first interaction instead.
 const widgetId = `pw-${fromId}`;
 ---
 <section class="path-widget" data-from-id={fromId} id={widgetId} data-pagefind-ignore>
@@ -47,200 +40,42 @@ const widgetId = `pw-${fromId}`;
   <div class="pw-status" role="status" aria-live="polite" hidden></div>
 </section>
 
-{/* Processed (not is:inline): Astro bundles this into one hashed, long-cached
-    _astro/*.js shared by every entity page, instead of duplicating it — and
-    the entity pool it needs — into each of them. Config comes from the
-    section's data-* attributes rather than define:vars, which would force
-    the script back inline. */}
+{/* Processed, not is:inline, so every entity page shares one cached bundle.
+    Never add define:vars here: it forces the script inline. */}
 <script>
-  import { findPath, renderChain } from '../scripts/path-find';
-  import { TYPE_DIRS, TYPE_LABELS } from '../scripts/entity-types';
-  (function () {
+  import { findPath, renderChain, entityCombobox } from '../scripts/path-find';
+  import { loadAdjacency } from '../scripts/adjacency';
 
-    const root = document.querySelector('.path-widget');
-    if (!root) return;
-    const fromId = root.dataset.fromId;
-    const input = root.querySelector('.pw-input');
-    const suggestEl = root.querySelector('.pw-suggest');
-    const result = root.querySelector('.pw-result');
-    const status = root.querySelector('.pw-status');
-    const form = root.querySelector('.pw-form');
+  const root = document.querySelector<HTMLElement>('.path-widget');
+  if (root) {
+    const fromId = root.dataset.fromId!;
+    const input = root.querySelector<HTMLInputElement>('.pw-input')!;
+    const result = root.querySelector<HTMLElement>('.pw-result')!;
+    const status = root.querySelector<HTMLElement>('.pw-status')!;
+    let toIdx = -1;
 
-    // Autocomplete pool, derived from adjacency.json on first interaction.
-    // That file already ships ids/titles/types for every entity and is
-    // <link rel=preload>ed on entity pages, so it's normally warm in cache
-    // by the time anyone reaches this widget. `pool` excludes the focal
-    // entity (you can't path to yourself) but idIndex keeps it, so the
-    // first node of a result chain still resolves to a real href.
-    const pool = [];
-    const idIndex = new Map();
-    let poolReady = false;
-    let poolPromise = null;
-    function loadPool() {
-      if (poolPromise) return poolPromise;
-      poolPromise = loadAdjacency()
-        .then((d) => {
-          for (let i = 0; i < d.ids.length; i++) {
-            const p = {
-              id: d.ids[i],
-              title: d.titles[i],
-              type: d.types[i],
-              href: '/' + (TYPE_DIRS[d.types[i]] || 'pages') + '/' + d.ids[i] + '/',
-            };
-            idIndex.set(p.id, p);
-            if (p.id !== fromId) pool.push(p);
-          }
-        })
-        .catch(() => { /* run() reports the failure; autocomplete just stays empty */ })
-        .then(() => { poolReady = true; return pool; });
-      return poolPromise;
-    }
-    let toId = null;
+    const say = (text: string) => { status.textContent = text; status.hidden = false; };
+    entityCombobox(input, root.querySelector('.pw-suggest')!, (i) => {
+      toIdx = i;
+      result.hidden = true;
+      status.hidden = true;
+    }, fromId);
 
-    function suggest(q) {
-      q = q.trim().toLowerCase();
-      if (!q) return [];
-      const prefix = [], middle = [];
-      for (const p of pool) {
-        const t = p.title.toLowerCase();
-        if (t === q) prefix.unshift(p);
-        else if (t.startsWith(q)) prefix.push(p);
-        else if (t.includes(q)) middle.push(p);
-        if (prefix.length + middle.length > 60) break;
-      }
-      return prefix.concat(middle).slice(0, 8);
-    }
-    function renderSuggestions(items, onPick) {
-      suggestEl.innerHTML = '';
-      if (!items.length) { suggestEl.classList.remove('open'); return; }
-      items.forEach((r, i) => {
-        const li = document.createElement('li');
-        li.className = `path-suggest-item type-${r.type}`;
-        li.setAttribute('role', 'option');
-        li.setAttribute('aria-selected', 'false');
-        li.id = `${suggestEl.id}-opt-${i}`;
-        li.dataset.entityId = r.id;
-        li.innerHTML =
-          '<span class="ps-type">' + (TYPE_LABELS[r.type] || r.type) + '</span>' +
-          '<span class="ps-title"></span>';
-        li.querySelector('.ps-title').textContent = r.title;
-        li.addEventListener('mousedown', (e) => { e.preventDefault(); onPick(r); });
-        suggestEl.appendChild(li);
-      });
-      suggestEl.classList.add('open');
-    }
-
-    // Keyboard combobox: arrow keys rove the options, Enter picks the active
-    // one, Escape closes. Mirrors the standalone /path/ finder.
-    let active = -1;
-    const options = () => Array.from(suggestEl.querySelectorAll('.path-suggest-item'));
-    function setActive(i) {
-      const opts = options();
-      opts.forEach((o) => { o.classList.remove('is-active'); o.setAttribute('aria-selected', 'false'); });
-      active = i;
-      if (i >= 0 && i < opts.length) {
-        const el = opts[i];
-        el.classList.add('is-active');
-        el.setAttribute('aria-selected', 'true');
-        input.setAttribute('aria-activedescendant', el.id);
-        el.scrollIntoView({ block: 'nearest' });
-      } else {
-        input.removeAttribute('aria-activedescendant');
-      }
-    }
-    function clearResult() { result.hidden = true; status.hidden = true; }
-    function pick(r) {
-      clearResult();
-      input.value = r.title;
-      toId = r.id;
-      closeMenu();
-    }
-    function openMenu() {
-      // The pool may still be in flight on the very first keystroke. Re-open
-      // once it lands so the user doesn't have to type another character.
-      // poolReady (not pool.length) gates the retry — a failed fetch leaves
-      // the pool empty forever, and re-entering on that would spin.
-      if (!poolReady) {
-        loadPool().then(() => {
-          if (document.activeElement === input && input.value) openMenu();
-        });
-      }
-      renderSuggestions(suggest(input.value), pick);
-      input.setAttribute('aria-expanded', suggestEl.classList.contains('open') ? 'true' : 'false');
-      setActive(-1);
-    }
-    function closeMenu() {
-      suggestEl.classList.remove('open');
-      input.setAttribute('aria-expanded', 'false');
-      input.removeAttribute('aria-activedescendant');
-      active = -1;
-    }
-    input.addEventListener('input', () => { toId = null; clearResult(); openMenu(); });
-    // Warm the pool as soon as the field is touched, so the first keystroke
-    // usually has something to match against.
-    input.addEventListener('focus', () => { loadPool(); if (input.value) openMenu(); });
-    input.addEventListener('blur', () => setTimeout(closeMenu, 120));
-    input.addEventListener('keydown', (e) => {
-      const isOpen = suggestEl.classList.contains('open');
-      const opts = options();
-      if (e.key === 'ArrowDown') {
-        if (!isOpen && input.value) { openMenu(); return; }
-        if (!opts.length) return;
-        e.preventDefault();
-        setActive((active + 1) % opts.length);
-      } else if (e.key === 'ArrowUp') {
-        if (!opts.length) return;
-        e.preventDefault();
-        setActive((active - 1 + opts.length) % opts.length);
-      } else if (e.key === 'Enter') {
-        if (isOpen && opts.length) {
-          e.preventDefault();
-          const choose = active >= 0 ? opts[active] : opts[0];
-          const r = idIndex.get(choose.dataset.entityId);
-          if (r) pick(r);
-        }
-      } else if (e.key === 'Escape') {
-        if (isOpen) { e.preventDefault(); closeMenu(); }
-      }
-    });
-
-
-    // Adjacency fetch cached on `window` so navigating between entity
-    // pages doesn't re-download it.
-    function loadAdjacency() {
-      if (window._adjacency) return Promise.resolve(window._adjacency);
-      if (window._adjacencyP) return window._adjacencyP;
-      window._adjacencyP = fetch('/adjacency.json?v=' + window.__V)
-        .then((r) => (r.ok ? r.json() : Promise.reject()))
-        .then((d) => {
-          d.idToIdx = new Map();
-          for (let i = 0; i < d.ids.length; i++) d.idToIdx.set(d.ids[i], i);
-          window._adjacency = d;
-          return d;
-        })
-        .catch((error) => { window._adjacencyP = null; throw error; });
-      return window._adjacencyP;
-    }
-
-    async function run() {
-      result.setAttribute('hidden', '');
-      result.innerHTML = '';
-      status.setAttribute('hidden', '');
-      if (!toId) { status.textContent = 'Choose a destination from the suggestions.'; status.removeAttribute('hidden'); return; }
-      status.textContent = 'Loading network…'; status.removeAttribute('hidden');
-      const requestedTo = toId;
+    root.querySelector('.pw-form')!.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      result.hidden = true;
+      result.replaceChildren();
+      if (toIdx < 0) return say('Choose a destination from the suggestions.');
+      say('Loading network…');
       const data = await loadAdjacency().catch(() => null);
-      if (toId !== requestedTo) return;
-      if (!data) { status.textContent = 'Could not load connections. Try again.'; return; }
-      const si = data.idToIdx.get(fromId);
-      const ti = data.idToIdx.get(toId);
-      if (si == null || ti == null) { status.textContent = 'Entity missing from network.'; return; }
-      const path = findPath(data.adj, si, ti);
-      if (!path) { status.textContent = `No documented path to ${idIndex.get(toId).title}.`; return; }
-      status.textContent = `${path.length - 1} hop${path.length - 1 === 1 ? '' : 's'}.`;
-      result.appendChild(renderChain(data, path, (id) => (idIndex.get(id) || {}).href || '#'));
-      result.removeAttribute('hidden');
-    }
-    form.addEventListener('submit', (e) => { e.preventDefault(); run(); });
-  })();
+      if (!data) return say('Could not load connections. Try again.');
+      const si = data.ids.indexOf(fromId);
+      if (si < 0) return say('Entity missing from network.');
+      const path = findPath(data.adj, data.dir, si, toIdx);
+      if (!path) return say(`No documented path to ${data.titles[toIdx]}.`);
+      say(`${path.length - 1} hop${path.length === 2 ? '' : 's'}.`);
+      result.append(renderChain(data, path));
+      result.hidden = false;
+    });
+  }
 </script>

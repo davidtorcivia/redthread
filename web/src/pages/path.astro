@@ -1,16 +1,9 @@
 ---
 import Base from '../layouts/Base.astro';
-
-// NOTE: the autocomplete pool used to be inlined here via define:vars —
-// ~275 KB of entity JSON (the "~50KB for 1,811 entries" the old comment
-// claimed was stale by 5x). adjacency.json, which this page already
-// preloads and then fetches for the BFS, carries the same ids/titles/types,
-// so the pool is derived from it on first interaction instead. Same trade
-// as components/PathWidget.astro.
 ---
 <Base
   bodyClass="utility"
-  title="Find a path | The Info Web"
+  title="Find a path"
   description="Find a chain of connections between two entries."
   preloadAdjacency
 >
@@ -65,282 +58,60 @@ import Base from '../layouts/Base.astro';
     <section class="path-result" id="path-result" hidden></section>
   </article>
 
-  {/* Processed, not is:inline — see the frontmatter note. define:vars would
-      force this back inline along with the entity pool it used to carry. */}
   <script>
-    import { findPath as hubAwarePath, renderChain } from '../scripts/path-find';
-    import { TYPE_DIRS, TYPE_LABELS } from '../scripts/entity-types';
-    (function () {
+    import { findPath, renderChain, entityCombobox } from '../scripts/path-find';
+    import { loadAdjacency } from '../scripts/adjacency';
 
-      const pool = [];
-      const idIndex = new Map();
-      const fromInput = document.getElementById('path-from');
-      const toInput = document.getElementById('path-to');
-      const fromSuggest = document.getElementById('path-from-suggest');
-      const toSuggest = document.getElementById('path-to-suggest');
-      const status = document.getElementById('path-status');
-      const result = document.getElementById('path-result');
-      const swapBtn = document.getElementById('path-swap');
+    const fromInput = document.getElementById('path-from') as HTMLInputElement;
+    const toInput = document.getElementById('path-to') as HTMLInputElement;
+    const status = document.getElementById('path-status')!;
+    const result = document.getElementById('path-result')!;
+    // Node indices picked from the suggestions; the typed text is never matched.
+    let fromIdx = -1;
+    let toIdx = -1;
 
-      // Picked IDs — set when the user clicks/keys a suggestion. We rely
-      // on these (not the text in the input) so case + typo variance
-      // can't trip the BFS.
-      let fromId = null;
-      let toId = null;
+    const clearResult = () => { result.hidden = true; status.textContent = ''; };
+    entityCombobox(fromInput, document.getElementById('path-from-suggest')!, (i) => { fromIdx = i; clearResult(); });
+    entityCombobox(toInput, document.getElementById('path-to-suggest')!, (i) => { toIdx = i; clearResult(); });
 
-      // Build the autocomplete pool from adjacency.json. Kicked off eagerly at
-      // the bottom of this script (pathfinding is the only thing this page
-      // does, so there's no point waiting for an interaction) and awaited
-      // before the URL-param prefill, which needs titles to fill the inputs.
-      let poolReady = false;
-      let poolPromise = null;
-      function loadPool() {
-        if (poolPromise) return poolPromise;
-        poolPromise = loadAdjacency()
-          .then((d) => {
-            for (let i = 0; i < d.ids.length; i++) {
-              const p = {
-                id: d.ids[i],
-                title: d.titles[i],
-                type: d.types[i],
-                href: '/' + (TYPE_DIRS[d.types[i]] || 'pages') + '/' + d.ids[i] + '/',
-              };
-              idIndex.set(p.id, p);
-              pool.push(p);
-            }
-          })
-          .catch(() => { /* loadAdjacency already reported it in the status line */ })
-          .then(() => { poolReady = true; return pool; });
-        return poolPromise;
+    document.getElementById('path-swap')!.addEventListener('click', () => {
+      clearResult();
+      [fromInput.value, toInput.value] = [toInput.value, fromInput.value];
+      [fromIdx, toIdx] = [toIdx, fromIdx];
+    });
+
+    async function run() {
+      result.hidden = true;
+      result.replaceChildren();
+      if (fromIdx < 0 || toIdx < 0) { status.textContent = 'Pick an entity for both From and To.'; return; }
+      if (fromIdx === toIdx) { status.textContent = 'Source and target are the same.'; return; }
+      const data = await loadAdjacency();
+      const path = findPath(data.adj, data.dir, fromIdx, toIdx);
+      if (!path) {
+        status.textContent = `No documented path between ${data.titles[fromIdx]} and ${data.titles[toIdx]}.`;
+        return;
       }
+      // Keep the address bar shareable.
+      const url = new URL(location.href);
+      url.searchParams.set('from', data.ids[fromIdx]);
+      url.searchParams.set('to', data.ids[toIdx]);
+      history.replaceState(null, '', url);
+      status.textContent = `${path.length - 1} hop${path.length === 2 ? '' : 's'}.`;
+      result.append(renderChain(data, path));
+      result.hidden = false;
+    }
+    document.getElementById('path-form')!.addEventListener('submit', (e) => { e.preventDefault(); run(); });
 
-      // Pre-populate from URL params so deep links work
-      // (?from=elliott-abrams&to=manuel-noriega).
-      function applyUrlParams() {
-        const params = new URLSearchParams(window.location.search);
-        const urlFrom = params.get('from');
-        const urlTo = params.get('to');
-        if (urlFrom && idIndex.has(urlFrom)) {
-          fromId = urlFrom;
-          fromInput.value = idIndex.get(urlFrom).title;
-        }
-        if (urlTo && idIndex.has(urlTo)) {
-          toId = urlTo;
-          toInput.value = idIndex.get(urlTo).title;
-        }
-      }
-
-      // Substring match autocomplete. Case-insensitive; ranks exact-prefix
-      // higher than mid-string matches; caps at 8 suggestions.
-      function suggest(query) {
-        const q = query.trim().toLowerCase();
-        if (!q) return [];
-        const prefix = [];
-        const middle = [];
-        for (const p of pool) {
-          const t = p.title.toLowerCase();
-          if (t === q) prefix.unshift(p);
-          else if (t.startsWith(q)) prefix.push(p);
-          else if (t.includes(q)) middle.push(p);
-          if (prefix.length + middle.length > 60) break;
-        }
-        return prefix.concat(middle).slice(0, 8);
-      }
-
-      function renderSuggestions(suggestEl, results, onPick) {
-        suggestEl.innerHTML = '';
-        if (!results.length) {
-          suggestEl.classList.remove('open');
-          return;
-        }
-        results.forEach((r, i) => {
-          const li = document.createElement('li');
-          li.className = `path-suggest-item type-${r.type}`;
-          li.setAttribute('role', 'option');
-          li.setAttribute('aria-selected', 'false');
-          // Stable id so the input can point aria-activedescendant at it.
-          li.id = `${suggestEl.id}-opt-${i}`;
-          li.dataset.entityId = r.id;
-          li.innerHTML =
-            '<span class="ps-type">' + (TYPE_LABELS[r.type] || r.type) + '</span>' +
-            '<span class="ps-title"></span>';
-          li.querySelector('.ps-title').textContent = r.title;
-          li.addEventListener('mousedown', (e) => {
-            // mousedown not click — input.blur fires before click, which
-            // would hide the menu via the focusout handler.
-            e.preventDefault();
-            onPick(r);
-          });
-          suggestEl.appendChild(li);
-        });
-        suggestEl.classList.add('open');
-      }
-
-      // Full WAI-ARIA combobox: arrow keys rove aria-activedescendant through
-      // the options, Enter picks the active one (not just the first), Escape
-      // closes. Mouse selection still works via the mousedown handler above.
-      function wireAutocomplete(input, suggestEl, setId) {
-        let active = -1;
-        const options = () => Array.from(suggestEl.querySelectorAll('.path-suggest-item'));
-
-        function setActive(i) {
-          const opts = options();
-          opts.forEach((o) => { o.classList.remove('is-active'); o.setAttribute('aria-selected', 'false'); });
-          active = i;
-          if (i >= 0 && i < opts.length) {
-            const el = opts[i];
-            el.classList.add('is-active');
-            el.setAttribute('aria-selected', 'true');
-            input.setAttribute('aria-activedescendant', el.id);
-            el.scrollIntoView({ block: 'nearest' });
-          } else {
-            input.removeAttribute('aria-activedescendant');
-          }
-        }
-        function pick(r) {
-          input.value = r.title;
-          setId(r.id);
-          close();
-        }
-        function open() {
-          // The pool is normally already in hand (loaded eagerly below), but a
-          // very fast typist can beat the fetch. Re-open once it lands.
-          // poolReady, not pool.length — a failed fetch would otherwise spin.
-          if (!poolReady) {
-            loadPool().then(() => {
-              if (document.activeElement === input && input.value) open();
-            });
-          }
-          renderSuggestions(suggestEl, suggest(input.value), pick);
-          input.setAttribute('aria-expanded', suggestEl.classList.contains('open') ? 'true' : 'false');
-          setActive(-1);
-        }
-        function close() {
-          suggestEl.classList.remove('open');
-          input.setAttribute('aria-expanded', 'false');
-          input.removeAttribute('aria-activedescendant');
-          active = -1;
-        }
-
-        input.addEventListener('input', () => { setId(null); open(); });
-        input.addEventListener('focus', () => { if (input.value) open(); });
-        input.addEventListener('blur', () => {
-          // Delay so a click on a suggestion can resolve first.
-          setTimeout(close, 120);
-        });
-        input.addEventListener('keydown', (e) => {
-          const isOpen = suggestEl.classList.contains('open');
-          const opts = options();
-          if (e.key === 'ArrowDown') {
-            if (!isOpen && input.value) { open(); return; }
-            if (!opts.length) return;
-            e.preventDefault();
-            setActive((active + 1) % opts.length);
-          } else if (e.key === 'ArrowUp') {
-            if (!opts.length) return;
-            e.preventDefault();
-            setActive((active - 1 + opts.length) % opts.length);
-          } else if (e.key === 'Enter') {
-            if (isOpen && opts.length) {
-              e.preventDefault();
-              const choose = active >= 0 ? opts[active] : opts[0];
-              const r = idIndex.get(choose.dataset.entityId);
-              if (r) pick(r);
-            }
-          } else if (e.key === 'Escape') {
-            if (isOpen) { e.preventDefault(); close(); }
-          }
-        });
-      }
-      function clearResult() { result.hidden = true; status.textContent = ''; }
-      wireAutocomplete(fromInput, fromSuggest, (id) => { fromId = id; clearResult(); });
-      wireAutocomplete(toInput, toSuggest, (id) => { toId = id; clearResult(); });
-
-      swapBtn.addEventListener('click', () => {
-        clearResult();
-        const tmpVal = fromInput.value;
-        const tmpId = fromId;
-        fromInput.value = toInput.value; fromId = toId;
-        toInput.value = tmpVal; toId = tmpId;
-      });
-
-      // Adjacency is fetched lazily on the first search; cached afterward.
-      let adjacency = null;
-      let adjacencyPromise = null;
-      function loadAdjacency() {
-        if (adjacency) return Promise.resolve(adjacency);
-        if (adjacencyPromise) return adjacencyPromise;
-        status.textContent = 'Loading network…';
-        adjacencyPromise = fetch('/adjacency.json?v=' + window.__V)
-          .then((r) => (r.ok ? r.json() : Promise.reject(new Error('fetch failed'))))
-          .then((d) => {
-            adjacency = d;
-            adjacency.idToIdx = new Map();
-            for (let i = 0; i < d.ids.length; i++) adjacency.idToIdx.set(d.ids[i], i);
-            status.textContent = '';
-            return adjacency;
-          })
-          .catch((err) => {
-            status.textContent = 'Could not load connections. Try again.';
-            adjacencyPromise = null;
-            throw err;
-          });
-        return adjacencyPromise;
-      }
-
-
-      async function findPath() {
-        result.setAttribute('hidden', '');
-        result.innerHTML = '';
-        if (!fromId || !toId) {
-          status.textContent = 'Pick an entity for both From and To.';
-          return;
-        }
-        if (fromId === toId) {
-          status.textContent = 'Source and target are the same.';
-          return;
-        }
-        const requestedFrom = fromId, requestedTo = toId;
-        const data = await loadAdjacency().catch(() => null);
-        if (!data || fromId !== requestedFrom || toId !== requestedTo) return;
-        const si = data.idToIdx.get(fromId);
-        const ti = data.idToIdx.get(toId);
-        if (si == null || ti == null) {
-          status.textContent = 'One of the entities is missing from the network.';
-          return;
-        }
-        const path = hubAwarePath(data.adj, si, ti);
-        if (!path) {
-          status.textContent = `No documented path between ${idIndex.get(fromId).title} and ${idIndex.get(toId).title}.`;
-          return;
-        }
-        // Keep the address bar in sync so a found path can be shared.
-        const url = new URL(window.location.href);
-        url.searchParams.set('from', fromId);
-        url.searchParams.set('to', toId);
-        history.replaceState(null, '', url);
-        status.textContent = `${path.length - 1} hop${path.length - 1 === 1 ? '' : 's'}.`;
-        renderPath(data, path);
-      }
-
-      function renderPath(data, path) {
-        result.innerHTML = '';
-        result.appendChild(renderChain(data, path, (id) => (idIndex.get(id) || {}).href || '#'));
-        result.removeAttribute('hidden');
-      }
-
-      document.getElementById('path-form').addEventListener('submit', (e) => {
-        e.preventDefault();
-        findPath();
-      });
-
-      // Load the pool, then honour URL params. Auto-runs if both endpoints
-      // came from the URL — supports deep linking like
-      // /path/?from=elliott-abrams&to=manuel-noriega.
-      loadPool().then(() => {
-        applyUrlParams();
-        if (fromId && toId) findPath();
-      });
-    })();
+    // Deep links: /path/?from=<id>&to=<id> prefills, and runs when both resolve.
+    status.textContent = 'Loading network…';
+    loadAdjacency().then((data) => {
+      status.textContent = '';
+      const params = new URLSearchParams(location.search);
+      fromIdx = data.ids.indexOf(params.get('from') ?? '');
+      toIdx = data.ids.indexOf(params.get('to') ?? '');
+      if (fromIdx >= 0) fromInput.value = data.titles[fromIdx];
+      if (toIdx >= 0) toInput.value = data.titles[toIdx];
+      if (fromIdx >= 0 && toIdx >= 0) run();
+    }, () => { status.textContent = 'Could not load connections. Try again.'; });
   </script>
 </Base>
