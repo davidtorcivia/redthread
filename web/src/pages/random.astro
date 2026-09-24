@@ -2,13 +2,12 @@
 import Base from '../layouts/Base.astro';
 import { entities, hrefFor } from '../lib/data.ts';
 
-// Inline the URL pool at build time. ~45KB on this page only — never
-// touches any other page in the site.
-const pool = entities().map((e) => hrefFor({ id: e.id, type: e.type }));
+// Inlined on this page only: much smaller than fetching the graph to pick one URL.
+const pool = entities().map(hrefFor);
 ---
 <Base
   bodyClass="utility"
-  title="Random entry | The Info Web"
+  title="Random entry"
   description="Jump to a random entry in the vault."
   noindex
 >
@@ -20,14 +19,11 @@ const pool = entities().map((e) => hrefFor({ id: e.id, type: e.type }));
   </article>
 
   <script is:inline define:vars={{ pool }}>
-    // window.location.replace so the random page itself doesn't pollute
-    // the back stack — Back from the destination returns to wherever
-    // the user came from, not the random landing.
+    // replace() keeps this page out of history, so Back returns to where the reader came from.
     if (pool.length > 0) {
       const pick = pool[Math.floor(Math.random() * pool.length)];
       window.location.replace(pick);
     } else {
-      // Empty vault — don't strand the reader on a permanent "Loading…".
       const msg = document.querySelector('.random-msg');
       if (msg) {
         msg.innerHTML = 'No entries to choose from yet. <a href="/">Return home</a>.';

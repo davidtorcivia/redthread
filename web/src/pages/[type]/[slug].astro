@@ -1,7 +1,6 @@
 ---
 import Base from '../../layouts/Base.astro';
 import Headline from '../../components/Headline.astro';
-import { formatDates } from '../../lib/dates';
 import Backlinks from '../../components/Backlinks.astro';
 import HiddenConnections from '../../components/HiddenConnections.astro';
 import NetworkGraph from '../../components/NetworkGraph.astro';
@@ -11,30 +10,40 @@ import Relations from '../../components/Relations.astro';
 import TableOfContents from '../../components/TableOfContents.astro';
 import FootnotePreviews from '../../components/FootnotePreviews.astro';
 import { entities, hrefFor, communityOf, CLUSTER_MIN_SIZE, tagHref, renderInlineMd, TYPE_DIRS, TYPE_LABELS, TYPE_PLURALS } from '../../lib/data.ts';
+import { formatDates } from '../../lib/dates.ts';
+import { absUrl } from '../../lib/site.ts';
 import type { Entity } from '../../lib/types.ts';
 
 export function getStaticPaths() {
-  return entities().map((e) => ({
-    params: { type: TYPE_DIRS[e.type], slug: e.id },
-    props: { entity: e },
-  }));
+  // Previous/next links walk each type alphabetically.
+  return [...Map.groupBy(entities(), (e) => e.type).values()].flatMap((list) => {
+    list.sort((a, b) => a.title.localeCompare(b.title));
+    return list.map((entity, i) => ({
+      params: { type: TYPE_DIRS[entity.type], slug: entity.id },
+      props: { entity, previous: list[i - 1], next: list[i + 1] },
+    }));
+  });
 }
 
-const { entity } = Astro.props as { entity: Entity };
+const { entity, previous, next } = Astro.props as { entity: Entity; previous?: Entity; next?: Entity };
 const typeLabel = TYPE_LABELS[entity.type];
 const typePlural = TYPE_PLURALS[entity.type];
-const typeHref = `/${TYPE_DIRS[entity.type]}/`;
+const dir = TYPE_DIRS[entity.type];
+const href = hrefFor(entity);
 
 const dates = entity.dates ?? {};
 const dateValue = formatDates(dates);
 const locations = entity.locations ?? [];
-// Louvain cluster this entry sits in; fragments are not shown.
 const cluster = communityOf(entity);
 const clusterShown = cluster && cluster.size >= CLUSTER_MIN_SIZE ? cluster : null;
+const fm = entity.frontmatter;
+const rawAliases = Array.isArray(fm.aliases) ? fm.aliases : [];
+// Shown under the title and weighted in search, so an alias finds the entry.
+const aliases = rawAliases
+  .map((a) => String(a).trim())
+  .filter((a) => a && a.toLowerCase() !== entity.title.toLowerCase());
 
-// Schema.org JSON-LD — maps our entity types to the closest schema.org
-// type and emits known dates/locations. Search engines use this for
-// knowledge-panel-style results.
+// schema.org type closest to each entry type; anything else is a Thing.
 const SCHEMA_TYPE: Record<string, string> = {
   person: 'Person',
   organization: 'Organization',
@@ -44,6 +53,7 @@ const SCHEMA_TYPE: Record<string, string> = {
   concept: 'Thing',
   source: 'CreativeWork',
 };
+const dated = entity.type === 'event' || entity.type === 'program';
 const jsonLd: Record<string, unknown> = {
   '@context': 'https://schema.org',
   '@type': SCHEMA_TYPE[entity.type] ?? 'Thing',
@@ -52,69 +62,30 @@ const jsonLd: Record<string, unknown> = {
 if (entity.summary) jsonLd.description = entity.summary;
 if (dates.born) jsonLd.birthDate = dates.born;
 if (dates.died) jsonLd.deathDate = dates.died;
-if ((dates.start || dates.date) && (entity.type === 'event' || entity.type === 'program')) {
-  jsonLd.startDate = dates.start ?? dates.date;
-}
-if (dates.end && (entity.type === 'event' || entity.type === 'program')) {
-  jsonLd.endDate = dates.end;
-}
+if (dated && (dates.start || dates.date)) jsonLd.startDate = dates.start ?? dates.date;
+if (dated && dates.end) jsonLd.endDate = dates.end;
 if (locations.length > 0) jsonLd.location = locations.length === 1 ? locations[0] : locations;
 if (entity.tags?.length) jsonLd.keywords = entity.tags.map(String).join(', ');
-
-// Fully-qualified url/image — schema.org consumers and knowledge-graph
-// crawlers want absolute URLs, not the site-relative paths the <head> uses.
-const dir = TYPE_DIRS[entity.type];
-if (Astro.site) {
-  jsonLd.url = new URL(`/${dir}/${entity.id}/`, Astro.site).href;
-  jsonLd.image = new URL(`/og/${dir}/${entity.id}.png`, Astro.site).href;
-}
-// Publication signals. frontmatter.created/updated are the authored dates;
-// mtime (file last-change) is a safe fallback for dateModified.
-const fm = entity.frontmatter as Record<string, unknown>;
+jsonLd.url = absUrl(href);
+jsonLd.image = absUrl(`/og/${dir}/${entity.id}.png`);
 if (typeof fm.created === 'string' && fm.created) jsonLd.datePublished = fm.created;
 const modified = (typeof fm.updated === 'string' && fm.updated) || entity.mtime;
 if (modified) jsonLd.dateModified = modified;
-// Aliases → alternateName: lets crawlers and LLMs merge an entity with its
-// other names (e.g. "Ostpolitik" / "Eastern Policy") instead of duplicating.
-if (Array.isArray(fm.aliases) && fm.aliases.length > 0) {
-  jsonLd.alternateName = fm.aliases.length === 1 ? fm.aliases[0] : fm.aliases;
-}
-// Shown under the title and weighted in the search index, so "CIA" finds
-// Central Intelligence Agency. The title itself is skipped.
-const aliases = (Array.isArray(fm.aliases) ? fm.aliases : [])
-  .map((a) => String(a).trim())
-  .filter((a) => a && a.toLowerCase() !== entity.title.toLowerCase());
-// Topics as schema.org Things — richer for knowledge graphs than the flat
-// keywords string (which we keep for plain search engines).
-if (entity.tags?.length) {
-  jsonLd.about = entity.tags.map((t) => ({ '@type': 'Thing', name: String(t) }));
-}
-
-const ogType = entity.type === 'person' ? 'profile' : 'article';
-// Per-entity OG card path mirrors the entity page URL — easy to predict
-// and matches the route in src/pages/og/[type]/[slug].png.ts.
-const ogImage = `/og/${TYPE_DIRS[entity.type]}/${entity.id}.png`;
-// LLM tools auto-discover the clean-markdown companion via rel=alternate.
-// The .md sits beside the HTML directory (e.g. /people/foo.md next to
-// /people/foo/) and is emitted by parse_vault → build.sh copies into public/.
-const siblings = entities().filter(e => e.type === entity.type).sort((a, b) => a.title.localeCompare(b.title));
-const position = siblings.findIndex(e => e.id === entity.id);
-const previous = siblings[position - 1];
-const next = siblings[position + 1];
-const mdHref = `/${TYPE_DIRS[entity.type]}/${entity.id}.md`;
+if (rawAliases.length > 0) jsonLd.alternateName = rawAliases.length === 1 ? rawAliases[0] : rawAliases;
+if (entity.tags?.length) jsonLd.about = entity.tags.map((t) => ({ '@type': 'Thing', name: String(t) }));
 ---
 <Base
-  title={`${entity.title} | The Info Web`}
+  title={entity.title}
   description={entity.summary ?? undefined}
   bodyClass={`entity type-${entity.type}`}
-  ogType={ogType}
-  ogImage={ogImage}
+  ogType={entity.type === 'person' ? 'profile' : 'article'}
+  ogImage={`/og/${dir}/${entity.id}.png`}
   jsonLd={jsonLd}
   preloadAdjacency
-  alternateMd={mdHref}
+  alternateMd={`/${dir}/${entity.id}.md`}
   breadcrumbs={[
-    { name: typePlural, item: typeHref },
-    { name: entity.title, item: `/${dir}/${entity.id}/` },
+    { name: typePlural, item: `/${dir}/` },
+    { name: entity.title, item: href },
   ]}
 >
   <article
@@ -132,7 +103,7 @@ const mdHref = `/${TYPE_DIRS[entity.type]}/${entity.id}.md`;
       <div class="band-row">
         {entity.summary && <p class="band-lede" set:html={renderInlineMd(entity.summary)} />}
         <div class="band-facts">
-          <div><a href={typeHref}>{entity.category || typeLabel}</a>{aliases.length > 0 && <span data-pagefind-weight="10"> · {aliases.join(', ')}</span>}</div>
+          <div><a href={`/${dir}/`}>{entity.category || typeLabel}</a>{aliases.length > 0 && <span data-pagefind-weight="10"> · {aliases.join(', ')}</span>}</div>
           {(dateValue || locations.length > 0) && <div>{dateValue}{dateValue && locations.length > 0 && ' · '}{locations.join(', ')}</div>}
           <div>Referenced on {entity.mention_count.toLocaleString()} pages{clusterShown && <> · <a href={`/clusters/#c-${clusterShown.id}`}>{clusterShown.label} cluster</a></>}</div>
           {(entity.bridge_rank || entity.hub_rank) && <div>
@@ -157,7 +128,7 @@ const mdHref = `/${TYPE_DIRS[entity.type]}/${entity.id}.md`;
         <ol>
           {entity.footnotes.map((f) => (
             <li id={`fn-${f.id}`}>
-              <span set:html={f.html ?? f.text} />
+              <span set:html={f.html ?? renderInlineMd(f.text)} />
               {' '}<a class="fn-back" href={`#fnref-${f.id}`} aria-label="back to reference">↩</a>
             </li>
           ))}
@@ -165,7 +136,6 @@ const mdHref = `/${TYPE_DIRS[entity.type]}/${entity.id}.md`;
       </section>
     )}
     {entity.footnotes.length > 0 && <FootnotePreviews />}
-
 
     <RelatedGrid id={entity.id} />
 
@@ -180,7 +150,6 @@ const mdHref = `/${TYPE_DIRS[entity.type]}/${entity.id}.md`;
       <h2 class="section-heading">Tags</h2>
       <div class="statement-chips">{entity.tags.map(t => <a href={tagHref(t)}>{t}</a>)}</div>
     </section>}
-
 
     <nav class="entry-pagination" aria-label="Adjacent entries">
       <span>{previous && <a href={hrefFor(previous)}>← {previous.title}</a>}</span>

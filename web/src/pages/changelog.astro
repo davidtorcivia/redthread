@@ -1,15 +1,10 @@
 ---
 import Base from '../layouts/Base.astro';
 import { activity, hrefFor, renderInlineMd, TYPE_LABELS } from '../lib/data.ts';
-import type { EntityType } from '../lib/types.ts';
 
-const CHANGELOG_LIMIT = 50;
-const all = activity();
-const entries = all.slice(0, CHANGELOG_LIMIT);
+const entries = activity().slice(0, 50);
 
-// Format in UTC so a bare YYYY-MM-DD mtime (parsed as UTC midnight) renders
-// as the same calendar day regardless of the build host's timezone — west-of-
-// UTC hosts would otherwise show the previous day.
+// UTC, so a bare YYYY-MM-DD (parsed as UTC midnight) shows the same day on any build host.
 function monthLabel(iso: string): string {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return 'Unknown';
@@ -32,7 +27,7 @@ for (const e of entries) {
 ---
 <Base
   bodyClass="utility"
-  title="Changelog | The Info Web"
+  title="Changelog"
   description="Recent additions and revisions to entries in the vault."
 >
   <article class="changelog-article">
@@ -50,10 +45,10 @@ for (const e of entries) {
             <li class={`cl-entry type-${e.type}`}>
               <div class="cl-head">
                 <span class="cl-day">{dayLabel(e.mtime)}</span>
-                <span class="cl-type">{TYPE_LABELS[e.type as EntityType]}</span>
+                <span class="cl-type">{TYPE_LABELS[e.type]}</span>
                 {e.category && <span class="cl-cat">{e.category}</span>}
               </div>
-              <a class="cl-title" href={hrefFor({ id: e.id, type: e.type })}>
+              <a class="cl-title" href={hrefFor(e)}>
                 {e.title}
               </a>
               {e.summary && <p class="cl-summary" set:html={renderInlineMd(e.summary)} />}

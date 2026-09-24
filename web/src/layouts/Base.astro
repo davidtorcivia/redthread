@@ -5,46 +5,28 @@ import '../styles/statement.css';
 import '../styles/graph.css';
 import '../styles/path.css';
 import { CARD_TEMPLATE_HASH } from '../lib/og-card';
+import { absUrl, ANALYTICS, BUILD_ID as V, pageTitle, SITE_DESCRIPTION, SITE_TITLE } from '../lib/site.ts';
+
 interface Props {
   title: string;
   description?: string;
   bodyClass?: string;
-  /** og:type — "article" for entity pages, "profile" for people, "website" for browse pages (default). */
+  /** "article" for entries, "profile" for people, "website" (default) for everything else. */
   ogType?: string;
-  /** Optional structured-data block (JSON-LD). Entity pages pass schema.org payload. */
+  /** Page-specific schema.org data. */
   jsonLd?: Record<string, unknown> | null;
-  /** Set true for utility pages (e.g. /random/) we don't want crawlers indexing. */
   noindex?: boolean;
-  /**
-   * Relative path of the OG image for this page (e.g. "/og/people/marc-dutroux.png").
-   * Falls back to the site-wide default card. The path is resolved against
-   * Astro.site so crawlers see an absolute URL — required by Facebook,
-   * preferred by everyone else.
-   */
+  /** Site path of this page's social card. Defaults to the site-wide card. */
   ogImage?: string;
-  /**
-   * Emit a <link rel="preload"> for /adjacency.json. Opt-in: only set on
-   * pages that actually fetch it (entity detail pages, /network/, /path/).
-   * Listing/browse pages skip the preload so they don't pull ~150 KB of
-   * graph data the user never touches.
-   */
+  /** Preload /adjacency.json. Set only on pages that fetch it. */
   preloadAdjacency?: boolean;
-  /**
-   * Path to a clean-markdown companion for this page (e.g. /people/foo.md).
-   * Emitted as <link rel="alternate" type="text/markdown"> so LLM tools
-   * fetch source markdown instead of having to parse the rendered HTML.
-   */
+  /** Path of the page's markdown twin, advertised to LLM tools. */
   alternateMd?: string;
-  /**
-   * Breadcrumb trail for this page, root-first, e.g.
-   * [{name:'People', item:'/people/'}, {name:'Marc Dutroux', item:'/people/marc-dutroux/'}].
-   * Emitted as schema.org BreadcrumbList. "Home" is prepended automatically.
-   * Omit on the homepage and standalone tools.
-   */
+  /** Breadcrumb trail after "Home", root first. */
   breadcrumbs?: { name: string; item: string }[];
 }
 const {
-  title,
+  title: pageName,
   description,
   bodyClass,
   ogType = 'website',
@@ -56,42 +38,15 @@ const {
   breadcrumbs,
 } = Astro.props;
 
-// Canonical URL is resolved from Astro's `site` config + the current path.
-// Falls back to the relative path if site isn't set (e.g. local dev runs
-// without SITE_URL exported).
-const canonical = Astro.site
-  ? new URL(Astro.url.pathname, Astro.site).href
-  : Astro.url.pathname;
+const title = pageTitle(pageName);
+const canonical = absUrl(Astro.url.pathname);
+// Versioned so social caches refetch cards when the template changes.
+const ogImageUrl = absUrl(`${ogImage}?v=${CARD_TEMPLATE_HASH}`);
+// JSON.stringify leaves '<' alone, so a '</script>' inside an entry title would end the tag.
+const jsonForScript = (value: unknown) => JSON.stringify(value).replace(/</g, '\\u003c');
+const favicon = 'data:image/svg+xml,' + encodeURIComponent(`<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' fill='#ff4a1c'/><text y='.85em' x='8' font-family='Georgia,serif' font-size='86' font-weight='600' fill='#0d0d0d'>${SITE_TITLE.charAt(0).replace(/[<&]/g, '')}</text></svg>`);
 
-// OG image absolute URL. Falls back to the relative path when site isn't
-// set (dev). Slack/Facebook require absolute URLs; Twitter accepts both
-// but normalizes anyway.
-const versionedOgImage = ogImage + (ogImage.includes('?') ? '&' : '?') + 'v=' + CARD_TEMPLATE_HASH;
-const ogImageUrl = Astro.site
-  ? new URL(versionedOgImage, Astro.site).href
-  : versionedOgImage;
-
-// Optional analytics snippet. Set ANALYTICS_SRC + ANALYTICS_ID in the build
-// environment and a script tag gets injected into <head>. Defaults match
-// Umami's convention (data-website-id="…"); override the attribute name with
-// ANALYTICS_ID_ATTR for Plausible (data-domain), Fathom (data-site), etc.
-const analyticsSrc = import.meta.env.ANALYTICS_SRC as string | undefined;
-const analyticsId = import.meta.env.ANALYTICS_ID as string | undefined;
-const analyticsIdAttr =
-  (import.meta.env.ANALYTICS_ID_ATTR as string | undefined) || 'data-website-id';
-const analyticsEnabled = Boolean(analyticsSrc && analyticsId);
-
-// Cache-busting version for shared JSON payloads (adjacency.json,
-// previews.json). Stamped onto every fetch + preload as ?v=…; see
-// build.sh for how it's computed (sha1 of the two JSON files).
-// Falls back to 'dev' for local runs that don't go through build.sh.
-const V = (import.meta.env.PUBLIC_BUILD_ID as string | undefined) || 'dev';
-
-// Site-wide identity (WebSite + Organization), emitted on every page so
-// crawlers and LLMs have a stable publisher to attribute and a consistent
-// description of the whole archive. Tagline kept in lockstep with the one
-// in llms.txt.ts and the homepage description.
-const siteHome = Astro.site ? new URL('/', Astro.site).href : '/';
+const siteHome = absUrl('/');
 const siteSchema = {
   '@context': 'https://schema.org',
   '@graph': [
@@ -99,36 +54,29 @@ const siteSchema = {
       '@type': 'WebSite',
       '@id': `${siteHome}#website`,
       url: siteHome,
-      name: 'The Info Web',
-      description:
-        'A research vault on intelligence operations, parapsychology, government programs, and the parapolitical record.',
+      name: SITE_TITLE,
+      description: SITE_DESCRIPTION,
       inLanguage: 'en-US',
       publisher: { '@id': `${siteHome}#org` },
     },
     {
       '@type': 'Organization',
       '@id': `${siteHome}#org`,
-      name: 'The Info Web',
+      name: SITE_TITLE,
       url: siteHome,
-      ...(Astro.site ? { logo: new URL('/og/site.png', Astro.site).href } : {}),
+      logo: absUrl('/og/site.png'),
     },
   ],
 };
-
-// BreadcrumbList — only when a page passes a trail. "Home" is prepended,
-// and each item is absolutized against the site so crawlers get full URLs.
-const crumbItems = breadcrumbs?.length
-  ? [{ name: 'Home', item: '/' }, ...breadcrumbs]
-  : null;
-const breadcrumbSchema = crumbItems
+const breadcrumbSchema = breadcrumbs?.length
   ? {
       '@context': 'https://schema.org',
       '@type': 'BreadcrumbList',
-      itemListElement: crumbItems.map((b, i) => ({
+      itemListElement: [{ name: 'Home', item: '/' }, ...breadcrumbs].map((b, i) => ({
         '@type': 'ListItem',
         position: i + 1,
         name: b.name,
-        item: Astro.site ? new URL(b.item, Astro.site).href : b.item,
+        item: absUrl(b.item),
       })),
     }
   : null;
@@ -140,12 +88,11 @@ const breadcrumbSchema = crumbItems
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     {/* Theme must run before paint, including behind Cloudflare Rocket Loader. */}
     <script is:inline data-cfasync="false">
-      try {
-        const saved = localStorage.getItem('iw-theme');
+      {
+        let saved = null;
+        try { saved = localStorage.getItem('iw-theme'); } catch {}
         document.documentElement.dataset.theme = saved === 'dark' || saved === 'light'
           ? saved : matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
-      } catch {
-        document.documentElement.dataset.theme = matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
       }
     </script>
     {/* Paint the page canvas before the external stylesheet arrives. */}
@@ -157,13 +104,9 @@ const breadcrumbSchema = crumbItems
     {description && <meta name="description" content={description} />}
     {noindex && <meta name="robots" content="noindex, nofollow" />}
     <link rel="canonical" href={canonical} />
-    <link rel="alternate" type="application/atom+xml" title="The Info Web — Changelog" href="/feed.xml" />
+    <link rel="alternate" type="application/atom+xml" title={`${SITE_TITLE}: Changelog`} href="/feed.xml" />
 
-    {/* Open Graph — used by Slack, Discord, iMessage, Facebook, etc. when
-        a link to this page is pasted. The og:image is generated at build
-        time per entity (see src/pages/og/[type]/[slug].png.ts); browse
-        pages fall through to /og/site.png. */}
-    <meta property="og:site_name" content="The Info Web" />
+    <meta property="og:site_name" content={SITE_TITLE} />
     <meta property="og:title" content={title} />
     {description && <meta property="og:description" content={description} />}
     <meta property="og:url" content={canonical} />
@@ -174,8 +117,6 @@ const breadcrumbSchema = crumbItems
     <meta property="og:image:height" content="630" />
     <meta property="og:image:alt" content={title} />
 
-    {/* Twitter card — summary_large_image because every page emits a
-        1200x630 card. */}
     <meta name="twitter:card" content="summary_large_image" />
     <meta name="twitter:title" content={title} />
     {description && <meta name="twitter:description" content={description} />}
@@ -183,47 +124,33 @@ const breadcrumbSchema = crumbItems
     <meta name="twitter:image:alt" content={title} />
 
     {jsonLd && (
-      <script type="application/ld+json" set:html={JSON.stringify(jsonLd)} is:inline />
+      <script type="application/ld+json" set:html={jsonForScript(jsonLd)} is:inline />
     )}
-    <script type="application/ld+json" set:html={JSON.stringify(siteSchema)} is:inline />
+    <script type="application/ld+json" set:html={jsonForScript(siteSchema)} is:inline />
     {breadcrumbSchema && (
-      <script type="application/ld+json" set:html={JSON.stringify(breadcrumbSchema)} is:inline />
+      <script type="application/ld+json" set:html={jsonForScript(breadcrumbSchema)} is:inline />
     )}
 
-    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' fill='%23ff4a1c'/%3E%3Ctext y='.85em' x='8' font-family='Georgia,serif' font-size='86' font-weight='600' fill='%230d0d0d'%3EI%3C/text%3E%3C/svg%3E" />
+    <link rel="icon" href={favicon} />
     <link href="/search-index/pagefind-ui.css" rel="stylesheet" />
-    {/* defer: ~120KB of search UI no longer blocks first paint. Pagefind
-        only runs when the user opens search, but deferring still ensures
-        window.PagefindUI is defined before our DOMContentLoaded init()
-        below — no race on the first ⌘K. */}
+    {/* Deferred scripts run in order, so PagefindUI exists before the module script below. */}
     <script src="/search-index/pagefind-ui.js" defer is:inline></script>
     {preloadAdjacency && (
-      /* Shared adjacency map for the NetworkGraph widget on entity pages
-         and the /network/ + /path/ tools. ~150 KB gzipped. Only preloaded
-         where it'll actually be fetched — listing pages skip it. */
       <link rel="preload" as="fetch" href={`/adjacency.json?v=${V}`} crossorigin="anonymous" />
     )}
     {alternateMd && (
       <link rel="alternate" type="text/markdown" href={alternateMd} title="Source markdown" />
     )}
-    {/* Exposes the build version to every is:inline fetch site so they
-        can append ?v=… without each one needing its own define:vars. */}
+    {/* Build version for the ?v= cache-buster on client fetches. */}
     <script is:inline define:vars={{ V }}>window.__V = V;</script>
 
-    {analyticsEnabled && (
-      <script
-        is:inline
-        defer
-        src={analyticsSrc}
-        {...{ [analyticsIdAttr]: analyticsId }}
-      ></script>
-    )}
+    {ANALYTICS && <script is:inline defer src={ANALYTICS.src} {...{ [ANALYTICS.attr]: ANALYTICS.id }}></script>}
   </head>
   <body class={bodyClass}>
     <a class="skip-link" href="#main-content">Skip to content</a>
     <header class="site" id="top">
       <div class="bar">
-        <a href="/" class="brand">The Info Web</a>
+        <a href="/" class="brand">{SITE_TITLE}</a>
         <button class="nav-toggle" id="nav-toggle" type="button" aria-expanded="false" aria-controls="site-nav" aria-label="Open menu">Menu</button>
         <nav id="site-nav" aria-label="Main navigation">
           <a href="/people/">People</a>
@@ -271,34 +198,30 @@ const breadcrumbSchema = crumbItems
       </div>
     </div>
 
-    {/* Processed (not is:inline) so Astro bundles this ~260-line block into
-        one hashed, long-cached _astro/*.js shared across every page, instead
-        of duplicating it into all ~3,400 HTML files. Runs after parse as a
-        deferred module; reads window.__V (set by the inline script above)
-        and self-heals if PagefindUI isn't ready yet (init() guards + retries
-        on first open). */}
+    {/* Bundled into one cached module shared by every page. Modules are deferred, so the DOM is ready. */}
     <script>
-      import { TYPE_DIRS, TYPE_LABELS } from '../scripts/entity-types';
-      // ---------- Hover previews on wikilinks ----------
-      (function () {
-        if (!window.matchMedia('(hover: hover)').matches) return;
-        let previews = null;
-        let previewsPromise = null;
+      import { loadAdjacency } from '../scripts/adjacency';
+      import { entityHref, TYPE_LABELS } from '../scripts/entity-types';
+      import { escapeHtml as esc, renderInlineMd } from '../lib/inline-md';
+
+      // Hover previews for wikilinks and [data-preview] links, from previews.json.
+      if (matchMedia('(hover: hover)').matches) {
+        let previews = {};
+        let previewsP = null;
         let pop = null;
         let openTimer = null;
         let hideTimer = null;
         let currentLink = null;
-        function loadAll() {
-          if (previews) return Promise.resolve(previews);
-          if (previewsPromise) return previewsPromise;
-          previewsPromise = fetch('/previews.json?v=' + window.__V)
-            .then((r) => (r.ok ? r.json() : null))
-            .then((d) => { previews = d || {}; return previews; })
-            .catch(() => { previews = {}; return previews; });
-          return previewsPromise;
-        }
-
-        function ensurePop() {
+        const loadPreviews = () => previewsP ??= fetch('/previews.json?v=' + window.__V)
+          .then((r) => (r.ok ? r.json() : null))
+          .catch(() => null)
+          .then((d) => (previews = d || {}));
+        const slugFromHref = (href) => href?.match(/^\/[^/]+\/([^/?#]+)\/?(#|\?|$)/)?.[1] ?? null;
+        const scheduleHide = () => {
+          clearTimeout(hideTimer);
+          hideTimer = setTimeout(() => pop?.classList.remove('visible'), 180);
+        };
+        const ensurePop = () => {
           if (pop) return pop;
           pop = document.createElement('div');
           pop.className = 'hover-preview';
@@ -306,68 +229,9 @@ const breadcrumbSchema = crumbItems
           pop.addEventListener('mouseleave', scheduleHide);
           document.body.appendChild(pop);
           return pop;
-        }
-        function slugFromHref(href) {
-          if (!href) return null;
-          const m = href.match(/^\/[^/]+\/([^/?#]+)\/?(#|\?|$)/);
-          return m ? m[1] : null;
-        }
-        function esc(s) {
-          return String(s == null ? '' : s).replace(/[&<>"']/g, (c) => (
-            { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
-          ));
-        }
-        // Inline markdown: bold, italic, code, md links, wikilinks (display).
-        // Kept in lockstep with renderInlineMd() in lib/data.ts so server-
-        // rendered summaries and this client-side popover read identically.
-        function inlineMd(s) {
-          let h = esc(s);
-          h = h.replace(/\[\[([^|\]]+?)\|([^\]]+?)\]\]/g, '$2');
-          h = h.replace(/\[\[([^\]]+?)\]\]/g, '$1');
-          h = h.replace(/\*\*([^*\n]+?)\*\*/g, '<strong>$1</strong>');
-          h = h.replace(/(^|[^*\w])\*([^*\n]+?)\*(?!\*)/g, '$1<em>$2</em>');
-          h = h.replace(/(^|[^_\w])_([^_\n]+?)_(?!_)/g, '$1<em>$2</em>');
-          h = h.replace(/`([^`\n]+?)`/g, '<code>$1</code>');
-          h = h.replace(/\[([^\]\n]+?)\]\(([^)\n]+?)\)/g, function (_m, t, u) {
-            // Allow-list the scheme so a summary can't smuggle javascript:/data:
-            // URLs into this innerHTML — mirrors isSafeUrl() in lib/data.ts.
-            var url = String(u).replace(/\s+/g, '');
-            var safe = /^(https?:|mailto:)/i.test(url) || /^[/#?]/.test(url) ||
-                       (/^[a-z0-9._-]+(\/|$)/i.test(url) && !/^[a-z][a-z0-9+.-]*:/i.test(url));
-            if (!safe) return t;
-            return '<a href="' + String(u).replace(/"/g, '%22') + '">' + t + '</a>';
-          });
-          return h;
-        }
-        async function load(slug) {
-          const data = await loadAll();
-          const hit = data && data[slug];
-          if (!hit) return null;
-          return { id: slug, ...hit };
-        }
-        function render(data, link) {
-          const el = ensurePop();
-          // related is a bare ID list — look up each neighbour's title/type
-          // from the previews map we already loaded. Skips items that aren't
-          // in the map (rare; could happen mid-rebuild when a related entity
-          // is removed before its referents catch up).
-          const rels = (data.related || []).slice(0, 4).map((id) => {
-            const r = previews && previews[id];
-            if (!r) return null;
-            const dir = TYPE_DIRS[r.type] || 'pages';
-            return '<a href="/' + dir + '/' + id + '/">' + esc(r.title) + '</a>';
-          }).filter(Boolean).join(' · ');
-          const type = data.type ? data.type.charAt(0).toUpperCase() + data.type.slice(1) : '';
-          el.innerHTML =
-            '<div class="hp-eyebrow">' + esc(type) +
-            (data.category ? ' &middot; ' + esc(data.category) : '') + '</div>' +
-            '<div class="hp-title">' + esc(data.title) + '</div>' +
-            (data.summary ? '<p class="hp-summary">' + inlineMd(data.summary) + '</p>' : '') +
-            (rels ? '<div class="hp-related"><span class="label">Connected</span> ' + rels + '</div>' : '');
-          position(el, link);
-          el.classList.add('visible');
-        }
-        function position(el, link) {
+        };
+        // Below the link if it fits (or has more room), clamped to the viewport.
+        const position = (el, link) => {
           const r = link.getBoundingClientRect();
           const wasVisible = el.classList.contains('visible');
           el.style.maxHeight = '';
@@ -385,21 +249,28 @@ const breadcrumbSchema = crumbItems
           if (!wasVisible) el.classList.remove('visible');
           el.style.visibility = '';
           const preferredTop = below ? r.bottom + gap : r.top - h - gap;
-          const top = Math.max(margin, Math.min(preferredTop, window.innerHeight - h - margin));
           el.style.left = left + 'px';
-          el.style.top = top + 'px';
-        }
-        function scheduleHide() {
-          clearTimeout(hideTimer);
-          hideTimer = setTimeout(() => { if (pop) pop.classList.remove('visible'); }, 180);
-        }
-        // Wikilinks in body prose, plus opted-in links elsewhere (backlinks,
-        // related "via" chains) tagged with [data-preview]. Both resolve to
-        // /<type>/<slug>/ URLs so the same slugFromHref + previews.json lookup
-        // serves them; links whose slug isn't in previews.json just no-op.
+          el.style.top = Math.max(margin, Math.min(preferredTop, window.innerHeight - h - margin)) + 'px';
+        };
+        const render = (data, link) => {
+          const el = ensurePop();
+          // `related` holds ids; neighbours missing from previews.json are skipped.
+          const rels = (data.related || []).slice(0, 4).map((id) => {
+            const r = previews[id];
+            return r ? '<a href="' + esc(entityHref(r.type, id)) + '">' + esc(r.title) + '</a>' : null;
+          }).filter(Boolean).join(' · ');
+          el.innerHTML =
+            '<div class="hp-eyebrow">' + esc(TYPE_LABELS[data.type]) +
+            (data.category ? ' &middot; ' + esc(data.category) : '') + '</div>' +
+            '<div class="hp-title">' + esc(data.title) + '</div>' +
+            (data.summary ? '<p class="hp-summary">' + renderInlineMd(data.summary) + '</p>' : '') +
+            (rels ? '<div class="hp-related"><span class="label">Connected</span> ' + rels + '</div>' : '');
+          position(el, link);
+          el.classList.add('visible');
+        };
         const PREVIEW_SEL = 'a.wikilink:not(.unresolved), a[data-preview]';
         document.addEventListener('mouseover', (e) => {
-          const link = e.target.closest && e.target.closest(PREVIEW_SEL);
+          const link = e.target.closest?.(PREVIEW_SEL);
           if (!link || link === currentLink) return;
           currentLink = link;
           clearTimeout(openTimer);
@@ -407,16 +278,13 @@ const breadcrumbSchema = crumbItems
           openTimer = setTimeout(async () => {
             const slug = slugFromHref(link.getAttribute('href'));
             if (!slug) return;
-            const data = await load(slug);
+            const data = (await loadPreviews())[slug];
             if (data && link === currentLink) render(data, link);
           }, 320);
         });
         document.addEventListener('mouseout', (e) => {
-          const link = e.target.closest && e.target.closest(PREVIEW_SEL);
-          if (!link) return;
-          if (e.relatedTarget && (
-              e.relatedTarget.closest && e.relatedTarget.closest('.hover-preview')
-          )) return;
+          if (!e.target.closest?.(PREVIEW_SEL)) return;
+          if (e.relatedTarget?.closest?.('.hover-preview')) return;
           clearTimeout(openTimer);
           currentLink = null;
           scheduleHide();
@@ -429,36 +297,24 @@ const breadcrumbSchema = crumbItems
         };
         window.addEventListener('scroll', reposition, { passive: true });
         window.addEventListener('resize', reposition);
-      })();
-
-      // Run fn once the DOM is ready. Crucially, fires immediately if the
-      // document has already advanced past `loading` by the time this inline
-      // script executes — `window.addEventListener('DOMContentLoaded')` after
-      // DCL has fired never runs, which was killing both header buttons.
-      function onReady(fn) {
-        if (document.readyState === 'loading') {
-          document.addEventListener('DOMContentLoaded', fn, { once: true });
-        } else {
-          fn();
-        }
       }
 
-      // Saved preferences take precedence over the OS. Notify canvas graphs.
-      onReady(() => {
+      // Theme toggle. A saved choice beats the OS setting; canvas graphs listen for themechange.
+      {
         const root = document.documentElement;
         const system = matchMedia('(prefers-color-scheme: dark)');
         const buttons = document.querySelectorAll('[data-theme-toggle]');
         const setTheme = (theme) => {
           root.dataset.theme = theme;
-          buttons.forEach(button => {
-            const label = 'Switch to ' + (theme === 'dark' ? 'light' : 'dark') + ' theme';
+          const label = 'Switch to ' + (theme === 'dark' ? 'light' : 'dark') + ' theme';
+          buttons.forEach((button) => {
             button.setAttribute('aria-label', label);
             button.setAttribute('title', label);
           });
           window.dispatchEvent(new Event('themechange'));
         };
         setTheme(root.dataset.theme || (system.matches ? 'dark' : 'light'));
-        buttons.forEach(button => button.addEventListener('click', () => {
+        buttons.forEach((button) => button.addEventListener('click', () => {
           const theme = root.dataset.theme === 'dark' ? 'light' : 'dark';
           try { localStorage.setItem('iw-theme', theme); } catch {}
           setTheme(theme);
@@ -468,51 +324,47 @@ const breadcrumbSchema = crumbItems
           try { saved = localStorage.getItem('iw-theme'); } catch {}
           if (saved !== 'dark' && saved !== 'light') setTheme(system.matches ? 'dark' : 'light');
         });
-      });
+      }
 
-      // ---------- Mobile menu ----------
-      onReady(() => {
-        const toggle = document.getElementById('nav-toggle');
-        const nav = document.getElementById('site-nav');
-        if (!toggle || !nav) return;
-        function setOpen(open) {
-          nav.classList.toggle('open', open);
-          toggle.setAttribute('aria-expanded', open ? 'true' : 'false');
-          toggle.textContent = open ? 'Close' : 'Menu';
-          document.querySelector('main').inert = open;
-          document.querySelector('footer.site').inert = open;
-          toggle.setAttribute('aria-label', open ? 'Close menu' : 'Open menu');
-          document.body.classList.toggle('nav-open', open);
+      // Mobile menu.
+      const navToggle = document.getElementById('nav-toggle');
+      const nav = document.getElementById('site-nav');
+      function setMenuOpen(open) {
+        nav.classList.toggle('open', open);
+        navToggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+        navToggle.setAttribute('aria-label', open ? 'Close menu' : 'Open menu');
+        navToggle.textContent = open ? 'Close' : 'Menu';
+        document.querySelector('main').inert = open;
+        document.querySelector('footer.site').inert = open;
+        document.body.classList.toggle('nav-open', open);
+      }
+      matchMedia('(min-width: 1101px)').addEventListener('change', (e) => { if (e.matches) setMenuOpen(false); });
+      navToggle.addEventListener('click', () => setMenuOpen(!nav.classList.contains('open')));
+      nav.addEventListener('click', (e) => {
+        if (e.target.closest('a, .search-trigger')) setMenuOpen(false);
+      }, true);
+      document.addEventListener('keydown', (e) => {
+        if (!nav.classList.contains('open')) return;
+        if (e.key === 'Escape') { setMenuOpen(false); navToggle.focus(); }
+        if (e.key === 'Tab') {
+          // Keep focus cycling between the toggle and the last menu item.
+          const last = nav.querySelector('[data-theme-toggle]');
+          if (e.shiftKey && document.activeElement === navToggle) { e.preventDefault(); last.focus(); }
+          else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); navToggle.focus(); }
         }
-        window.addEventListener('close-menu', () => setOpen(false));
-        matchMedia('(min-width: 1101px)').addEventListener('change', e => { if (e.matches) setOpen(false); });
-        toggle.addEventListener('click', () => {
-          setOpen(!nav.classList.contains('open'));
-        });
-        // Close on link tap and on Escape.
-        nav.addEventListener('click', (e) => {
-          if (e.target.closest('a, .search-trigger')) setOpen(false);
-        }, true);
-        document.addEventListener('keydown', (e) => {
-          if (e.key === 'Escape' && nav.classList.contains('open')) { setOpen(false); toggle.focus(); }
-          if (e.key === 'Tab' && nav.classList.contains('open')) {
-            const last = nav.querySelector('[data-theme-toggle]');
-            if (e.shiftKey && document.activeElement === toggle) { e.preventDefault(); last.focus(); }
-            else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); toggle.focus(); }
-          }
-        });
       });
 
-      // ---------- ⌘K search modal (Mac convention) ----------
-      onReady(() => {
+      // Search modal (Pagefind), opened with the header button or Cmd/Ctrl+K.
+      {
         const modal = document.getElementById('pf-modal');
         const mount = document.getElementById('pf-mount');
         const trigger = document.getElementById('search-open');
-        if (!modal || !mount) return;
-        let pfReady = false;
         const loadError = document.getElementById('pf-error');
-        document.getElementById('pf-reload')?.addEventListener('click', () => location.reload());
-        document.getElementById('pf-close')?.addEventListener('click', closeModal);
+        let pfReady = false;
+        // Whatever opened the modal gets focus back on close.
+        let opener = null;
+        document.getElementById('pf-reload').addEventListener('click', () => location.reload());
+        document.getElementById('pf-close').addEventListener('click', closeModal);
 
         function init() {
           if (pfReady) return;
@@ -528,62 +380,41 @@ const breadcrumbSchema = crumbItems
             });
             pfReady = true;
             loadError.hidden = true;
-          } catch (_) {
+          } catch {
             loadError.hidden = false;
           }
         }
+        // Pagefind mounts its input asynchronously; poll briefly for it.
+        function withInput(fn, retries = 12) {
+          const input = mount.querySelector('input');
+          if (input) fn(input);
+          else if (retries > 0) setTimeout(() => withInput(fn, retries - 1), 40);
+        }
 
-        // ---------- Quick-match tier ----------
-        // Pagefind ranks by term frequency and has no title boost, so "CIA"
-        // buried the Central Intelligence Agency page under pages that say
-        // "CIA" a lot. Match titles + NER aliases from adjacency.json and
-        // list the best 8 above the full-text results.
+        // Pagefind ranks by term frequency with no title boost, so an entry's own page can
+        // sink below pages that repeat its name. List title and alias matches above the results.
         let quick = null;
-        let names = null;
         let namesP = null;
-        function loadNames() {
-          if (names) return Promise.resolve(names);
-          if (namesP) return namesP;
-          namesP = fetch('/adjacency.json?v=' + window.__V)
-            .then((r) => (r.ok ? r.json() : null))
-            .then((d) => {
-              names = [];
-              if (!d) return names;
-              for (let i = 0; i < d.ids.length; i++) {
-                const aliases = (d.aliases && d.aliases[String(i)]) || [];
-                names.push({
-                  title: d.titles[i],
-                  type: d.types[i],
-                  href: '/' + (TYPE_DIRS[d.types[i]] || 'pages') + '/' + d.ids[i] + '/',
-                  keys: [d.titles[i]].concat(aliases).map((k) => k.toLowerCase()),
-                });
-              }
-              return names;
-            })
-            .catch(() => { names = []; return names; });
-          return namesP;
-        }
-        // 0 exact, 1 prefix, 2 word prefix, 3 substring; 9 = no match.
-        function quickRank(n, q) {
-          let best = 9;
-          for (const k of n.keys) {
-            const s = k === q ? 0 : k.startsWith(q) ? 1 : k.includes(' ' + q) ? 2 : k.includes(q) ? 3 : 9;
-            if (s < best) best = s;
-          }
-          return best;
-        }
-        function renderQuick(q) {
-          if (!quick) return;
+        const loadNames = () => namesP ??= loadAdjacency()
+          .then((d) => d.ids.map((id, i) => ({
+            title: d.titles[i],
+            type: d.types[i],
+            href: entityHref(d.types[i], id),
+            keys: [d.titles[i], ...(d.aliases?.[String(i)] || [])].map((k) => k.toLowerCase()),
+          })))
+          .catch(() => []);
+        // 0 exact, 1 prefix, 2 word prefix, 3 substring, 9 no match.
+        const quickRank = (n, q) => Math.min(...n.keys.map((k) =>
+          k === q ? 0 : k.startsWith(q) ? 1 : k.includes(' ' + q) ? 2 : k.includes(q) ? 3 : 9));
+        function renderQuick(names, q) {
           quick.replaceChildren();
-          if (q.length < 2 || !names) { quick.hidden = true; return; }
-          const hits = [];
-          for (const n of names) {
-            const s = quickRank(n, q);
-            if (s < 9) hits.push([s, n]);
-          }
-          hits.sort((a, b) => a[0] - b[0] || a[1].title.length - b[1].title.length);
-          const top = hits.slice(0, 8);
-          if (!top.length) { quick.hidden = true; return; }
+          const top = q.length < 2 ? [] : names
+            .map((n) => [quickRank(n, q), n])
+            .filter(([s]) => s < 9)
+            .sort((a, b) => a[0] - b[0] || a[1].title.length - b[1].title.length)
+            .slice(0, 8);
+          quick.hidden = !top.length;
+          if (!top.length) return;
           const label = document.createElement('div');
           label.className = 'pf-quick-label';
           label.textContent = 'Entries';
@@ -598,11 +429,9 @@ const breadcrumbSchema = crumbItems
             a.append(t, n.title);
             quick.appendChild(a);
           }
-          quick.hidden = false;
         }
-        function wireQuick(retries) {
+        function wireQuick(retries = 12) {
           if (quick) return;
-          if (retries === undefined) retries = 12;
           const input = mount.querySelector('input');
           const drawer = mount.querySelector('.pagefind-ui__drawer');
           if (!input || !drawer) {
@@ -613,15 +442,13 @@ const breadcrumbSchema = crumbItems
           quick.id = 'pf-quick';
           quick.hidden = true;
           drawer.parentNode.insertBefore(quick, drawer);
-          const update = () => {
-            const q = input.value.trim().toLowerCase();
-            loadNames().then(() => renderQuick(input.value.trim().toLowerCase()));
-            if (!q) renderQuick('');
-          };
-          input.addEventListener('input', update);
-          const clear = mount.querySelector('.pagefind-ui__search-clear');
-          if (clear) clear.addEventListener('click', () => renderQuick(''));
-          // Arrow keys walk the quick-match list; Enter follows the link.
+          const query = () => input.value.trim().toLowerCase();
+          input.addEventListener('input', () => {
+            if (!query()) renderQuick([], '');
+            loadNames().then((names) => renderQuick(names, query()));
+          });
+          mount.querySelector('.pagefind-ui__search-clear')?.addEventListener('click', () => renderQuick([], ''));
+          // Arrow keys move between the input and the quick matches.
           input.addEventListener('keydown', (e) => {
             if (e.key !== 'ArrowDown' || quick.hidden) return;
             const first = quick.querySelector('.pf-quick-item');
@@ -638,78 +465,56 @@ const breadcrumbSchema = crumbItems
             else items[i - 1].focus();
           });
         }
-        /** Open the modal with a query already typed, as if the user had. */
-        function searchFor(text) {
-          openModal();
-          const go = (retries) => {
-            const input = mount.querySelector('input');
-            if (!input) { if (retries > 0) setTimeout(() => go(retries - 1), 40); return; }
-            input.value = text;
-            input.dispatchEvent(new Event('input', { bubbles: true }));
-          };
-          go(12);
-        }
-        // Unresolved wikilinks (a target with no entry yet) are dead
-        // otherwise; clicking one searches the vault for that name.
+
+        // An unresolved wikilink has no page; clicking it searches for the name instead.
         document.addEventListener('click', (e) => {
-          const a = e.target.closest && e.target.closest('a.wikilink.unresolved');
+          const a = e.target.closest?.('a.wikilink.unresolved');
           if (!a) return;
           e.preventDefault();
+          openModal();
           opener = a;
-          searchFor(a.dataset.target || a.textContent.trim());
+          withInput((input) => {
+            input.value = a.dataset.target || a.textContent.trim();
+            input.dispatchEvent(new Event('input', { bubbles: true }));
+          });
         });
         // Middle-click would open a useless "#" tab.
         document.addEventListener('auxclick', (e) => {
-          if (e.target.closest && e.target.closest('a.wikilink.unresolved')) e.preventDefault();
+          if (e.target.closest?.('a.wikilink.unresolved')) e.preventDefault();
         });
 
-        function focusInput(retries) {
-          if (retries === undefined) retries = 12;
-          const input = mount.querySelector('input');
-          if (input) {
-            input.focus();
-            try { input.select(); } catch (_) { /* ok */ }
-          } else if (retries > 0) {
-            setTimeout(() => focusInput(retries - 1), 40);
-          }
-        }
-        // While the dialog is open, mark the rest of the page inert so Tab
-        // can't wander behind the modal and AT skips the backdrop content.
+        // Inert background keeps Tab and assistive tech inside the dialog.
         function setBackgroundInert(on) {
-          ['header.site', 'main', 'footer.site'].forEach((sel) => {
-            const el = document.querySelector(sel);
-            if (el) el.toggleAttribute('inert', on);
-          });
+          for (const sel of ['header.site', 'main', 'footer.site']) document.querySelector(sel)?.toggleAttribute('inert', on);
         }
         function openModal() {
-          window.dispatchEvent(new Event('close-menu'));
+          setMenuOpen(false);
           init();
           wireQuick();
           modal.classList.add('open');
           setBackgroundInert(true);
-          // Force a layout flush so the input is reachable, then focus
-          // synchronously within the user-gesture so iOS Safari raises
-          // the soft keyboard. rAF/setTimeout here would break that chain.
+          // Focus synchronously inside the user gesture so iOS raises the keyboard;
+          // the forced layout makes the input focusable.
           void modal.offsetHeight;
-          focusInput();
+          withInput((input) => {
+            input.focus();
+            input.select();
+          });
         }
-        // Whatever opened the modal gets focus back on close: the header
-        // button, or an unresolved wikilink mid-prose.
-        let opener = null;
         function closeModal() {
           modal.classList.remove('open');
           setBackgroundInert(false);
           const back = opener && document.contains(opener) ? opener : trigger;
           opener = null;
-          if (back && back.getClientRects().length) back.focus();
-          else document.getElementById('nav-toggle')?.focus();
+          if (back.getClientRects().length) back.focus();
+          else navToggle.focus();
         }
-        // Trap Tab within the dialog so keyboard focus stays on the search UI.
+        // Trap Tab inside the dialog.
         modal.addEventListener('keydown', (e) => {
           if (e.key !== 'Tab' || !modal.classList.contains('open')) return;
           const focusables = [...modal.querySelectorAll(
             'a[href], button:not([disabled]), input:not([disabled]), [tabindex]:not([tabindex="-1"])'
-          )].filter(el => el.getClientRects().length && getComputedStyle(el).visibility !== 'hidden');
+          )].filter((el) => el.getClientRects().length && getComputedStyle(el).visibility !== 'hidden');
           if (!focusables.length) return;
           const first = focusables[0];
           const last = focusables[focusables.length - 1];
@@ -721,20 +526,9 @@ const breadcrumbSchema = crumbItems
             first.focus();
           }
         });
-
-        // Attach the click handler FIRST, before the eager init() call —
-        // so even if PagefindUI's constructor explodes, the button still
-        // opens the modal.
-        if (trigger) {
-          trigger.addEventListener('click', openModal);
-          trigger.disabled = false;
-        }
         modal.addEventListener('mousedown', (e) => {
           if (e.target === modal) closeModal();
         });
-        // ⌘K on Mac, Ctrl+K elsewhere. We deliberately accept either modifier
-        // so the shortcut works cross-platform (was metaKey-only, locking out
-        // Windows/Linux). Alt excluded so Alt-combos don't false-trigger.
         document.addEventListener('keydown', (e) => {
           if ((e.metaKey || e.ctrlKey) && !e.altKey && e.key.toLowerCase() === 'k') {
             e.preventDefault();
@@ -745,21 +539,12 @@ const breadcrumbSchema = crumbItems
           }
         });
 
-        // Match the visible hint to the platform — Mac shows ⌘ K, everyone
-        // else Ctrl K — so the kbd badge isn't lying to non-Mac users.
-        if (trigger) {
-          const isMac = /Mac|iPhone|iPad|iPod/.test(navigator.platform || navigator.userAgent || '');
-          if (!isMac) {
-            const kbd = trigger.querySelector('kbd');
-            if (kbd) kbd.textContent = 'Ctrl K';
-          }
-        }
-
-        // Eager init AFTER wiring the click — Pagefind mounts its DOM at
-        // page-load so the input exists when the modal opens (avoids the
-        // "can't type on first open" race).
+        // Wire the button before init() so it still opens the modal if Pagefind throws.
+        trigger.addEventListener('click', openModal);
+        trigger.disabled = false;
+        // Mount Pagefind now so its input exists on first open.
         init();
-      });
+      }
     </script>
   </body>
 </html>

@@ -120,6 +120,7 @@ const aliasesFor = (item: Entity) => [item.frontmatter.alias, item.frontmatter.a
 
 <noscript><style>.people-directory .people-tools{display:none!important}</style></noscript>
 
+{/* Inline so ?q=, ?category= and ?letter= filter the list before first paint. */}
 <script is:inline>
   (() => {
     const root = document.getElementById('people-directory');

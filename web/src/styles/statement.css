@@ -1,17 +1,17 @@
-/* Statement redesign: shared editorial layout over the graph and search controls. */
+/* Editorial layer: palette, type and page chrome. Loads after global.css, so it wins ties. */
 :root, :root[data-theme=light] {
   color-scheme: only light;
   --paper:#fff; --paper-2:#f5f5f5; --card:#fff;
   --ink:#0d0d0d; --ink-2:#0d0d0d; --muted:#6d6d6d; --muted-2:#6d6d6d;
   --line:#dedede; --line-2:#bdbdbd; --band:#ff4a1c; --band-ink:#0d0d0d;
-  --accent:#d6320b; --accent-soft:#bdbdbd; --link:var(--ink); --link-hover:#d6320b;
+  --accent:#d6320b; --accent-soft:#bdbdbd; --link-hover:#d6320b;
   --unresolved:#8a4b35; --highlight:#ffe2d7; --gold:#806421;
   --t-person:#8a5a1f; --t-organization:#2d6864; --t-program:#3f3d8b;
   --t-event:#94322a; --t-concept:#5e6b32; --t-place:#735237; --t-source:#6a6258;
   --serif:"Source Serif 4",Georgia,serif;
   --sans:"Archivo",Arial,sans-serif;
   --mono:Consolas,monospace;
-  --measure:50rem; --measure-wide:72rem;
+  --measure:50rem;
   --gutter:max(24px,4vw);
 }
 :root[data-theme=dark] {
@@ -25,7 +25,6 @@
   --t-event:#e08a82; --t-concept:#b3c082; --t-place:#c79e7c; --t-source:#a5a29b;
 }
 ::selection {background:#ffd34d;color:#0d0d0d}
-::-moz-selection {background:#ffd34d;color:#0d0d0d}
 html {font-size:16px}
 body {font-size:19px;line-height:1.5;font-feature-settings:normal}
 a {color:inherit;background-image:none}
@@ -34,7 +33,7 @@ button,input,select {font:inherit}
 h1,h2,h3,h4,header.site,footer.site,.band-facts,.item-title,.entry-pagination {font-variation-settings:"wdth" 88}
 .skip-link {position:fixed;top:8px;left:var(--gutter);z-index:200;background:var(--paper);padding:8px 16px;transform:translateY(-150%)}
 .skip-link:focus {transform:none}
-header.site {position:relative;top:auto;background:var(--band);color:var(--band-ink);border:0;backdrop-filter:none;z-index:20}
+header.site {position:relative;top:auto;background:var(--band);border:0;backdrop-filter:none;z-index:20}
 header.site .bar {max-width:none;margin:0;padding:18px var(--gutter) 0;gap:24px;justify-content:space-between;align-items:baseline}
 header.site .brand {font-size:22px;font-weight:800;font-variation-settings:"wdth" 80;letter-spacing:-.04em;text-transform:none;color:inherit;white-space:nowrap}
 header.site nav {display:flex;align-items:center;gap:1.2em;margin:0;font-family:var(--sans)}
@@ -45,7 +44,7 @@ header.site a:hover,header.site button:hover {color:inherit;text-decoration:unde
 header.site .search-trigger:disabled {opacity:.55;cursor:wait}
 header.site .nav-toggle {display:none}
 header.site :focus-visible,.statement-band :focus-visible {outline-color:var(--band-ink)}
-.statement-band {background:var(--band);color:var(--band-ink);padding:1px var(--gutter) 36px}
+.statement-band {background:var(--band);padding:1px var(--gutter) 36px}
 .statement-band h1 {
   font-family:var(--sans);--headline-size:clamp(72px,17vw,260px);font-size:min(var(--headline-size),var(--title-fit,1000px));font-weight:800;line-height:.8;letter-spacing:-.05em;text-transform:uppercase;
   color:inherit;max-width:100%;margin:.45em 0 .15em;overflow-wrap:normal;word-break:normal;hyphens:none;text-wrap:balance
@@ -106,7 +105,6 @@ header.site :focus-visible,.statement-band :focus-visible {outline-color:var(--b
   grid-row:1;grid-column:3;position:sticky;top:24px;left:auto;width:auto;max-height:calc(100vh - 48px);overflow:auto;padding:0 0 0 3rem;margin:0;border:0;border-radius:0;background:none;
   font-family:var(--serif);font-size:15px;line-height:1.45;opacity:1;transform:none;pointer-events:auto
 }
-.entity-toc .toc-label {display:none}
 .entity-toc .toc-item a {padding:.25em 0;border:0;font-weight:400}
 .entity-toc .toc-item.active a {color:var(--ink);font-weight:600}
 .entity-article .hc-count-badge {background:none;border:0;padding:0;border-radius:0;font:inherit}
@@ -122,8 +120,7 @@ header.site :focus-visible,.statement-band :focus-visible {outline-color:var(--b
 .entity-article .backlinks .hc-title {font-size:15.5px;line-height:1.4;font-weight:400}
 .entity-article .footnotes-block ol {columns:2;column-gap:3rem;margin:0;padding:.6em 0 1.5em 1.6em;font-size:15.5px;line-height:1.5;color:var(--muted)}
 .entity-article .footnotes-block li {break-inside:avoid;overflow-wrap:anywhere}
-.entity-article .entity-network .net-blurb {font-size:15px;margin:0 0 1em;color:var(--muted)}
-.entity-net-shell {height:400px;border-radius:0}
+.entity-article .entity-network .net-blurb {color:var(--muted)}
 .entry-pagination {border-top:2px solid var(--ink);margin-top:2em;padding:1em 0;display:flex;justify-content:space-between;gap:2rem;font:600 18px/1.4 var(--sans)}
 .entry-pagination span {max-width:48%}
 .entry-pagination span:last-child {text-align:right}
@@ -131,9 +128,8 @@ footer.site {border:0;background:none;margin:0 var(--gutter);padding:0}
 footer.site .container {max-width:none;border-top:2px solid var(--ink);margin-top:2em;padding:1em 0 3em;display:flex;justify-content:space-between;align-items:baseline;gap:2rem}
 footer.site .foot-brand {font:600 18px/1.5 var(--sans);letter-spacing:-.01em;text-transform:none;white-space:nowrap}
 footer.site .foot-nav {gap:.6em 1.2em;font-size:15px}
-.browse-header {max-width:none;background:var(--band);color:var(--band-ink);padding:4rem var(--gutter) 2rem}
+.browse-header {max-width:none;background:var(--band);padding:4rem var(--gutter) 2rem}
 .browse-header h1 {font-family:var(--sans);font-size:clamp(48px,8vw,120px);font-weight:800;letter-spacing:-.04em;line-height:.95;text-transform:uppercase;color:inherit}
-.browse-header .kicker,.browse-header .lead {color:inherit}
 .browse-body {max-width:none;padding-left:var(--gutter);padding-right:var(--gutter)}
 @media (max-width:1300px) and (min-width:901px) {
   .statement-read {grid-template-columns:minmax(0,1fr) 180px;gap:2rem}
@@ -176,12 +172,11 @@ footer.site .foot-nav {gap:.6em 1.2em;font-size:15px}
   .item-title {font-size:30px}
   .section-heading {flex-wrap:wrap;gap:0 .7em}
   .section-heading span {text-align:left}
-  .statement-read {padding-top:2.6em}
 }
 @media print {
   :root {--paper:#fff;--ink:#000;--muted:#555;--line:#ccc}
   header.site,footer.site,.skip-link,.entry-pagination {display:none!important}
-  .statement-band {background:none;color:#000;padding:0}
+  .statement-band {background:none;padding:0}
   .statement-band h1,.statement-band h1.long-title,.statement-band h1.very-long-title {font-size:28pt}
   .statement-band .band-lede {font-size:12pt}
   .band-row {display:block}
@@ -196,31 +191,15 @@ footer.site .foot-nav {gap:.6em 1.2em;font-size:15px}
 /* Let browse tools use the same narrow screens as the reading pages. */
 .hc-list {grid-template-columns:repeat(auto-fill,minmax(min(20rem,100%),1fr))}
 .hc-item,.hc-title {min-width:0;overflow-wrap:anywhere}
-.tag-cloud li,.tag-chip {max-width:100%;min-width:0}
-.tag-name {overflow-wrap:anywhere}
-.tag-chip {background:none;border:0;border-bottom:1px solid var(--line-2);border-radius:0;padding:.2em 0}
-.tag-chip:hover {background:none;color:var(--accent);border-color:var(--band)}
-.tag-chip:hover .tag-count {color:var(--muted)}
-@media (max-width:720px) {
-  .tl-preview {display:none}
-}
-@media (max-width:600px) {
-  .tl-year-cluster {grid-template-columns:3rem minmax(0,1fr)}
-  .tl-item {grid-template-columns:minmax(0,1fr);grid-template-areas:"type" "title" "summary"}
-  .tl-type {text-align:left}
-  .tl-title {overflow-wrap:anywhere}
-}
 
 /* The brand band has the same contrast in either reading theme. */
 header.site,.statement-band,.browse-header {color-scheme:only light;--ink:#0d0d0d;--ink-2:#0d0d0d;--band-ink:#0d0d0d;color:#0d0d0d}
-
 .headline-word {white-space:nowrap}
 
 /* Anchor Clear to the input, rather than the growing results form. */
 #pf-modal .pagefind-ui__search-input {height:3.25rem;padding-right:5rem;border-radius:0}
 #pf-modal .pagefind-ui__search-clear {top:0;right:.35rem;height:3.25rem;min-height:0;margin:0;padding:0 .6rem;transform:none;display:flex;align-items:center;justify-content:center;line-height:1}
 #pf-modal .pf-shell {border-radius:0}
-
 .toc-disclosure>summary {display:none}
 @media(max-width:900px) {
   .statement-read {padding-top:28px}
@@ -236,39 +215,36 @@ header.site,.statement-band,.browse-header {color-scheme:only light;--ink:#0d0d0
   .entity-toc .toc-item.toc-l4 a {padding:9px 0 9px 32px;font-size:13px}
 }
 
-/* Display typography across browse, history, and research tools. */
+/* Display type for browse and tool pages. */
 .entity-title,.error-title {
   font-family:var(--sans);font-weight:800;font-variation-settings:"wdth" 88;
   font-size:clamp(42px,5.8vw,84px);line-height:.95;letter-spacing:-.045em;
   overflow-wrap:normal;word-break:normal;text-wrap:balance
 }
-.changelog-article,.bridges-article,.path-article {max-width:none;padding:58px var(--gutter) 32px}
-.changelog-article>.entity-dek,.bridges-article>.entity-dek,.path-article>.entity-dek {max-width:48em;font-size:21px;line-height:1.45}
-.cl-title,.br-title,.tl-title,.hc-title,.cat-list .entry-title,.cat-section h2,
-.related-card .rc-title,.hover-preview .hp-title,.path-suggest-item .ps-title,
-.path-node .pn-title,#pf-modal .pagefind-ui__result-link {
+.changelog-article,.path-article {max-width:none;padding:58px var(--gutter) 32px}
+.changelog-article>.entity-dek,.path-article>.entity-dek {max-width:48em;font-size:21px;line-height:1.45}
+.cl-title,.hc-title,.cat-list .entry-title,.cat-section h2,
+.hover-preview .hp-title,.path-suggest-item .ps-title,.path-node .pn-title,
+#pf-modal .pagefind-ui__result-link {
   font-family:var(--sans);font-variation-settings:"wdth" 88;font-weight:650;letter-spacing:-.02em
 }
-.cl-title,.br-title {font-size:clamp(24px,2.4vw,34px);line-height:1.08}
-.cl-month,.br-heading {font-size:15px;letter-spacing:.01em;color:var(--ink);border-bottom:2px solid var(--ink)}
+.cl-title {font-size:clamp(24px,2.4vw,34px);line-height:1.08}
+.cl-month {font-size:15px;letter-spacing:.01em;color:var(--ink);border-bottom:2px solid var(--ink)}
 .cluster-label {font-size:clamp(23px,2.7vw,36px);line-height:1.12;text-transform:none;letter-spacing:-.025em}
 .cl-entry {border-bottom:1px solid var(--line);padding:18px 0}
-.cl-summary,.br-summary {font-size:17px;max-width:65ch;line-height:1.5}
-.br-tab {font-weight:700;letter-spacing:0;border-radius:0}
-.br-tab-count,.br-score-bar,.br-score-fill {border-radius:0}
+.cl-summary {font-size:17px;max-width:65ch;line-height:1.5}
 .cat-section h2 {font-size:28px;line-height:1.1}
 .cat-list .entry-title {font-size:22px;line-height:1.15}
-.hc-title,.tl-title {font-size:19px}
+.hc-title {font-size:19px}
 @media(max-width:600px) {
-  .changelog-article,.bridges-article,.path-article {padding-top:34px}
-  .changelog-article>.entity-dek,.bridges-article>.entity-dek,.path-article>.entity-dek {font-size:19px}
+  .changelog-article,.path-article {padding-top:34px}
+  .changelog-article>.entity-dek,.path-article>.entity-dek {font-size:19px}
 }
 
 .prose a.unresolved,.prose a.unresolved:hover {background:none;color:var(--muted);border:0;border-bottom:1px solid var(--line-2);padding:0}
 
 /* Thin utility-page headers have balanced space above and below navigation. */
 body.utility header.site .bar {padding-bottom:18px}
-
 #pf-modal .pf-shell {overflow-y:auto;max-height:calc(100dvh - 6rem)}
 .pf-header {display:flex;align-items:center;justify-content:space-between;margin:0 0 8px;font:600 14px/1.3 var(--sans)}
 #pf-close,#pf-reload {font:500 14px/1.3 var(--sans);border:0;background:none;color:var(--ink);cursor:pointer}

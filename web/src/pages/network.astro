@@ -2,32 +2,30 @@
 import Base from '../layouts/Base.astro';
 import GraphTools from '../components/GraphTools.astro';
 import GraphCaption from '../components/GraphCaption.astro';
+import GraphOverlay from '../components/GraphOverlay.astro';
 import { entities } from '../lib/data.ts';
 
 const total = entities().length;
 ---
 <Base
   bodyClass="utility"
-  title="Full network | The Info Web"
+  title="Full network"
   description="Every entry in the vault rendered as a single navigable graph."
   preloadAdjacency
 >
-  <article class="network-article" id="net-article">
+  <article class="network-article">
     <header class="network-header">
       <div class="network-heading"><h1 class="entity-title">Follow the connections.</h1><span class="network-total">{total.toLocaleString()} entries</span></div>
       <p class="entity-dek">Search for a name, select a node to see its links, or use Options to filter the graph.</p>
     </header>
 
     <GraphTools full id="full-network" />
-    <section class="net-shell" id="net-shell">
+    <section class="net-shell">
       <canvas
         class="net-canvas"
-        id="net-canvas"
         role="img"
         aria-label={`Network graph of ${total.toLocaleString()} connected entries. Search or select an entry to explore its connections.`}
       ></canvas>
-      {/* The canvas can't be navigated by keyboard or screen reader; point AT
-          users at the structured, fully-accessible views of the same data. */}
       <p class="sr-only">
         This is an interactive network visualization drawn on a canvas and explored
         with a pointer. For a keyboard- and screen-reader-accessible view of the same
@@ -35,8 +33,8 @@ const total = entities().length;
         <a href="/path/">path finder</a> to trace the chain between any two entries.
       </p>
 
-      <div class="net-status" id="net-status">
-        <button type="button" class="net-load" id="net-load">
+      <div class="net-status">
+        <button type="button" class="net-load">
           Load network <span class="net-load-hint">({total.toLocaleString()} nodes)</span>
         </button>
         <p class="net-load-warn">
@@ -44,302 +42,177 @@ const total = entities().length;
         </p>
       </div>
 
-      <div class="graph-selection net-selection" hidden id="net-selection">
-        <div class="gs-row">
-          <span class="gs-eyebrow"></span>
-          <span class="gs-title"></span>
-        </div>
-        <div class="gs-meta"><span class="gs-count"></span> mentions across the vault</div>
-        <div class="gs-bridge" hidden>Bridge entity (rank <span class="gs-bridge-rank"></span>)</div>
-        <div class="gs-hub" hidden>Hub entity (rank <span class="gs-hub-rank"></span>)</div>
-        <div class="gs-summary" hidden></div>
-        <div class="gs-actions">
-          <a class="gs-go" href="#">Go to page &rarr;</a>
-          <button class="gs-deselect" type="button">Clear</button>
-        </div>
-      </div>
-
-      <div class="graph-tooltip net-tooltip" hidden id="net-tooltip"></div>
+      <GraphOverlay />
     </section>
     <GraphCaption />
-
-    {/* Legend — the canvas encodes type/size/edge-kind/bridge with no
-        on-screen key, so spell them out. Native <details> keeps it
-        collapsed by default and needs no JS. */}
-    <details class="net-legend">
-      <summary>How to read the graph</summary>
-      <div class="net-legend-body">
-        <div class="nl-group">
-          <span class="nl-group-label">Colour shows the entry type or cluster</span>
-          <ul class="nl-types">
-            <li><span class="nl-dot t-person"></span>People</li>
-            <li><span class="nl-dot t-organization"></span>Organizations</li>
-            <li><span class="nl-dot t-program"></span>Programs</li>
-            <li><span class="nl-dot t-event"></span>Events</li>
-            <li><span class="nl-dot t-concept"></span>Concepts</li>
-            <li><span class="nl-dot t-place"></span>Places</li>
-          </ul>
-        </div>
-        <div class="nl-group">
-          <span class="nl-group-label">Node size</span>
-          <p class="nl-row">
-            <span class="nl-dot nl-dot-sm"></span><span class="nl-dot nl-dot-lg"></span>
-            Larger = more mentions across the vault.
-          </p>
-        </div>
-        <div class="nl-group">
-          <span class="nl-group-label">Connections</span>
-          <p class="nl-row"><span class="nl-line"></span> A link from one entry to another.</p>
-          <p class="nl-row"><span class="nl-line dashed"></span> A name mentioned in an entry without a direct link. Toggle these with “Inferred”.</p>
-        </div>
-        <div class="nl-group">
-          <span class="nl-group-label">Highlights</span>
-          <p class="nl-row"><span class="nl-ring gold"></span> Gold rings mark entries mentioned across several clusters.</p>
-          <p class="nl-row"><span class="nl-ring accent"></span> Orange rings mark your selection.</p>
-        </div>
-      </div>
-    </details>
   </article>
 
   <script>
-    import { GraphEngine, nodeFromAdjacency, loadAdjacency } from '../scripts/graph-canvas';
-    /**
-     * Full-vault network. Rendering, interaction and the generic controls
-     * live in scripts/graph-canvas (shared with the per-entity widget);
-     * this file loads every node, supplies the whole-graph layouts and
-     * wires the type-filter chips.
-     */
-    (function () {
-      const article = document.getElementById('net-article');
-      const status = document.getElementById('net-status');
-      const loadBtn = document.getElementById('net-load');
-      const controls = document.getElementById('net-controls');
-      const filters = document.getElementById('net-filters');
-      const sliders = document.getElementById('net-sliders');
+    import { GraphEngine, nodeFromAdjacency, adjacencyEdges } from '../scripts/graph-canvas';
+    import { loadAdjacency } from '../scripts/adjacency';
+    // The whole vault. This file loads every node, supplies the whole-graph
+    // layouts and wires the type chips; scripts/graph-canvas does the rest.
 
-      // Baseline 6× spreads the parser's 0-1000 spring layout enough that
-      // clusters are legible at fit zoom; the Force slider scales further.
-      const FORCE_BASELINE = 6;
-      let rawForcePositions = null;
-      let initStarted = false;
-      const activeTypes = new Set([
-        'person', 'organization', 'program', 'event', 'concept', 'place',
-        'source', 'meta', 'misc', 'page',
-      ]);
+    const article = document.querySelector('.network-article');
+    const status = article.querySelector('.net-status');
+    const loadBtn = article.querySelector('.net-load');
+    // Scales the parser's 0-1000 spring layout until clusters read at fit zoom.
+    const FORCE_BASELINE = 6;
+    // Chips only cover the main types; the rest always show.
+    const activeTypes = new Set(['person', 'organization', 'program', 'event', 'concept', 'place', 'source', 'meta', 'misc', 'page']);
+    let positions = null;
+    let initStarted = false;
 
-      const engine = new GraphEngine(article, {
-        profile: 'full',
-        showImplicit: false,
-        fullscreenEl: article,
-        layouts: [
-          { key: 'clusters', label: 'Clusters', apply: applyClusterLayout },
-          { key: 'force', label: 'Force', apply: applyForceLayout },
-          { key: 'grid', label: 'Grid', apply: applyGridLayout },
-          { key: 'circle', label: 'Circle', apply: applyCircleLayout },
-          { key: 'concentric', label: 'Concentric', apply: applyConcentricLayout },
-        ],
-        // Rescale around the screen centre so the user's pan and zoom
-        // survive while the graph stretches under the pointer.
-        onForceSlider(mult, prev, g) {
-          if (!rawForcePositions || mult === prev) return;
-          const ratio = mult / prev;
-          const { W, H } = g.canvasSize();
-          for (const n of g.nodes) { n.x *= ratio; n.y *= ratio; }
-          g.view.tx = (W / 2) * (1 - ratio) + g.view.tx * ratio;
-          g.view.ty = (H / 2) * (1 - ratio) + g.view.ty * ratio;
-          g.requestDraw();
-        },
+    const engine = new GraphEngine(article, {
+      profile: 'full',
+      showImplicit: false,
+      fullscreenEl: article,
+      layouts: [
+        { key: 'clusters', label: 'Clusters', apply: applyClusterLayout },
+        { key: 'force', label: 'Force', apply: applyForceLayout },
+        { key: 'grid', label: 'Grid', apply: applyGridLayout },
+        { key: 'circle', label: 'Circle', apply: applyCircleLayout },
+        { key: 'concentric', label: 'Concentric', apply: applyConcentricLayout },
+      ],
+    });
+
+    async function init() {
+      if (initStarted) return;
+      initStarted = true;
+      loadBtn.disabled = true;
+      loadBtn.textContent = 'Loading data…';
+      let data;
+      try {
+        data = await loadAdjacency();
+      } catch (err) {
+        initStarted = false; // let the button retry
+        loadBtn.disabled = false;
+        loadBtn.textContent = 'Load network';
+        status.querySelector('.net-load-warn').textContent =
+          'Failed to load network data. Try again or check your connection.';
+        console.error('[net]', err);
+        return;
+      }
+      positions = data.positions;
+      const nodes = data.ids.map((_, i) => {
+        // Small dots: a constellation at fit zoom, not boulders.
+        const size = 2 + Math.log2(1 + (data.mentions[i] || 0)) * 0.9 + (data.bridges[i] ? 1 : 0);
+        // Entries with no connections add nothing to a graph view.
+        const isolated = data.adj[i].length === 0;
+        return { ...nodeFromAdjacency(data, i, Math.min(8, size)), isolated, visible: !isolated };
       });
+      // The 20 most-mentioned are always labelled, so there's something to orient by.
+      [...nodes].sort((a, b) => b.count - a.count).slice(0, 20).forEach((n) => { n.isLandmark = true; });
+      const { edges, implicit } = adjacencyEdges(data, new Map(nodes.map((_, i) => [i, i])));
 
-      function nodeSize(mentions, isBridge) {
-        // Radius. Small dots: a constellation at fit zoom, not boulders.
-        const base = 2 + Math.log2(1 + (mentions || 0)) * 0.9;
-        return Math.min(8, isBridge ? base + 1 : base);
-      }
+      engine.communityLabels = data.communityLabels;
+      engine.colorMode = 'community';
+      engine.setGraph(nodes, edges, implicit);
+      status.hidden = true;
+      article.querySelector('.net-controls').hidden = false;
+      engine.resize();
+      engine.applyLayout();
+      engine.wire();
 
-      async function init() {
-        if (initStarted) return;
-        initStarted = true;
-        loadBtn.disabled = true;
-        loadBtn.textContent = 'Loading data…';
-        let data;
-        try {
-          data = await loadAdjacency();
-        } catch (err) {
-          initStarted = false;
-          loadBtn.disabled = false;
-          loadBtn.textContent = 'Load network';
-          status.querySelector('.net-load-warn').textContent =
-            'Failed to load network data. Try again or check your connection.';
-          console.error('[net]', err);
-          return;
-        }
-        rawForcePositions = data.positions || null;
-        const nodes = [];
-        for (let i = 0; i < data.ids.length; i++) {
-          const n = nodeFromAdjacency(data, i, 0);
-          n.size = nodeSize(n.count, n.bridgeRank > 0);
-          nodes.push(n);
-        }
-        // Top-20 by mentions are landmarks: always labelled, so the user can
-        // orient at any zoom.
-        nodes.map((n, i) => ({ i, c: n.count }))
-          .sort((a, b) => b.c - a.c)
-          .slice(0, 20)
-          .forEach(({ i }) => { nodes[i].isLandmark = true; });
-        const edges = [];
-        const pairToIdx = new Map();
-        for (let i = 0; i < data.adj.length; i++) {
-          for (const j of data.adj[i]) {
-            if (j <= i) continue;
-            pairToIdx.set(i * 100000 + j, edges.length);
-            edges.push([i, j]);
-          }
-        }
-        const implicit = new Set();
-        for (const [a, b] of data.implicitPairs || []) {
-          const idx = pairToIdx.get(a < b ? a * 100000 + b : b * 100000 + a);
-          if (idx != null) implicit.add(idx);
-        }
-        // Isolated entries add nothing to a graph view; hide them.
-        let isolated = 0;
-        for (let i = 0; i < nodes.length; i++) {
-          if (data.adj[i].length === 0) { nodes[i].isolated = true; nodes[i].visible = false; isolated++; }
-        }
-        if (isolated > 0) console.info(`[net] hiding ${isolated} orphan node(s) with no connections`);
-
-        engine.communityLabels = data.communityLabels || [];
-        engine.setGraph(nodes, edges, implicit);
-        engine.setColorMode('community');
-        article.classList.add('color-by-community');
-        status.setAttribute('hidden', '');
-        controls.removeAttribute('hidden');
-        filters.removeAttribute('hidden');
-        sliders.removeAttribute('hidden');
-        if (window.matchMedia('(max-width: 720px)').matches) {
-          for (const d of article.querySelectorAll('.net-drawer')) {
-            d.classList.add('collapsed');
-            const t = d.querySelector('.net-drawer-toggle');
-            if (t) t.setAttribute('aria-expanded', 'false');
-          }
-        }
-        engine.resize();
-        engine.applyLayout();
-        engine.wire();
-
-        for (const chip of filters.querySelectorAll('.net-chip')) {
-          chip.addEventListener('click', () => {
-            const t = chip.dataset.type;
-            const on = !chip.classList.contains('active');
-            chip.classList.toggle('active', on);
-            chip.setAttribute('aria-pressed', on ? 'true' : 'false');
-            if (on) activeTypes.add(t); else activeTypes.delete(t);
-            for (const n of engine.nodes) n.visible = !n.isolated && activeTypes.has(n.type);
-            engine.selectionChanged();
-          });
-        }
-      }
-
-      // --- Layouts ---------------------------------------------------------
-      function applyClusterLayout(g) {
-        // Pack actual link communities into separate islands. The force view
-        // remains available for the ungrouped topology.
-        const communities = new Map();
-        for (const n of g.nodes) {
-          if (!n.visible) continue;
-          if (!communities.has(n.community)) communities.set(n.community, []);
-          communities.get(n.community).push(n);
-        }
-        const groups = [...communities.entries()].filter(([,members]) => members.length >= 8);
-        const fragments = [...communities.values()].filter(members => members.length < 8).flat();
-        if (fragments.length) groups.push([-1, fragments]);
-        groups.sort((a,b) => b[1].length - a[1].length);
-        const placed = [];
-        const aspect = Math.max(.7, Math.min(2.1, g.canvasSize().W / g.canvasSize().H));
-        for (const [id, members] of groups) {
-          const radius = Math.sqrt(members.length) * 21 + 50;
-          let best = { x: 0, y: 0, score: Infinity };
-          if (!placed.length) best.score = 0;
-          for (const other of placed) {
-            for (let step = 0; step < 96; step++) {
-              const angle = step / 96 * Math.PI * 2;
-              const x = other.x + Math.cos(angle) * (radius + other.radius + 65);
-              const y = other.y + Math.sin(angle) * (radius + other.radius + 65);
-              if (placed.some(p => Math.hypot(p.x-x,p.y-y) < p.radius+radius+60)) continue;
-              const score = (x*x)/(aspect*aspect) + y*y;
-              if (score < best.score) best = {x,y,score};
-            }
-          }
-          placed.push({x:best.x,y:best.y,radius});
-          members.sort((a,b) => b.count-a.count || a.title.localeCompare(b.title));
-          members.forEach((n,i) => {
-            const angle = i * 2.399963229728653;
-            const distance = Math.sqrt(i / Math.max(1,members.length-1)) * (radius-45);
-            n.x = best.x + Math.cos(angle)*distance;
-            n.y = best.y + Math.sin(angle)*distance;
-          });
-        }
-      }
-
-      function applyForceLayout(g) {
-        if (!rawForcePositions) return;
-        const scale = FORCE_BASELINE * g.forceMult;
-        for (let i = 0; i < g.nodes.length; i++) {
-          const p = rawForcePositions[i];
-          if (!p) continue;
-          g.nodes[i].x = p[0] * scale;
-          g.nodes[i].y = p[1] * scale;
-        }
-      }
-      function applyGridLayout(g) {
-        const visible = g.nodes.filter((n) => n.visible).sort((a, b) => b.count - a.count);
-        const cols = Math.max(1, Math.ceil(Math.sqrt(visible.length)));
-        visible.forEach((n, k) => { n.x = (k % cols) * 90; n.y = Math.floor(k / cols) * 90; });
-      }
-      function applyCircleLayout(g) {
-        // Interleave landmarks evenly around the ring so surviving labels
-        // are spread across the circumference.
-        const visible = g.nodes.filter((n) => n.visible);
-        const landmarks = visible.filter((n) => n.isLandmark);
-        const others = visible.filter((n) => !n.isLandmark);
-        const total = visible.length;
-        const interval = landmarks.length > 0 ? Math.floor(total / landmarks.length) : total;
-        const ordered = [];
-        let li = 0, oi = 0;
-        for (let k = 0; k < total; k++) {
-          if (li < landmarks.length && k % interval === 0) ordered.push(landmarks[li++]);
-          else if (oi < others.length) ordered.push(others[oi++]);
-          else ordered.push(landmarks[li++]);
-        }
-        const radius = Math.max(400, total * 6);
-        ordered.forEach((n, k) => {
-          const angle = (k / total) * 2 * Math.PI;
-          n.x = Math.cos(angle) * radius;
-          n.y = Math.sin(angle) * radius;
+      for (const chip of article.querySelectorAll('.net-chip')) {
+        chip.addEventListener('click', () => {
+          const on = chip.classList.toggle('active');
+          chip.setAttribute('aria-pressed', String(on));
+          if (on) activeTypes.add(chip.dataset.type); else activeTypes.delete(chip.dataset.type);
+          for (const n of engine.nodes) n.visible = !n.isolated && activeTypes.has(n.type);
+          engine.selectionChanged();
         });
       }
-      function applyConcentricLayout(g) {
-        // Bridges in the middle, high-mention next, the tail outside.
-        const sorted = g.nodes.filter((n) => n.visible).sort((a, b) => {
-          if (a.bridgeRank && !b.bridgeRank) return -1;
-          if (b.bridgeRank && !a.bridgeRank) return 1;
-          if (a.bridgeRank && b.bridgeRank) return a.bridgeRank - b.bridgeRank;
-          return b.count - a.count;
-        });
-        const perRing = Math.ceil(sorted.length / 8);
-        sorted.forEach((n, i) => {
-          const r = Math.floor(i / perRing);
-          const angle = (i % perRing) * ((2 * Math.PI) / Math.max(1, perRing));
-          n.x = Math.cos(angle) * (80 + r * 90);
-          n.y = Math.sin(angle) * (80 + r * 90);
+    }
+
+    // --- Layouts (mutate g.nodes in place) ------------------------------
+    // Pack each link community into its own island, biggest first, as close to
+    // the centre as the canvas aspect allows. Force keeps the raw topology.
+    function applyClusterLayout(g) {
+      const communities = new Map();
+      for (const n of g.nodes) {
+        if (!n.visible) continue;
+        if (!communities.has(n.community)) communities.set(n.community, []);
+        communities.get(n.community).push(n);
+      }
+      const groups = [...communities.values()].filter((members) => members.length >= 8);
+      const fragments = [...communities.values()].filter((members) => members.length < 8).flat();
+      if (fragments.length) groups.push(fragments);
+      groups.sort((a, b) => b.length - a.length);
+      const placed = [];
+      const { W, H } = g.canvasSize();
+      const aspect = Math.max(.7, Math.min(2.1, W / H));
+      for (const members of groups) {
+        const radius = Math.sqrt(members.length) * 21 + 50;
+        let best = { x: 0, y: 0, score: placed.length ? Infinity : 0 };
+        for (const other of placed) {
+          for (let step = 0; step < 96; step++) {
+            const angle = step / 96 * Math.PI * 2;
+            const x = other.x + Math.cos(angle) * (radius + other.radius + 65);
+            const y = other.y + Math.sin(angle) * (radius + other.radius + 65);
+            if (placed.some((p) => Math.hypot(p.x - x, p.y - y) < p.radius + radius + 60)) continue;
+            const score = (x * x) / (aspect * aspect) + y * y;
+            if (score < best.score) best = { x, y, score };
+          }
+        }
+        placed.push({ x: best.x, y: best.y, radius });
+        members.sort((a, b) => b.count - a.count || a.title.localeCompare(b.title));
+        // Sunflower spiral: the most-mentioned sit at the island's centre.
+        members.forEach((n, i) => {
+          const angle = i * 2.399963229728653;
+          const distance = Math.sqrt(i / Math.max(1, members.length - 1)) * (radius - 45);
+          n.x = best.x + Math.cos(angle) * distance;
+          n.y = best.y + Math.sin(angle) * distance;
         });
       }
+    }
+    function applyForceLayout(g) {
+      const scale = FORCE_BASELINE * g.forceMult;
+      g.nodes.forEach((n, i) => { n.x = positions[i][0] * scale; n.y = positions[i][1] * scale; });
+    }
+    function applyGridLayout(g) {
+      const visible = g.nodes.filter((n) => n.visible).sort((a, b) => b.count - a.count);
+      const cols = Math.max(1, Math.ceil(Math.sqrt(visible.length)));
+      visible.forEach((n, k) => { n.x = (k % cols) * 90; n.y = Math.floor(k / cols) * 90; });
+    }
+    // Spread landmarks evenly around the ring so their labels don't collide.
+    function applyCircleLayout(g) {
+      const visible = g.nodes.filter((n) => n.visible);
+      const landmarks = visible.filter((n) => n.isLandmark);
+      const others = visible.filter((n) => !n.isLandmark);
+      const total = visible.length;
+      const interval = landmarks.length > 0 ? Math.floor(total / landmarks.length) : total;
+      const ordered = [];
+      let li = 0, oi = 0;
+      for (let k = 0; k < total; k++) {
+        if (li < landmarks.length && k % interval === 0) ordered.push(landmarks[li++]);
+        else if (oi < others.length) ordered.push(others[oi++]);
+        else ordered.push(landmarks[li++]);
+      }
+      const radius = Math.max(400, total * 6);
+      ordered.forEach((n, k) => {
+        const angle = (k / total) * 2 * Math.PI;
+        n.x = Math.cos(angle) * radius;
+        n.y = Math.sin(angle) * radius;
+      });
+    }
+    // Bridges in the middle by rank, then by mentions outward, eight rings.
+    function applyConcentricLayout(g) {
+      const sorted = g.nodes.filter((n) => n.visible).sort((a, b) =>
+        (b.bridgeRank ? 1 : 0) - (a.bridgeRank ? 1 : 0) || a.bridgeRank - b.bridgeRank || b.count - a.count);
+      const perRing = Math.ceil(sorted.length / 8);
+      sorted.forEach((n, i) => {
+        const r = 80 + Math.floor(i / perRing) * 90;
+        const angle = (i % perRing) * ((2 * Math.PI) / Math.max(1, perRing));
+        n.x = Math.cos(angle) * r;
+        n.y = Math.sin(angle) * r;
+      });
+    }
 
-      loadBtn.addEventListener('click', init);
-      const observer = new IntersectionObserver(entries => {
-        if (entries.some(entry => entry.isIntersecting)) { observer.disconnect(); init(); }
-      }, { rootMargin: '200px' });
-      observer.observe(article);
-    })();
+    loadBtn.addEventListener('click', init);
+    const observer = new IntersectionObserver((entries) => {
+      if (entries.some((e) => e.isIntersecting)) { observer.disconnect(); init(); }
+    }, { rootMargin: '200px' });
+    observer.observe(article);
   </script>
 </Base>

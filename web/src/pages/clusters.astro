@@ -1,20 +1,13 @@
 ---
 import Base from '../layouts/Base.astro';
-import { communities, entities, CLUSTER_MIN_SIZE, hrefFor, TYPE_LABELS, TYPE_PLURALS } from '../lib/data.ts';
+import { communities, entities, CLUSTER_MIN_SIZE as MIN_SIZE, hrefFor, TYPE_LABELS, TYPE_PLURALS } from '../lib/data.ts';
 import type { EntityType } from '../lib/types.ts';
 
-const MIN_SIZE = CLUSTER_MIN_SIZE;
 const all = communities();
 const big = all.filter((c) => c.size >= MIN_SIZE).sort((a, b) => b.size - a.size);
-const small = all.filter((c) => c.size < MIN_SIZE);
+const small = all.filter((c) => c.size < MIN_SIZE).sort((a, b) => b.size - a.size);
 const smallMembers = small.reduce((n, c) => n + c.size, 0);
-const members = new Map<number, ReturnType<typeof entities>>();
-for (const entity of entities()) {
-  if (entity.community_id == null) continue;
-  const group = members.get(entity.community_id) ?? [];
-  group.push(entity);
-  members.set(entity.community_id, group);
-}
+const members = Map.groupBy(entities().filter((e) => e.community_id != null), (e) => e.community_id!);
 const overflow = new Map(big.map((c) => {
   const visible = new Set(c.top.map((m) => m.id));
   return [c.id, (members.get(c.id) ?? [])
@@ -24,7 +17,7 @@ const overflow = new Map(big.map((c) => {
 ---
 <Base
   bodyClass="utility"
-  title="Clusters | The Info Web"
+  title="Clusters"
   description="Groups of entries with more links to one another than to the rest of the site."
 >
   <article class="changelog-article clusters-article">
@@ -46,8 +39,8 @@ const overflow = new Map(big.map((c) => {
         <ul class="hc-list cluster-members">
           {c.top.map((m) => (
             <li class={`hc-item type-${m.type}`}>
-              <a href={hrefFor({ id: m.id, type: m.type })} data-preview>
-                <span class="hc-eyebrow">{TYPE_LABELS[m.type as EntityType]}</span>
+              <a href={hrefFor(m)} data-preview>
+                <span class="hc-eyebrow">{TYPE_LABELS[m.type]}</span>
                 <span class="hc-title">{m.title}</span>
                 <span class="hc-mult">{m.mention_count}</span>
               </a>
@@ -63,8 +56,8 @@ const overflow = new Map(big.map((c) => {
             <ul class="hc-list cluster-members">
               {overflow.get(c.id)!.map((m) => (
                 <li class={'hc-item type-' + m.type}>
-                  <a href={hrefFor({ id: m.id, type: m.type })} data-preview>
-                    <span class="hc-eyebrow">{TYPE_LABELS[m.type as EntityType]}</span>
+                  <a href={hrefFor(m)} data-preview>
+                    <span class="hc-eyebrow">{TYPE_LABELS[m.type]}</span>
                     <span class="hc-title">{m.title}</span>
                     <span class="hc-mult">{m.mention_count}</span>
                   </a>
@@ -83,13 +76,13 @@ const overflow = new Map(big.map((c) => {
           {small.length} clusters of fewer than {MIN_SIZE} entries ({smallMembers} entries in total).
         </p>
         <ul class="hc-list cl-small-grid">
-          {small.sort((a, b) => b.size - a.size).map((c) => (
+          {small.map((c) => (
             <li class="cl-small" id={`c-${c.id}`}>
               <ul class="hc-list">
                 {c.top.map((m) => (
                   <li class={`hc-item type-${m.type}`}>
-                    <a href={hrefFor({ id: m.id, type: m.type })} data-preview>
-                      <span class="hc-eyebrow">{TYPE_LABELS[m.type as EntityType]}</span>
+                    <a href={hrefFor(m)} data-preview>
+                      <span class="hc-eyebrow">{TYPE_LABELS[m.type]}</span>
                       <span class="hc-title">{m.title}</span>
                       <span class="hc-mult">{m.mention_count}</span>
                     </a>

@@ -1,80 +1,44 @@
 ---
 import Base from '../../layouts/Base.astro';
-import {
-  allTags,
-  entitiesByTag,
-  tagDisplayFor,
-  hrefFor,
-  renderInlineMd,
-  TYPE_LABELS,
-  TYPE_PLURALS,
-} from '../../lib/data.ts';
-import type { Entity, EntityType } from '../../lib/types.ts';
+import { allTags, BROWSE_TYPES, entitiesByTag, hrefFor, renderInlineMd, TYPE_LABELS, TYPE_PLURALS } from '../../lib/data.ts';
+import { collectionPage } from '../../lib/site.ts';
+import type { EntityType } from '../../lib/types.ts';
 
 export function getStaticPaths() {
-  return allTags().map((t) => ({
-    params: { slug: t.slug },
-    props: { tag: t.tag, count: t.count },
-  }));
+  return allTags().map((t) => ({ params: { slug: t.slug }, props: { tag: t.tag, count: t.count } }));
 }
 
 const { slug } = Astro.params as { slug: string };
 const { tag, count } = Astro.props as { tag: string; count: number };
 
-// Group entities by type so a tag like "Cold_War" splits neatly into
-// People / Organizations / Events / Programs sections.
-const ents = entitiesByTag(slug);
-const TYPE_ORDER: EntityType[] = ['person', 'organization', 'program', 'event', 'concept', 'place'];
-const byType: Record<string, Entity[]> = {};
-for (const e of ents) {
-  (byType[e.type] ||= []).push(e);
-}
-const groups = TYPE_ORDER
-  .filter((t) => byType[t]?.length)
-  .map((t) => ({
-    type: t,
-    label: TYPE_PLURALS[t],
-    items: byType[t].slice().sort((a, b) => a.title.localeCompare(b.title)),
+// One section per type: browse types first, then any others in order of appearance.
+const byType = Map.groupBy(entitiesByTag(slug), (e) => e.type);
+const rank = (t: EntityType) => {
+  const i = BROWSE_TYPES.indexOf(t);
+  return i < 0 ? BROWSE_TYPES.length : i;
+};
+const groups = [...byType]
+  .sort(([a], [b]) => rank(a) - rank(b))
+  .map(([type, items]) => ({
+    type,
+    label: TYPE_PLURALS[type],
+    items: items.toSorted((a, b) => a.title.localeCompare(b.title)),
   }));
-// Catch-all for any type not in TYPE_ORDER (source/meta/misc/page)
-for (const [t, items] of Object.entries(byType)) {
-  if (!TYPE_ORDER.includes(t as EntityType)) {
-    groups.push({
-      type: t as EntityType,
-      label: TYPE_PLURALS[t as EntityType] ?? t,
-      items: items.slice().sort((a, b) => a.title.localeCompare(b.title)),
-    });
-  }
-}
 
-// Type breakdown in the description so a tag with 23 people + 8 events reads
-// differently from one with 5 concepts — better snippets, and LLMs can tell
-// what kind of tag this is at a glance.
+// e.g. "31 entries tagged X: 23 people, 8 events."
 const breakdown = groups
-  .map((g) => {
-    const noun = g.items.length === 1 ? TYPE_LABELS[g.type] : g.label;
-    return `${g.items.length} ${noun.toLowerCase()}`;
-  })
+  .map((g) => `${g.items.length} ${(g.items.length === 1 ? TYPE_LABELS[g.type] : g.label).toLowerCase()}`)
   .join(', ');
 const description = `${count.toLocaleString()} entr${count === 1 ? 'y' : 'ies'} tagged ${tag}${breakdown ? `: ${breakdown}` : ''}.`;
-const collectionSchema = {
-  '@context': 'https://schema.org',
-  '@type': 'CollectionPage',
-  name: `#${tag} | The Info Web`,
-  description,
-  url: Astro.site ? new URL(`/tag/${slug}/`, Astro.site).href : `/tag/${slug}/`,
-  ...(Astro.site ? { isPartOf: { '@id': `${new URL('/', Astro.site).href}#website` } } : {}),
-  mainEntity: { '@type': 'ItemList', numberOfItems: count },
-};
 const breadcrumbs = [
   { name: 'Tags', item: '/tags/' },
   { name: `#${tag}`, item: `/tag/${slug}/` },
 ];
 ---
 <Base
-  title={`#${tag} | The Info Web`}
+  title={`#${tag}`}
   description={description}
-  jsonLd={collectionSchema}
+  jsonLd={collectionPage(`#${tag}`, description, `/tag/${slug}/`, count)}
   breadcrumbs={breadcrumbs}
 >
   <header class="browse-header">
@@ -100,7 +64,7 @@ const breadcrumbs = [
         <ul class="cat-list">
           {g.items.map((e) => (
             <li data-result-search={`${e.title} ${e.summary ?? ''}`}>
-              <a class="entry-title" href={hrefFor({ id: e.id, type: e.type })}>
+              <a class="entry-title" href={hrefFor(e)}>
                 {e.title}
               </a>
               {e.summary && <span class="entry-summary" set:html={renderInlineMd(e.summary)} />}

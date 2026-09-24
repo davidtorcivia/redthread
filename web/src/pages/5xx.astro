@@ -3,7 +3,7 @@ import Base from '../layouts/Base.astro';
 ---
 <Base
   bodyClass="utility"
-  title="Server error | The Info Web"
+  title="Server error"
   description="Something went wrong on the server."
   noindex
 >
@@ -21,8 +21,7 @@ import Base from '../layouts/Base.astro';
     </div>
   </article>
 
-  {/* Listener instead of an inline onclick so a strict script-src CSP can't
-      break it, matching how the rest of the site wires buttons. */}
+  {/* A listener, not onclick, so a strict script-src CSP can't break it. */}
   <script is:inline>
     document.getElementById('error-retry')?.addEventListener('click', () => {
       window.location.reload();

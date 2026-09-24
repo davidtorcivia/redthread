@@ -1,21 +1,8 @@
+// /random/ is a client-side redirect with nothing to index.
 import type { APIRoute } from 'astro';
+import { absUrl } from '../lib/site.ts';
 
-/**
- * robots.txt — points crawlers at the sitemap and disallows the
- * /random/ utility page (it's a JS-driven redirect; indexing it
- * would pollute search results with a single dead landing page).
- */
-export const GET: APIRoute = ({ site }) => {
-  const base = site ? site.toString().replace(/\/+$/, '') : '';
-  const body = [
-    'User-agent: *',
-    'Allow: /',
-    'Disallow: /random/',
-    '',
-    `Sitemap: ${base}/sitemap.xml`,
-    '',
-  ].join('\n');
-  return new Response(body, {
-    headers: { 'Content-Type': 'text/plain; charset=utf-8' },
-  });
-};
+export const GET: APIRoute = () => new Response(
+  ['User-agent: *', 'Allow: /', 'Disallow: /random/', '', `Sitemap: ${absUrl('/sitemap.xml')}`, ''].join('\n'),
+  { headers: { 'Content-Type': 'text/plain; charset=utf-8' } },
+);

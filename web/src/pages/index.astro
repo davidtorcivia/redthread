@@ -1,13 +1,14 @@
 ---
 import Base from '../layouts/Base.astro';
-import { entities, activity, communities, focus, CLUSTER_MIN_SIZE, hrefFor, renderInlineMd, topHubs, TYPE_DIRS, TYPE_LABELS, TYPE_PLURALS } from '../lib/data.ts';
-import type { EntityType } from '../lib/types.ts';
+import { SITE_DESCRIPTION, SITE_TITLE } from '../lib/site.ts';
+import { activity, BROWSE_TYPES, communities, entities, entity, focus, CLUSTER_MIN_SIZE, hrefFor, renderInlineMd, topHubs, TYPE_DIRS, TYPE_LABELS, TYPE_PLURALS } from '../lib/data.ts';
 
 const total = entities().length;
-const types: EntityType[] = ['person', 'organization', 'program', 'event', 'concept', 'place'];
-const byId = new Map(entities().map((e) => [e.id, e]));
 const inFocus = focus();
-const featured = inFocus.pages.flatMap(p => byId.has(p.id) ? [{ e: byId.get(p.id)!, reason: p.reason }] : []);
+const featured = inFocus.pages.flatMap((p) => {
+  const e = entity(p.id);
+  return e ? [{ e, reason: p.reason }] : [];
+});
 const focusCluster = inFocus.cluster;
 const clusters = communities().filter(c => c.size >= CLUSTER_MIN_SIZE);
 const featuredClusters = [...clusters].sort((a, b) => b.size - a.size).slice(0, 4);
@@ -17,11 +18,11 @@ const shortDate = (iso: string) => {
   return Number.isNaN(date.getTime()) ? '' : date.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', timeZone: 'UTC' });
 };
 ---
-<Base title="The Info Web" bodyClass="home" description="A research vault on intelligence operations, parapsychology, government programs, and the parapolitical record.">
+<Base title={SITE_TITLE} bodyClass="home" description={SITE_DESCRIPTION}>
   <section class="statement-band home-band">
-    <h1>The Info<br />Web</h1>
+    <h1>{SITE_TITLE}</h1>
     <div class="band-row">
-      <p class="band-lede">An archive of intelligence operations, government programs, parapsychology, and political scandals, with references and connections between the people and organizations involved.</p>
+      <p class="band-lede">{SITE_DESCRIPTION}</p>
       <div class="band-facts">
         <div>{total.toLocaleString()} entries · <a href="/clusters/">{clusters.length} clusters</a></div>
         <div><a href="/network/">Network</a> · <a href="/path/">Path</a> · <a href="/bridges/">Bridges</a> · <a href="/clusters/">Clusters</a> · <a href="/tags/">Tags</a> · <a href="/sources/">Sources</a> · <a href="/timeline/">Timeline</a></div>
@@ -44,7 +45,7 @@ const shortDate = (iso: string) => {
     </section>}
     <section class="statement-list">
       <h2 class="section-heading">Most mentioned</h2>
-      <div class="statement-cols">{types.map(type => <div>
+      <div class="statement-cols">{BROWSE_TYPES.map(type => <div>
         <h3>{TYPE_PLURALS[type]} <a href={`/${TYPE_DIRS[type]}/`} aria-label={`All ${TYPE_PLURALS[type].toLowerCase()}`}>all</a></h3>
         <ol>{topHubs(8, type).map(e => <li><a href={hrefFor(e)}>{e.title}</a><span>{e.mention_count}</span></li>)}</ol>
       </div>)}</div>

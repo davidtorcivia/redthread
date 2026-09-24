@@ -2,7 +2,7 @@
 interface Props { full?: boolean; id: string }
 const { full = false, id } = Astro.props;
 ---
-<div class="graph-toolbar net-controls" id={full ? 'net-controls' : undefined} hidden={full}>
+<div class="graph-toolbar net-controls" hidden={full}>
   <div class="graph-search">
     <label class="sr-only" for={`${id}-search`}>Find an entry in this graph</label>
     <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5" /><path d="m16 16 5 5" /></svg>
@@ -22,11 +22,11 @@ const { full = false, id } = Astro.props;
           <button class="graph-btn net-implicit" type="button" aria-pressed={full ? 'false' : 'true'}>{full ? '+ Inferred' : '− Inferred'}</button>
           <button class="graph-btn net-multi" type="button" aria-pressed="false">Multi: off</button>
         </div>
-        {full && <div class="net-filters" id="net-filters" aria-label="Filter by type">
+        {full && <div class="net-filters" aria-label="Filter by type">
           <span class="graph-option-label">Show entries</span>
           {[['person','People'],['organization','Organizations'],['program','Programs'],['event','Events'],['concept','Concepts'],['place','Places']].map(([type,label]) => <button class={`net-chip active type-${type}`} data-type={type} aria-pressed="true">{label}</button>)}
         </div>}
-        <div class="net-sliders" id={full ? 'net-sliders' : undefined}>
+        <div class="net-sliders">
           {[['opacity','Visibility',0,100],['highlight','Focus',0,100],['force','Spacing',50,400]].map(([key,label,min,max]) => <label class="net-slider" data-force-only={key === 'force' ? '' : undefined}>
             <span class="net-slider-label">{label}</span>
             <input type="range" class="net-slider-input" data-slider={key} min={min} max={max} value="100" />

@@ -1,31 +1,27 @@
 ---
 import Base from '../layouts/Base.astro';
+import { TYPE_DIRS } from '../lib/data.ts';
 import { tagDirectoryRows } from '../lib/tag-directory.ts';
 
 const rows = tagDirectoryRows();
 const initial = rows.slice(0, 50);
-const startingSubjects = [
-  ['cia', 'CIA'], ['coldwar', 'Cold War'], ['promis', 'PROMIS'], ['remoteviewing', 'Remote Viewing'],
-  ['irancontra', 'Iran–Contra'], ['organizedcrime', 'Organized Crime'], ['parapsychology', 'Parapsychology'], ['operationcondor', 'Operation Condor'],
-];
-const startingPoints = startingSubjects.flatMap(([key, label]) => {
-  const row = rows.find((item) => item.key === key);
-  return row ? [{ row, label }] : [];
-});
+// Most-used tags, skipping ones that just repeat an entry type.
+const typeWords = new Set([...Object.keys(TYPE_DIRS), ...Object.values(TYPE_DIRS)]);
+const startingPoints = rows.filter((row) => !typeWords.has(row.key)).slice(0, 8);
 const letters = new Set(rows.map((row) => row.letter));
 ---
 <Base
-  title="Tags | The Info Web"
+  title="Tags"
   description="Find subjects across the archive by tag. Search names and variant spellings, or browse the full index."
 >
-  <main class="tag-directory" id="tag-directory">
+  <div class="tag-directory" id="tag-directory">
     <header class="browse-header tag-header"><h1>Tags</h1></header>
     <div class="tag-inner">
       <section class="tag-start" aria-labelledby="tag-start-title">
         <h2 id="tag-start-title">Start with a subject</h2>
         <div class="tag-start-grid">
-          {startingPoints.map(({ row, label }) => <a href={`/tag/${row.primary.slug}/`}>
-            <span>{label}</span><small>{row.count.toLocaleString()} entries ↗</small>
+          {startingPoints.map((row) => <a href={`/tag/${row.primary.slug}/`}>
+            <span>{row.primary.tag}</span><small>{row.count.toLocaleString()} entries ↗</small>
           </a>)}
         </div>
       </section>
@@ -59,7 +55,7 @@ const letters = new Set(rows.map((row) => row.letter));
         <noscript><p><a href="/tags/all/">Browse the complete A–Z list</a></p></noscript>
       </section>
     </div>
-  </main>
+  </div>
 
   <script is:inline>
     (() => {
