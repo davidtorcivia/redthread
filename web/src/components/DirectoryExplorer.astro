@@ -1,6 +1,6 @@
 ---
 import type { Entity } from '../lib/types.ts';
-import { hrefFor, renderInlineMd } from '../lib/data.ts';
+import { aliasesOf, hrefFor, renderInlineMd } from '../lib/data.ts';
 
 const { items, directory = 'People', singular = 'person' } = Astro.props as {
   items: Entity[];
@@ -31,10 +31,7 @@ const initialFor = (title: string) => {
   return first && /[A-Z]/.test(first) ? first : '';
 };
 const letters = new Set(items.map((item) => initialFor(item.title)).filter(Boolean));
-const aliasesFor = (item: Entity) => [item.frontmatter.alias, item.frontmatter.aliases]
-  .flatMap((value) => Array.isArray(value) ? value : typeof value === 'string' ? [value] : [])
-  .filter((value): value is string => typeof value === 'string')
-  .join(' ');
+const aliasesFor = (item: Entity) => aliasesOf(item).join(' ');
 ---
 <div class="people-directory" id="people-directory" data-directory={directory} data-singular={singular} data-plural={pluralLower}>
   <header class:list={['browse-header', 'people-header', { 'long-title': directory.length > 10 }]}>
