@@ -193,6 +193,22 @@ export function allTags(): { slug: string; tag: string; count: number }[] {
     .sort((a, b) => b.count - a.count || a.tag.localeCompare(b.tag));
 }
 
+/** Tags with fewer entries are thin pages: noindex and left out of the sitemap. */
+export const TAG_INDEX_MIN = 3;
+
+/** Aliases from either frontmatter key, `alias` or `aliases`, deduplicated. */
+export function aliasesOf(e: Pick<Entity, 'frontmatter'>): string[] {
+  const raw = [e.frontmatter.alias, e.frontmatter.aliases].flatMap((v) => (Array.isArray(v) ? v : v == null ? [] : [v]));
+  return [...new Set(raw.flatMap(aliasText).map((a) => a.trim()).filter(Boolean))];
+}
+
+/** YAML parses an unquoted "Title: Subtitle" as a one-key mapping; rejoin it. */
+function aliasText(a: unknown): string[] {
+  if (typeof a === 'string' || typeof a === 'number') return [String(a)];
+  const pairs = a && typeof a === 'object' && !Array.isArray(a) ? Object.entries(a) : [];
+  return pairs.length === 1 ? [`${pairs[0][0]}: ${pairs[0][1]}`] : [];
+}
+
 export function entitiesByTag(slug: string): Entity[] {
   return tagIndex().get(slug)?.entities ?? [];
 }

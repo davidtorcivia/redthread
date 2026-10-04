@@ -15,7 +15,8 @@ interface Props {
   ogType?: string;
   /** Page-specific schema.org data. */
   jsonLd?: Record<string, unknown> | null;
-  noindex?: boolean;
+  /** true: noindex, nofollow. 'follow': noindex but crawl the links. */
+  noindex?: boolean | 'follow';
   /** Site path of this page's social card. Defaults to the site-wide card. */
   ogImage?: string;
   /** Preload /adjacency.json. Set only on pages that fetch it. */
@@ -72,6 +73,7 @@ const breadcrumbSchema = breadcrumbs?.length
   ? {
       '@context': 'https://schema.org',
       '@type': 'BreadcrumbList',
+      '@id': `${canonical}#breadcrumb`,
       itemListElement: [{ name: 'Home', item: '/' }, ...breadcrumbs].map((b, i) => ({
         '@type': 'ListItem',
         position: i + 1,
@@ -102,7 +104,7 @@ const breadcrumbSchema = breadcrumbs?.length
     </style>
     <title>{title}</title>
     {description && <meta name="description" content={description} />}
-    {noindex && <meta name="robots" content="noindex, nofollow" />}
+    {noindex && <meta name="robots" content={noindex === 'follow' ? 'noindex, follow' : 'noindex, nofollow'} />}
     <link rel="canonical" href={canonical} />
     <link rel="alternate" type="application/atom+xml" title={`${SITE_TITLE}: Changelog`} href="/feed.xml" />
 

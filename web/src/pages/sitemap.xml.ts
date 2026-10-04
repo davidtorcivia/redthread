@@ -1,6 +1,6 @@
 // Hand-rolled so each entry gets its own lastmod and each section its own changefreq.
 import type { APIRoute } from 'astro';
-import { allTags, BROWSE_TYPES, entities, hrefFor, TYPE_DIRS } from '../lib/data.ts';
+import { allTags, BROWSE_TYPES, entities, hrefFor, TAG_INDEX_MIN, TYPE_DIRS } from '../lib/data.ts';
 import { escapeHtml as esc } from '../lib/inline-md.ts';
 import { absUrl } from '../lib/site.ts';
 
@@ -18,7 +18,7 @@ export const GET: APIRoute = () => {
     { loc: '/changelog/',changefreq: 'daily',   priority: '0.5' },
     ...[...BROWSE_TYPES.map((t) => `/${TYPE_DIRS[t]}/`), '/sources/']
       .map((loc) => ({ loc, changefreq: 'weekly', priority: '0.6' })),
-    ...allTags().map((t) => ({ loc: `/tag/${t.slug}/`, changefreq: 'weekly', priority: '0.5' })),
+    ...allTags().filter((t) => t.count >= TAG_INDEX_MIN).map((t) => ({ loc: `/tag/${t.slug}/`, changefreq: 'weekly', priority: '0.5' })),
     ...entities().map((e) => ({
       loc: hrefFor(e),
       lastmod: e.mtime?.slice(0, 10),

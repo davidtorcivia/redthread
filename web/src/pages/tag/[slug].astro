@@ -1,6 +1,6 @@
 ---
 import Base from '../../layouts/Base.astro';
-import { allTags, BROWSE_TYPES, entitiesByTag, hrefFor, renderInlineMd, TYPE_LABELS, TYPE_PLURALS } from '../../lib/data.ts';
+import { allTags, BROWSE_TYPES, TAG_INDEX_MIN, entitiesByTag, hrefFor, renderInlineMd, TYPE_LABELS, TYPE_PLURALS } from '../../lib/data.ts';
 import { collectionPage } from '../../lib/site.ts';
 import type { EntityType } from '../../lib/types.ts';
 
@@ -40,6 +40,7 @@ const breadcrumbs = [
   description={description}
   jsonLd={collectionPage(`#${tag}`, description, `/tag/${slug}/`, count)}
   breadcrumbs={breadcrumbs}
+  noindex={count < TAG_INDEX_MIN && 'follow'}
 >
   <header class="browse-header">
     <h1>#{tag}</h1>
