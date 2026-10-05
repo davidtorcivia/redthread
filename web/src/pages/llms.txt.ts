@@ -7,6 +7,9 @@ import { absUrl, AGENT_API, CONTACT_EMAIL, CONTACT_PGP, SITE_DESCRIPTION, SITE_T
 // Brackets in a title would end the markdown link text early.
 const linkText = (s: string) => s.replace(/[[\]]/g, '\\$&');
 
+// A short config key for the MCP server in client settings ("theinfoweb").
+const mcpName = SITE_TITLE.toLowerCase().replace(/[^a-z0-9]+/g, '') || 'archive';
+
 export const GET: APIRoute = () => {
   const lines = [
     `# ${SITE_TITLE}`,
@@ -52,6 +55,7 @@ export const GET: APIRoute = () => {
     '',
     `- MCP server (streamable HTTP, no auth): \`${absUrl('/mcp')}\`. Tools: \`search\` (by meaning and by name, with type, tag and year filters; returns matching sections with deep links), \`search_semantic\` (by meaning only), \`search_lexical\` (exact words and "quoted phrases"), \`search_citations\` (find a source in the footnotes and every entry and typed relation that cites it), \`get_entry\` (full markdown with citations), \`neighbors\`, \`find_path\` (\`edges\`: \`links\`, \`any\` or \`relations\` for typed, footnoted relations only; \`exclude\` hubs; \`k\` alternative routes), \`similar\`, \`timeline\` (every dated statement for a year, range or entry, with its footnotes, grouped by date so conflicting accounts sit side by side), \`list_entries\` (frontmatter only).`,
     `- The same tools over GET, returning JSON: \`${absUrl('/api/search')}?q=...\` (also \`type\`, \`tag\`, \`year_from\`, \`year_to\`, \`limit\`), \`/api/semantic?query=\`, \`/api/lexical?query=\`, \`/api/citations?query=\`, \`/api/entry?id=\`, \`/api/neighbors?id=\`, \`/api/path?from=&to=\` (also \`edges\`, \`exclude\` comma-separated, \`k\`), \`/api/similar?id=\`, \`/api/timeline?year=\` (or \`year_from\`/\`year_to\`, or \`entry\`), \`/api/entries\` (\`type\`, \`tag\`, \`updated_since\`, \`offset\`). OpenAPI: \`${absUrl('/api/openapi')}\`.`,
+    `- Install the MCP server: Claude Code \`claude mcp add --transport http ${mcpName} ${absUrl('/mcp')}\`; Claude Desktop or claude.ai: Settings > Connectors > Add custom connector, URL \`${absUrl('/mcp')}\`; other clients: \`{"mcpServers": {"${mcpName}": {"url": "${absUrl('/mcp')}"}}}\`. No authentication. Server card: \`${absUrl('/mcp/server-card')}\`.`,
     '- Both are rate limited per IP. On HTTP 429, wait and retry.',
     '',
   );

@@ -2,7 +2,7 @@
 // the semantic index), OG images and markdown twins from R2 (also by Accept: text/markdown on
 // the page URL), and everything else from assets.
 import type { Adjacency } from '../web/src/scripts/adjacency.ts';
-import { handleRpc, SERVER_INFO } from './mcp.ts';
+import { handleRpc, SERVER_INFO, SUPPORTED } from './mcp.ts';
 import { Corpus, type Index } from './search.ts';
 import type { Fulltext, Rec } from './research.ts';
 import { ToolError, TOOLS, runTool, type Data } from './tools.ts';
@@ -152,10 +152,39 @@ const catalog = (origin: string) => ({
     },
     {
       anchor: `${origin}/mcp`,
+      'service-desc': [{ href: `${origin}/mcp/server-card`, type: CARD_TYPE }],
       'service-doc': [{ href: `${origin}/llms.txt`, type: 'text/markdown' }],
     },
   ],
 });
+
+const CARD_TYPE = 'application/mcp-server-card+json';
+
+/** MCP Server Card (SEP-2127, schema v1). serverInfo, endpoint and capabilities repeat the
+ *  identity in the shape of the earlier draft, which some discovery checkers still read. */
+const serverCard = (origin: string) => ({
+  $schema: 'https://static.modelcontextprotocol.io/schemas/v1/server-card.schema.json',
+  name: `${new URL(origin).hostname.split('.').reverse().join('.')}/${SERVER_INFO.name}`,
+  version: SERVER_INFO.version,
+  title: SERVER_INFO.title,
+  // The registry's server.json caps description at 100 characters.
+  description: 'Search a footnoted, cross-linked research archive by meaning, text, source and date.',
+  websiteUrl: origin,
+  remotes: [{ type: 'streamable-http', url: `${origin}/mcp`, supportedProtocolVersions: SUPPORTED }],
+  serverInfo: SERVER_INFO,
+  endpoint: `${origin}/mcp`,
+  capabilities: { tools: { listChanged: false } },
+});
+
+/** AI Catalog (domain-level discovery) with the one MCP server. */
+const aiCatalog = (origin: string) => ({
+  specVersion: '1.0',
+  entries: [{ identifier: `urn:air:${new URL(origin).hostname}:mcp:${SERVER_INFO.name}`, type: CARD_TYPE, url: `${origin}/mcp/server-card` }],
+});
+
+/** Appended to every markdown page, which is what agents read: where the research tools are. */
+const agentNote = (origin: string) =>
+  `\n\n---\n\n*${SERVER_INFO.title} has an MCP server for agents at ${origin}/mcp (streamable HTTP, no auth): search by meaning, exact text, source or date, and follow typed, footnoted connections. Setup and the same tools over GET: ${origin}/llms.txt*\n`;
 
 /** OpenAPI for the GET endpoints, built from the same tool schemas MCP lists. */
 function openapi(origin: string) {
@@ -251,11 +280,11 @@ async function fromBucket(req: Request, env: Env, ctx: Ctx, url: URL): Promise<R
     const o = await env.BUCKET.get(path);
     if (!o) return null;
     const md = url.pathname.endsWith('.md'), data = url.pathname.endsWith('.json');
-    const r = new Response(o.body, {
+    const r = new Response(md ? (await new Response(o.body).text()) + agentNote(url.origin) : o.body, {
       headers: {
         'Content-Type': md ? MD_TYPE : data ? 'application/json' : o.httpMetadata?.contentType ?? 'application/octet-stream',
         'Cache-Control': md || data ? 'public, max-age=300' : 'public, max-age=86400',
-        ETag: o.httpEtag,
+        ...(md ? {} : { ETag: o.httpEtag }),
         'X-Content-Type-Options': 'nosniff',
         'Access-Control-Allow-Origin': '*',
       },
@@ -286,6 +315,8 @@ async function negotiate(req: Request, env: Env, ctx: Ctx, url: URL): Promise<Re
   }
   res = new Response(res.body, res);
   res.headers.append('Vary', 'Accept');
+  // RFC 9727: the catalog lists the API and the MCP server.
+  res.headers.append('Link', '</.well-known/api-catalog>; rel="api-catalog"');
   return res;
 }
 
@@ -294,6 +325,12 @@ export default {
     const url = new URL(req.url);
     if (url.pathname === '/mcp') return mcp(req, env, ctx, url);
     if (url.pathname.startsWith('/api/')) return api(req, env, ctx, url);
+    if (url.pathname === '/mcp/server-card' || url.pathname === '/.well-known/mcp/server-card.json') {
+      return json(serverCard(url.origin), 200, { 'Content-Type': CARD_TYPE, 'Cache-Control': 'public, max-age=3600' });
+    }
+    if (url.pathname === '/.well-known/ai-catalog.json') {
+      return json(aiCatalog(url.origin), 200, { 'Content-Type': 'application/ai-catalog+json', 'Cache-Control': 'public, max-age=3600' });
+    }
     if (url.pathname === '/.well-known/api-catalog') {
       return json(catalog(url.origin), 200, { 'Content-Type': 'application/linkset+json', 'Cache-Control': 'public, max-age=3600' });
     }

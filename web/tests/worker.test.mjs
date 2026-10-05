@@ -242,7 +242,7 @@ test('worker: R2 paths, 404 fallback, HEAD, malformed escapes, cache key keeps t
   store.clear();
   const md = await call('/people/a.md');
   assert.equal(md.headers.get('Content-Type'), 'text/markdown; charset=utf-8');
-  assert.equal(await md.text(), '# A');
+  assert.ok((await md.text()).startsWith('# A\n'));
   assert.equal((await call('/people/missing.md')).status, 404);
   assert.equal(await (await call('/people/%E0.md')).text(), 'asset /people/%E0.md');
   const head = await call('/people/a.md', { method: 'HEAD' });
@@ -284,7 +284,7 @@ test('worker: Accept: text/markdown gets the twin, or llms.txt at /, else HTML; 
   for (const path of ['/people/a/', '/people/a']) {
     const r = await call(path, md);
     assert.equal(r.headers.get('Content-Type'), 'text/markdown; charset=utf-8');
-    assert.equal(await r.text(), '# A');
+    assert.ok((await r.text()).startsWith('# A\n'));
     assert.match(r.headers.get('Vary'), /Accept/);
   }
   const home = await call('/', md);
@@ -461,4 +461,25 @@ test('worker: fulltext.json is served from R2', async () => {
   const res = await call('/fulltext.json', {}, env({ BUCKET: bucket }));
   assert.equal(res.headers.get('Content-Type'), 'application/json');
   assert.equal(await res.text(), '{"sections":[]}');
+});
+
+test('worker: MCP discovery (server card, AI catalog, Link header, note on markdown)', async () => {
+  store.clear();
+  for (const path of ['/mcp/server-card', '/.well-known/mcp/server-card.json']) {
+    const res = await call(path);
+    assert.equal(res.headers.get('Content-Type'), 'application/mcp-server-card+json');
+    const card = await res.json();
+    assert.equal(card.name, 'test.x/theinfoweb');
+    assert.deepEqual(card.remotes[0].url, 'https://x.test/mcp');
+    assert.equal(card.serverInfo.version, card.version);
+    assert.ok(card.description.length <= 100);
+  }
+  const cat = await (await call('/.well-known/ai-catalog.json')).json();
+  assert.equal(cat.entries[0].url, 'https://x.test/mcp/server-card');
+  const api = await (await call('/.well-known/api-catalog')).json();
+  assert.equal(api.linkset[1]['service-desc'][0].href, 'https://x.test/mcp/server-card');
+  assert.match((await call('/people/a/')).headers.get('Link'), /rel="api-catalog"/);
+  const md = await (await call('/people/a.md')).text();
+  assert.ok(md.startsWith('# A'));
+  assert.match(md, /MCP server for agents at https:\/\/x\.test\/mcp/);
 });

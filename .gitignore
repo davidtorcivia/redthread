@@ -20,6 +20,23 @@ web/public/*/*.md
 .last-build.log
 .rebuild.lock
 
+# Agent tooling: per-user settings and instructions, never tracked
+.claude/
+CLAUDE.md
+CLAUDE.local.md
+AGENTS.md
+GEMINI.md
+.gemini/
+.codex/
+.cursor/
+.cursorrules
+.windsurf/
+.windsurfrules
+.clinerules
+.continue/
+.aider*
+.github/copilot-instructions.md
+
 # Tooling
 node_modules/
 .astro/
