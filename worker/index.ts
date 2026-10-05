@@ -176,11 +176,27 @@ const serverCard = (origin: string) => ({
   capabilities: { tools: { listChanged: false } },
 });
 
-/** AI Catalog (domain-level discovery) with the one MCP server. */
-const aiCatalog = (origin: string) => ({
-  specVersion: '1.0',
-  entries: [{ identifier: `urn:air:${new URL(origin).hostname}:mcp:${SERVER_INFO.name}`, type: CARD_TYPE, url: `${origin}/mcp/server-card` }],
-});
+/** AI Catalog / ARD manifest (domain-level discovery) with the one MCP server. */
+const aiCatalog = (origin: string) => {
+  const host = new URL(origin).hostname;
+  return {
+    specVersion: '1.0',
+    host: { displayName: SERVER_INFO.title, identifier: `did:web:${host}` },
+    entries: [{
+      identifier: `urn:air:${host}:mcp:${SERVER_INFO.name}`,
+      displayName: `${SERVER_INFO.title} research archive`,
+      type: CARD_TYPE,
+      url: `${origin}/mcp/server-card`,
+      // Sample questions registries embed to match this server to queries.
+      representativeQueries: [
+        'who ran the CIA mind control program MKULTRA',
+        'find the connection between two people through documented links',
+        'what sources say about an event, with conflicting dates side by side',
+        'which entries cite a given book or archive',
+      ],
+    }],
+  };
+};
 
 /** Appended to every markdown page, which is what agents read: where the research tools are. */
 const agentNote = (origin: string) =>

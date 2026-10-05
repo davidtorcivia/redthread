@@ -109,6 +109,7 @@ const pgpGroups = CONTACT_PGP.match(/[0-9A-F]{4}/g) ?? [];
     {noindex && <meta name="robots" content={noindex === 'follow' ? 'noindex, follow' : 'noindex, nofollow'} />}
     <link rel="canonical" href={canonical} />
     <link rel="alternate" type="application/atom+xml" title={`${SITE_TITLE}: Changelog`} href="/feed.xml" />
+    {AGENT_API && <link rel="ai-catalog" href="/.well-known/ai-catalog.json" />}
 
     <meta property="og:site_name" content={SITE_TITLE} />
     <meta property="og:title" content={title} />
