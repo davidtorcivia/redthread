@@ -154,11 +154,11 @@ test('worker: R2 paths, 404 fallback, HEAD, malformed escapes, cache key keeps t
   const head = await call('/people/a.md', { method: 'HEAD' });
   assert.equal(head.status, 200);
   assert.equal(await head.text(), '');
-  assert.ok(store.has('https://x.test/people/a.md'));
-  await call('/og/people/a.png?v=1', {}, env({ BUCKET: { get: async () => ({ body: new Response('png').body, httpEtag: '"p"' }) } }));
-  assert.ok(store.has('https://x.test/og/people/a.png?v=1'));
-  await call('/people/a.md?junk=1');
-  assert.ok(!store.has('https://x.test/people/a.md?junk=1'));
+  assert.ok(store.has('https://x.test/people/a.md?deploy='));
+  const png = { get: async () => ({ body: new Response('png').body, httpEtag: '"p"' }) };
+  await call('/og/people/a.png?v=1', {}, env({ BUCKET: png, CF_VERSION_METADATA: { id: 'd1' } }));
+  await call('/og/people/a.png?v=2', {}, env({ BUCKET: png, CF_VERSION_METADATA: { id: 'd1' } }));
+  assert.deepEqual([...store.keys()].filter((k) => k.includes('/og/')), ['https://x.test/og/people/a.png?deploy=d1']);
 });
 
 test('worker: MCP handshake works when the data cannot load; tool errors stay JSON-RPC', async () => {

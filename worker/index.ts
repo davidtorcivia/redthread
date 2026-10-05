@@ -166,10 +166,9 @@ async function fromBucket(req: Request, env: Env, ctx: Ctx, url: URL): Promise<R
   } catch {
     return env.ASSETS.fetch(req);  // malformed escapes: the site's 404 page
   }
-  // OG links carry ?v=<card template hash> to bust caches; other query strings are ignored,
-  // so random ones cannot force R2 reads.
-  const v = url.searchParams.get('v');
-  const key = new Request(url.origin + url.pathname + (v ? `?v=${encodeURIComponent(v)}` : ''));
+  // Keyed on the deploy, not the query: each deploy starts fresh (so OG ?v= busting still
+  // works), and made-up query strings cannot force R2 reads.
+  const key = new Request(`${url.origin}${url.pathname}?deploy=${env.CF_VERSION_METADATA?.id ?? ''}`);
   const hit = await cache.match(key);
   const res = hit ?? await (async () => {
     const o = await env.BUCKET.get(path);
