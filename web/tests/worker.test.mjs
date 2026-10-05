@@ -441,3 +441,24 @@ test('site path finder prefers wikilinks and falls back to prose co-mentions', a
   assert.deepEqual(sitePath(adj, dir, 0, 1), [0, 2, 3, 1]);
   assert.deepEqual(sitePath(adj, dir, 0, 4), [0, 1, 4]);
 });
+
+test('findRoutes: avoided entries and distinct alternatives', async () => {
+  const { findRoutes } = await import('../src/scripts/graph-path.ts');
+  // 0 to 4 three ways: through 1, through 2, through 3 (all wikilinked).
+  const adj = [[1, 2, 3], [0, 4], [0, 4], [0, 4], [1, 2, 3]];
+  const dir = adj.map((l) => l.map(() => 3));
+  const all = findRoutes(adj, dir, 0, 4);
+  assert.equal(all.length, 3);
+  assert.equal(new Set(all.map((r) => r[1])).size, 3);
+  const without = findRoutes(adj, dir, 0, 4, [1, 2]);
+  assert.deepEqual(without, [[0, 3, 4]]);
+  assert.deepEqual(findRoutes(adj, dir, 0, 4, [1, 2, 3]), []);
+});
+
+test('worker: fulltext.json is served from R2', async () => {
+  store.clear();
+  const bucket = { get: async (key) => (key === 'fulltext.json' ? { body: new Response('{"sections":[]}').body, httpEtag: '"f"' } : null) };
+  const res = await call('/fulltext.json', {}, env({ BUCKET: bucket }));
+  assert.equal(res.headers.get('Content-Type'), 'application/json');
+  assert.equal(await res.text(), '{"sections":[]}');
+});

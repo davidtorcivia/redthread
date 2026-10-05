@@ -70,10 +70,16 @@ function lazyAsset<T>(path: string): (env: Env, origin: string) => Promise<T> {
     return p;
   };
 }
-// ponytail: fulltext.json is ~19 MB, about 30 MB of heap with entries.json. Static assets cap at
-// 25 MiB per file, so past that it moves to R2 (or D1 with FTS5 for the lexical search).
 const entriesAsset = lazyAsset<Rec[]>('/entries.json');
-const fulltextAsset = lazyAsset<Fulltext>('/fulltext.json');
+// fulltext.json (~19 MB, growing) is in R2: static assets cap at 25 MiB per file.
+// ponytail: with entries.json it takes ~30 MB of heap; D1 with FTS5 if that outgrows the isolate.
+let fulltextLoad: Promise<Fulltext> | null = null;
+function fulltextObject(env: Env): Promise<Fulltext> {
+  fulltextLoad ??= env.BUCKET.get('fulltext.json')
+    .then((o) => (o ? (new Response(o.body).json() as Promise<Fulltext>) : Promise.reject(new Error('fulltext.json missing from R2'))))
+    .catch((err) => { fulltextLoad = null; throw err; });
+  return fulltextLoad;
+}
 
 /** Index and graph, loaded once per isolate and kept until a deploy changes the version. */
 function dataFor(env: Env, origin: string): Promise<Data> {
@@ -101,7 +107,7 @@ function dataFor(env: Env, origin: string): Promise<Data> {
       return o ? new Response(o.body).text() : null;
     },
     entries: () => entriesAsset(env, origin),
-    fulltext: () => fulltextAsset(env, origin),
+    fulltext: () => fulltextObject(env),
   }));
 }
 
@@ -227,7 +233,7 @@ async function mcp(req: Request, env: Env, ctx: Ctx, url: URL): Promise<Response
   }
 }
 
-/** OG images and markdown twins, which live in R2 to keep the asset count down. */
+/** OG images, markdown twins (R2 keeps the asset count down) and fulltext.json (too big for an asset). */
 async function fromBucket(req: Request, env: Env, ctx: Ctx, url: URL): Promise<Response> {
   if (req.method !== 'GET' && req.method !== 'HEAD') return new Response(null, { status: 405, headers: { Allow: 'GET, HEAD' } });
   const cache = (caches as unknown as { default: Cache }).default;
@@ -244,11 +250,11 @@ async function fromBucket(req: Request, env: Env, ctx: Ctx, url: URL): Promise<R
   const res = hit ?? await (async () => {
     const o = await env.BUCKET.get(path);
     if (!o) return null;
-    const md = url.pathname.endsWith('.md');
+    const md = url.pathname.endsWith('.md'), data = url.pathname.endsWith('.json');
     const r = new Response(o.body, {
       headers: {
-        'Content-Type': md ? MD_TYPE : o.httpMetadata?.contentType ?? 'application/octet-stream',
-        'Cache-Control': md ? 'public, max-age=300' : 'public, max-age=86400',
+        'Content-Type': md ? MD_TYPE : data ? 'application/json' : o.httpMetadata?.contentType ?? 'application/octet-stream',
+        'Cache-Control': md || data ? 'public, max-age=300' : 'public, max-age=86400',
         ETag: o.httpEtag,
         'X-Content-Type-Options': 'nosniff',
         'Access-Control-Allow-Origin': '*',
@@ -291,7 +297,7 @@ export default {
     if (url.pathname === '/.well-known/api-catalog') {
       return json(catalog(url.origin), 200, { 'Content-Type': 'application/linkset+json', 'Cache-Control': 'public, max-age=3600' });
     }
-    if (url.pathname.startsWith('/og/') || url.pathname.endsWith('.md')) return fromBucket(req, env, ctx, url);
+    if (url.pathname.startsWith('/og/') || url.pathname.endsWith('.md') || url.pathname === '/fulltext.json') return fromBucket(req, env, ctx, url);
     if (url.pathname === '/' || url.pathname.endsWith('/') || !url.pathname.slice(1).includes('.')) return negotiate(req, env, ctx, url);
     return env.ASSETS.fetch(req);
   },

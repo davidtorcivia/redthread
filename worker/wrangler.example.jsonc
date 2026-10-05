@@ -11,9 +11,10 @@
     "binding": "ASSETS",
     "html_handling": "auto-trailing-slash",
     "not_found_handling": "404-page",
-    // OG images and markdown twins are in R2, and pages negotiate Accept: text/markdown, so the
-    // Worker sees everything except static bundles and data files.
-    "run_worker_first": ["/*", "!/_astro/*", "!/fonts/*", "!/search-index/*", "!/*.json", "!/*.xml"]
+    // OG images, markdown twins and fulltext.json are in R2, and pages negotiate Accept:
+    // text/markdown, so the Worker sees everything except static bundles and the JSON assets.
+    // Exclusions win over inclusions, so /fulltext.json must not match any of them.
+    "run_worker_first": ["/*", "!/_astro/*", "!/fonts/*", "!/search-index/*", "!/adjacency.json", "!/entries.json", "!/previews.json", "!/sources-index.json", "!/sources-uses.json", "!/tags-index.json", "!/timeline-data.json", "!/*.xml"]
   },
   "r2_buckets": [{ "binding": "BUCKET", "bucket_name": "redthread" }],
   "ai": { "binding": "AI" },

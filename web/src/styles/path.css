@@ -30,6 +30,21 @@
 .path-field {min-width:0;gap:10px}
 .path-swap {width:54px;height:54px;border:1px solid var(--line);border-radius:0;background:none;color:var(--ink);font-size:25px;margin:0}
 .path-swap:hover {background:var(--paper-2);border-color:var(--ink)}
+.path-avoid {display:flex;flex-wrap:wrap;align-items:flex-end;gap:12px 24px;margin-top:24px}
+.path-avoid .path-field {flex:0 1 calc(50% - 51px);min-width:min(100%,280px);position:relative}
+.path-optional {text-transform:none;letter-spacing:0;font-weight:400;padding-left:.4em}
+.path-article .path-input-small {height:44px;font-size:clamp(17px,1.6vw,20px);border-bottom-width:1px}
+.path-chips {display:flex;flex-wrap:wrap;gap:8px;list-style:none;margin:0;padding:0}
+.path-chip {display:inline-flex;align-items:center;gap:2px;padding:2px 2px 2px 10px;border:1px solid var(--line-2);font:500 14px/1.3 var(--sans);color:var(--ink)}
+.path-chip button {width:28px;height:28px;border:0;background:none;color:var(--muted);font-size:18px;line-height:1;cursor:pointer}
+.path-chip button:hover {color:var(--accent)}
+.path-node {position:relative}
+.pn-avoid {position:absolute;top:12px;right:12px;padding:2px 6px;border:1px solid transparent;background:none;color:var(--muted);font:600 10px/1.4 var(--sans);text-transform:uppercase;letter-spacing:.08em;cursor:pointer}
+.pn-avoid:hover,.pn-avoid:focus-visible {border-color:var(--line-2);color:var(--accent)}
+.path-node:has(.pn-avoid) .pn-type {padding-right:52px}
+.path-others {margin-top:36px;padding-top:20px;border-top:1px solid var(--line)}
+.path-others-title {margin:0 0 4px;font:600 12px/1.4 var(--sans);text-transform:uppercase;letter-spacing:.04em;color:var(--muted)}
+.path-route-label {margin:20px 0 10px;font:600 15px/1.3 var(--sans);color:var(--ink)}
 .path-actions {margin-top:24px;flex-wrap:wrap}
 .path-actions .path-status {margin:0}
 .path-chain {counter-reset:path-step;gap:12px;align-items:stretch}
@@ -53,6 +68,7 @@
   .path-row {grid-template-columns:minmax(0,1fr);gap:16px}
   .path-row .path-swap {justify-self:start;width:40px;height:40px;transform:rotate(90deg)}
   .path-actions .path-go {width:100%;justify-content:space-between}
+  .path-avoid .path-field {flex-basis:100%}
   .path-chain {display:block}
   .path-node {width:100%}
   .path-node .pn-title {font-size:19px}

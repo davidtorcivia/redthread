@@ -33,6 +33,8 @@ from pathlib import Path
 TYPES = {".png": "image/png", ".md": "text/markdown; charset=utf-8", ".json": "application/json",
          ".bin": "application/octet-stream"}
 SEMANTIC_FILES = ("index.json", "vectors.bin", "scales.bin", "similar.json")
+# Site-root files too big for static assets (25 MiB each), served by the Worker from R2.
+ROOT_FILES = ("fulltext.json",)
 MAX_PRUNE_SHARE = 0.25
 # Semantic versions kept besides the current one. Not just the previous: a deploy that failed
 # after its upload leaves a newer version that was never live.
@@ -95,13 +97,14 @@ class R2:
 def managed(key: str) -> bool:
     """Keys this script owns; anything else in the bucket is left alone."""
     parts = key.split("/")
-    return parts[0] in ("og", "semantic") or (len(parts) == 2 and key.endswith(".md"))
+    return parts[0] in ("og", "semantic") or (len(parts) == 2 and key.endswith(".md")) or key in ROOT_FILES
 
 
 def site_files(dist: Path) -> dict[str, Path]:
-    """OG images and the <type>/<slug>.md twins, keyed by their URL path."""
+    """OG images, the <type>/<slug>.md twins and ROOT_FILES, keyed by their URL path."""
     files = {p.relative_to(dist).as_posix(): p for p in (dist / "og").rglob("*.png")}
     files.update({p.relative_to(dist).as_posix(): p for p in dist.glob("*/*.md")})
+    files.update({f: dist / f for f in ROOT_FILES if (dist / f).is_file()})
     return files
 
 

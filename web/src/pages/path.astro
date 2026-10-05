@@ -10,7 +10,7 @@ import Base from '../layouts/Base.astro';
   <article class="path-article">
     <h1 class="entity-title">Find a path</h1>
     <p class="entity-dek">
-      Routes favor specific connections over entries mentioned throughout the site.
+      Routes favor specific connections over entries mentioned throughout the site. Avoid an entry to route around it.
     </p>
 
     <form class="path-form" id="path-form" autocomplete="off">
@@ -49,6 +49,25 @@ import Base from '../layouts/Base.astro';
           <ul class="path-suggest" id="path-to-suggest" role="listbox" aria-label="To suggestions"></ul>
         </label>
       </div>
+      <div class="path-avoid">
+        <label class="path-field">
+          <span class="path-label">Avoid <span class="path-optional">optional</span></span>
+          <input
+            type="text"
+            id="path-avoid"
+            class="path-input path-input-small"
+            placeholder="Entries to route around…"
+            autocomplete="off"
+            spellcheck="false"
+            role="combobox"
+            aria-expanded="false"
+            aria-autocomplete="list"
+            aria-controls="path-avoid-suggest"
+          />
+          <ul class="path-suggest" id="path-avoid-suggest" role="listbox" aria-label="Avoid suggestions"></ul>
+        </label>
+        <ul class="path-chips" id="path-avoid-list" aria-label="Avoided entries"></ul>
+      </div>
       <div class="path-actions">
         <button type="submit" class="path-go">Find connection <span aria-hidden="true">→</span></button>
         <span class="path-status" id="path-status" role="status" aria-live="polite"></span>
@@ -59,8 +78,9 @@ import Base from '../layouts/Base.astro';
   </article>
 
   <script>
-    import { findPath, renderChain, entityCombobox } from '../scripts/path-find';
-    import { loadAdjacency } from '../scripts/adjacency';
+    import { findRoutes, renderChain, entityCombobox } from '../scripts/path-find';
+    import { loadAdjacency, type Adjacency } from '../scripts/adjacency';
+    import { el } from '../scripts/entity-types';
 
     const fromInput = document.getElementById('path-from') as HTMLInputElement;
     const toInput = document.getElementById('path-to') as HTMLInputElement;
@@ -69,10 +89,42 @@ import Base from '../layouts/Base.astro';
     // Node indices picked from the suggestions; the typed text is never matched.
     let fromIdx = -1;
     let toIdx = -1;
+    let avoid: number[] = [];
+    let data: Adjacency | null = null;
+    // A search ran (found a route or not), so edits to Avoid should search again.
+    let searched = false;
+    const avoidInput = document.getElementById('path-avoid') as HTMLInputElement;
+    const avoidList = document.getElementById('path-avoid-list')!;
 
-    const clearResult = () => { result.hidden = true; status.textContent = ''; };
+    const clearResult = () => { result.hidden = true; status.textContent = ''; searched = false; };
+    const rerun = () => { if (searched) run(); };
+
+    function renderAvoid() {
+      if (!data) { loadAdjacency().then((d) => { data = d; renderAvoid(); }, () => {}); return; }
+      avoidList.replaceChildren(...avoid.map((i) => {
+        const chip = el('li', 'path-chip');
+        const remove = el('button', '', '×');
+        remove.type = 'button';
+        remove.setAttribute('aria-label', `Stop avoiding ${data!.titles[i]}`);
+        remove.addEventListener('click', () => { avoid = avoid.filter((x) => x !== i); renderAvoid(); rerun(); });
+        chip.append(el('span', '', data!.titles[i]), remove);
+        return chip;
+      }));
+    }
+    function addAvoid(i: number) {
+      if (i < 0 || avoid.includes(i) || i === fromIdx || i === toIdx) return;
+      avoid.push(i);
+      renderAvoid();
+    }
     entityCombobox(fromInput, document.getElementById('path-from-suggest')!, (i) => { fromIdx = i; clearResult(); });
     entityCombobox(toInput, document.getElementById('path-to-suggest')!, (i) => { toIdx = i; clearResult(); });
+
+    entityCombobox(avoidInput, document.getElementById('path-avoid-suggest')!, (i) => {
+      if (i < 0) return;
+      addAvoid(i);
+      avoidInput.value = '';
+      rerun();
+    });
 
     document.getElementById('path-swap')!.addEventListener('click', () => {
       clearResult();
@@ -85,32 +137,48 @@ import Base from '../layouts/Base.astro';
       result.replaceChildren();
       if (fromIdx < 0 || toIdx < 0) { status.textContent = 'Pick an entity for both From and To.'; return; }
       if (fromIdx === toIdx) { status.textContent = 'Source and target are the same.'; return; }
-      const data = await loadAdjacency();
-      const path = findPath(data.adj, data.dir, fromIdx, toIdx);
-      if (!path) {
-        status.textContent = `No documented path between ${data.titles[fromIdx]} and ${data.titles[toIdx]}.`;
-        return;
-      }
+      data = await loadAdjacency();
+      const d = data;
+      searched = true;
       // Keep the address bar shareable.
       const url = new URL(location.href);
-      url.searchParams.set('from', data.ids[fromIdx]);
-      url.searchParams.set('to', data.ids[toIdx]);
+      url.searchParams.set('from', d.ids[fromIdx]);
+      url.searchParams.set('to', d.ids[toIdx]);
+      if (avoid.length) url.searchParams.set('avoid', avoid.map((i) => d.ids[i]).join(','));
+      else url.searchParams.delete('avoid');
       history.replaceState(null, '', url);
-      status.textContent = `${path.length - 1} hop${path.length === 2 ? '' : 's'}.`;
-      result.append(renderChain(data, path));
+      const routes = findRoutes(d.adj, d.dir, fromIdx, toIdx, avoid);
+      if (!routes.length) {
+        status.textContent = `No documented path between ${d.titles[fromIdx]} and ${d.titles[toIdx]}${avoid.length ? ' that avoids those entries' : ''}.`;
+        return;
+      }
+      const hops = (r: number[]) => `${r.length - 1} hop${r.length === 2 ? '' : 's'}`;
+      const onAvoid = (i: number) => { addAvoid(i); run(); };
+      status.textContent = `${hops(routes[0])}.`;
+      result.append(renderChain(d, routes[0], onAvoid));
+      if (routes.length > 1) {
+        const others = el('section', 'path-others');
+        others.append(el('h2', 'path-others-title', 'Other routes'));
+        routes.slice(1).forEach((r, k) => {
+          others.append(el('p', 'path-route-label', `Route ${k + 2} · ${hops(r)}`), renderChain(d, r, onAvoid));
+        });
+        result.append(others);
+      }
       result.hidden = false;
     }
     document.getElementById('path-form')!.addEventListener('submit', (e) => { e.preventDefault(); run(); });
 
     // Deep links: /path/?from=<id>&to=<id> prefills, and runs when both resolve.
     status.textContent = 'Loading network…';
-    loadAdjacency().then((data) => {
+    loadAdjacency().then((d) => {
+      data = d;
       status.textContent = '';
       const params = new URLSearchParams(location.search);
-      fromIdx = data.ids.indexOf(params.get('from') ?? '');
-      toIdx = data.ids.indexOf(params.get('to') ?? '');
-      if (fromIdx >= 0) fromInput.value = data.titles[fromIdx];
-      if (toIdx >= 0) toInput.value = data.titles[toIdx];
+      fromIdx = d.ids.indexOf(params.get('from') ?? '');
+      toIdx = d.ids.indexOf(params.get('to') ?? '');
+      if (fromIdx >= 0) fromInput.value = d.titles[fromIdx];
+      if (toIdx >= 0) toInput.value = d.titles[toIdx];
+      for (const id of (params.get('avoid') ?? '').split(',')) addAvoid(d.ids.indexOf(id));
       if (fromIdx >= 0 && toIdx >= 0) run();
     }, () => { status.textContent = 'Could not load connections. Try again.'; });
   </script>
