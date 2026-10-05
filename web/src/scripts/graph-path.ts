@@ -55,8 +55,25 @@ export function findPath(adj: number[][], dir: number[][], src: number, dst: num
 /** Wikilinked hops only, falling back to names mentioned together in prose only when no linked
  *  chain exists (about 1 pair in 400). A prose hop is the weakest evidence, and a quarter of
  *  unrestricted paths used one. The site's path pages use this. */
-export function findLinkedPath(adj: number[][], dir: number[][], src: number, dst: number): number[] | null {
-  return findPath(adj, dir, src, dst, { edgeCost: (v, k) => (dir[v][k] === 0 ? null : 0) }) ?? findPath(adj, dir, src, dst);
+export function findLinkedPath(adj: number[][], dir: number[][], src: number, dst: number, blocked?: Uint8Array): number[] | null {
+  return findPath(adj, dir, src, dst, { blocked, edgeCost: (v, k) => (dir[v][k] === 0 ? null : 0) })
+    ?? findPath(adj, dir, src, dst, { blocked });
+}
+
+/** Up to k routes that never pass through `avoid`, each sharing no intermediate entry with an
+ *  earlier one, so they are distinct routes rather than the k shortest. */
+export function findRoutes(adj: number[][], dir: number[][], src: number, dst: number, avoid: number[] = [], k = 3): number[][] {
+  const blocked = new Uint8Array(adj.length);
+  for (const v of avoid) blocked[v] = 1;
+  const routes: number[][] = [];
+  while (routes.length < k) {
+    const route = findLinkedPath(adj, dir, src, dst, blocked);
+    if (!route) break;
+    routes.push(route);
+    if (route.length <= 2) break;
+    for (const v of route.slice(1, -1)) blocked[v] = 1;
+  }
+  return routes;
 }
 
 class MinHeap {

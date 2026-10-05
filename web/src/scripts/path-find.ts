@@ -1,6 +1,6 @@
 import { loadAdjacency, type Adjacency } from './adjacency';
 import { TYPE_LABELS, entityHref, el } from './entity-types';
-export { findLinkedPath as findPath } from './graph-path';
+export { findLinkedPath as findPath, findRoutes } from './graph-path';
 
 /** Why two consecutive path nodes are connected. */
 function hopReason(data: Adjacency, a: number, b: number): string {
@@ -11,8 +11,9 @@ function hopReason(data: Adjacency, a: number, b: number): string {
   return 'Inferred from names mentioned together';
 }
 
-/** A found path as <ol class="path-chain">, with the evidence for each hop. */
-export function renderChain(data: Adjacency, path: number[]): HTMLOListElement {
+/** A found path as <ol class="path-chain">, with the evidence for each hop. With onAvoid, each
+ *  intermediate entry gets a button that asks for a route without it. */
+export function renderChain(data: Adjacency, path: number[], onAvoid?: (idx: number) => void): HTMLOListElement {
   const ol = el('ol', 'path-chain');
   path.forEach((idx, i) => {
     const type = data.types[idx];
@@ -23,6 +24,13 @@ export function renderChain(data: Adjacency, path: number[]): HTMLOListElement {
     a.href = entityHref(type, data.ids[idx]);
     a.append(el('span', 'pn-type', TYPE_LABELS[type] || type), el('span', 'pn-title', data.titles[idx]));
     li.append(a);
+    if (onAvoid && i > 0 && i < path.length - 1) {
+      const avoid = el('button', 'pn-avoid', 'Avoid');
+      avoid.type = 'button';
+      avoid.setAttribute('aria-label', `Find a route that avoids ${data.titles[idx]}`);
+      avoid.addEventListener('click', () => onAvoid(idx));
+      li.append(avoid);
+    }
     ol.append(li);
     if (i < path.length - 1) {
       const arrow = el('span', '', '→');

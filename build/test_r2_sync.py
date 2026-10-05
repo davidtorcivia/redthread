@@ -46,6 +46,8 @@ class SyncTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             dist, _ = site(Path(d))
             self.assertEqual(sorted(r2_sync.site_files(dist)), ["og/people/a.png", "people/a.md"])
+            (dist / "fulltext.json").write_text("{}")
+            self.assertEqual(sorted(r2_sync.site_files(dist)), ["fulltext.json", "og/people/a.png", "people/a.md"])
 
     def test_upload_sends_only_changed_files_and_versions_the_index(self):
         with tempfile.TemporaryDirectory() as d:
@@ -116,8 +118,8 @@ class RestTests(unittest.TestCase):
         self.assertEqual(op.call_count, 1)
 
     def test_managed_keys(self):
-        self.assertEqual([r2_sync.managed(k) for k in ("og/a/b.png", "semantic/v/x", "people/a.md", "a.md", "x/y/z.md", "notes/x.txt")],
-                         [True, True, True, False, False, False])
+        self.assertEqual([r2_sync.managed(k) for k in ("og/a/b.png", "semantic/v/x", "people/a.md", "a.md", "x/y/z.md", "notes/x.txt", "fulltext.json")],
+                         [True, True, True, False, False, False, True])
 
 
 if __name__ == "__main__":

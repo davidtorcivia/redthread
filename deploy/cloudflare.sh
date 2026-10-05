@@ -23,7 +23,7 @@ sync=("$python" "$root/deploy/r2_sync.py" --bucket "$bucket" --dist "$dist" --se
 
 version="$("${sync[@]}" upload)"
 mkdir -p "$assets"
-rsync -a --delete --exclude='*.gz' --exclude='/og/' --exclude='/*/*.md' "$dist/" "$assets/"
+rsync -a --delete --delete-excluded --exclude='*.gz' --exclude='/og/' --exclude='/*/*.md' --exclude='/fulltext.json' "$dist/" "$assets/"
 [[ -n "${HEADERS_FILE:-}" ]] && cp "$HEADERS_FILE" "$assets/_headers"
 # Without an index (no embedding credentials), /api/search answers that it is not built.
 npx --yes wrangler@4 deploy --config "$config" ${version:+--var "SEMANTIC_VERSION:$version"}
