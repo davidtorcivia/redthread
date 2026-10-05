@@ -1155,15 +1155,15 @@ body.net-fullscreen-active { overflow: hidden; }
 }
 #pf-modal .pagefind-ui__search-clear:hover { color: var(--accent); }
 
-/* Exact title and alias hits, listed above Pagefind's full-text results. */
-#pf-quick {
+/* Exact title and alias hits, then matches by meaning, listed above Pagefind's full-text results. */
+:is(#pf-quick, #pf-meaning) {
   margin-top: 0.7rem;
   display: flex;
   flex-direction: column;
   gap: 2px;
 }
-#pf-quick[hidden] { display: none; }
-#pf-quick .pf-quick-label {
+:is(#pf-quick, #pf-meaning)[hidden] { display: none; }
+:is(#pf-quick, #pf-meaning) .pf-quick-label {
   font-family: var(--sans);
   font-size: 0.7rem;
   letter-spacing: 0.08em;
@@ -1171,7 +1171,7 @@ body.net-fullscreen-active { overflow: hidden; }
   color: var(--muted-2);
   margin: 0 0 0.25rem;
 }
-#pf-quick .pf-quick-item {
+:is(#pf-quick, #pf-meaning) .pf-quick-item {
   display: flex;
   gap: 0.6rem;
   align-items: baseline;
@@ -1181,9 +1181,9 @@ body.net-fullscreen-active { overflow: hidden; }
   color: var(--ink);
   text-decoration: none;
 }
-#pf-quick .pf-quick-item:hover,
-#pf-quick .pf-quick-item:focus { background: var(--paper-2); color: var(--accent); }
-#pf-quick .pf-quick-type {
+:is(#pf-quick, #pf-meaning) .pf-quick-item:hover,
+:is(#pf-quick, #pf-meaning) .pf-quick-item:focus { background: var(--paper-2); color: var(--accent); }
+:is(#pf-quick, #pf-meaning) .pf-quick-type {
   font-family: var(--sans);
   font-size: 0.7rem;
   letter-spacing: 0.06em;
@@ -1191,6 +1191,16 @@ body.net-fullscreen-active { overflow: hidden; }
   color: var(--muted-2);
   min-width: 5.5rem;
   flex: 0 0 auto;
+}
+:is(#pf-quick, #pf-meaning) .pf-quick-section {
+  margin-left: auto;
+  padding-left: 0.6rem;
+  font-size: 0.8rem;
+  color: var(--muted-2);
+  text-align: right;
+}
+@media (max-width: 600px) {
+  :is(#pf-quick, #pf-meaning) .pf-quick-section { display: none; }
 }
 #pf-modal .pagefind-ui__drawer {
   max-height: calc(80vh - 6rem);

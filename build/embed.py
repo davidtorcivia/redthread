@@ -6,7 +6,8 @@ embeds them through the Workers AI REST API:
     CLOUDFLARE_ACCOUNT_ID=... WORKERS_AI_API_TOKEN=... python build/embed.py --data data
 
 Writes to <data>/semantic/:
-    index.json    model, dims, and one row per chunk (entry id, section anchor, heading)
+    index.json    model, dims, per-entry metadata for filters, and one row per chunk
+                  (entry index, section anchor, heading, text snippet)
     vectors.bin   int8 vectors, row-major, chunks x dims
     scales.bin    float32 per-row dequantization scale
     similar.json  entry id -> nearest entries by meaning
@@ -48,6 +49,7 @@ MAX_WORDS = 350
 MIN_WORDS = 40
 SIMILAR_K = 12
 SKIP_TYPES = {"meta", "misc"}
+SNIPPET_CHARS = 240
 
 _WIKILINK = re.compile(r"\[\[([^\]|#]+)(?:#[^\]|]*)?(?:\|([^\]]+))?\]\]")
 _MDLINK = re.compile(r"\[([^\]]+)\]\([^)]*\)")
@@ -141,6 +143,22 @@ def chunk_entity(e: dict[str, Any]) -> list[dict[str, Any]]:
     if not chunks and e.get("summary"):
         chunks.append({"id": e["id"], "anchor": "", "heading": "", "text": f"{lead}\n{e['summary']}"})
     return chunks
+
+
+def primary_year(e: dict[str, Any]) -> int | None:
+    """Earliest known year, as primaryYear in web/src/lib/data.ts picks it."""
+    d = e.get("dates") or {}
+    for k in ("born", "start", "date", "died", "end"):
+        m = re.match(r"(\d{4})", str(d.get(k) or ""))
+        if m:
+            return int(m.group(1))
+    return None
+
+
+def snippet(text: str) -> str:
+    """Opening of a chunk's body, past the title line embedded with it."""
+    body = " ".join(text.split("\n", 1)[-1].split())
+    return body if len(body) <= SNIPPET_CHARS else body[:SNIPPET_CHARS].rsplit(" ", 1)[0] + "…"
 
 
 def normalize(m: np.ndarray, dims: int) -> np.ndarray:
@@ -266,10 +284,13 @@ def build(data: Path, embedder: Embedder | None, model: str = MODEL, dims: int =
     sim = similar([e["id"] for e in entities], [c["id"] for c in chunks], vecs)
     write_atomic(out / "vectors.bin", q.tobytes())
     write_atomic(out / "scales.bin", scales.tobytes())
+    entry_index = {e["id"]: i for i, e in enumerate(entities)}
     write_atomic(out / "index.json", json.dumps({
         "model": model, "dims": dims, "query_prefix": QUERY_PREFIX, "lead_weight": LEAD_WEIGHT,
-        "chunks": [[c["id"], c["anchor"], c["heading"]] for c in chunks],
-    }, separators=(",", ":")).encode())
+        "entries": [[e["id"], e["title"], e["type"], e.get("summary") or "", [str(t) for t in e.get("tags") or []],
+                     primary_year(e), aliases_of(e.get("frontmatter") or {})] for e in entities],
+        "chunks": [[entry_index[c["id"]], c["anchor"], c["heading"], snippet(c["text"])] for c in chunks],
+    }, separators=(",", ":"), ensure_ascii=False).encode())
     write_atomic(out / "similar.json", json.dumps(sim, separators=(",", ":")).encode())
     print(f"[embed] {len(chunks)} sections, {len(entities)} entries -> {out}")
     return True

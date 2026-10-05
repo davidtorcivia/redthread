@@ -13,6 +13,9 @@ export const ANALYTICS = env.ANALYTICS_SRC && env.ANALYTICS_ID
   ? { src: env.ANALYTICS_SRC, id: env.ANALYTICS_ID, attr: env.ANALYTICS_ID_ATTR || 'data-website-id' }
   : null;
 
+/** Set when the site runs behind worker/ (deploy/cloudflare.sh), which serves /api/* and /mcp. */
+export const AGENT_API = env.AGENT_API === '1';
+
 /** Cache-busting version for the shared JSON payloads, computed by build.sh. */
 export const BUILD_ID = env.PUBLIC_BUILD_ID || 'dev';
 

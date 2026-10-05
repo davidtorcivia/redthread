@@ -33,3 +33,5 @@ jobs:
           cache-dependency-path: web/package-lock.json
       - run: npm ci --no-audit --no-fund
       - run: npm test
+      # Bundles worker/ the way deploy/cloudflare.sh would, without deploying.
+      - run: mkdir -p .cf-assets && npx --yes wrangler@4 deploy --dry-run --config ../worker/wrangler.example.jsonc --outdir "$RUNNER_TEMP/worker"

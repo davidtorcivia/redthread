@@ -8,6 +8,7 @@ web/dist/
 web/.dist-build/
 web/.astro/
 web/.og-cache/
+web/.cf-assets/
 web/public/previews.json
 web/public/adjacency.json
 web/public/*/*.md

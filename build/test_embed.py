@@ -80,6 +80,13 @@ class ChunkTests(unittest.TestCase):
         self.assertEqual(len(chunks), 3)
         self.assertTrue(all(len(c["text"].split()) <= embed.MAX_WORDS + 5 for c in chunks))
 
+    def test_primary_year_and_snippet(self):
+        self.assertEqual(embed.primary_year({"dates": {"died": "1969-01-29", "born": "c. 1893"}}), 1969)
+        self.assertIsNone(embed.primary_year({}))
+        self.assertEqual(embed.snippet("Title\nshort body"), "short body")
+        long = embed.snippet("T\n" + words(100))
+        self.assertTrue(long.endswith("…") and len(long) <= embed.SNIPPET_CHARS + 1)
+
     def test_empty_body_falls_back_to_summary(self):
         self.assertEqual(len(embed.chunk_entity(ent("a", "", summary="Only a summary."))), 1)
         self.assertEqual(embed.chunk_entity(ent("a", "")), [])
@@ -143,7 +150,8 @@ class IndexTests(unittest.TestCase):
             self.assertTrue(embed.build(data, fake))
             self.assertEqual(fake.calls, 2)
             index = json.loads((data / "semantic" / "index.json").read_text())
-            self.assertEqual([c[0] for c in index["chunks"]], ["a", "b"])
+            self.assertEqual([index["entries"][c[0]][0] for c in index["chunks"]], ["a", "b"])
+            self.assertTrue(index["chunks"][0][3].startswith("alpha alpha"))
             self.assertEqual(len((data / "semantic" / "vectors.bin").read_bytes()), 2 * embed.DIMS)
             cache = embed.load_cache(next((data / "semantic").glob("cache-*.npz")))
             self.assertEqual(next(iter(cache.values())).shape, (2 * embed.DIMS,))
