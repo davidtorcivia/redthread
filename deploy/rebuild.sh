@@ -54,7 +54,13 @@ check() {
   if "$root/build.sh" > "$build_log" 2>&1; then
     printf '%s' "$stamp" > "$stamp_file"
     log "built"
-    ping
+    # The site is up either way; a failed embed only leaves similar entries stale.
+    if [[ -f "$root/data/semantic/FAILED" ]]; then
+      log "embedding failed: $(cat "$root/data/semantic/FAILED")"
+      ping fail
+    else
+      ping
+    fi
   else
     # build.sh only publishes on success, so the last good site keeps serving.
     log "build failed, last 40 lines:"

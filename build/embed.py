@@ -12,13 +12,14 @@ Writes to <data>/semantic/:
     similar.json  entry id -> nearest entries by meaning
 
 Vectors are cached by chunk text hash, so a rebuild only embeds sections that
-changed. Without credentials, or when the API fails, the previous output is
-kept and the build goes on.
+changed. When the API fails, or credentials go missing after an index was built,
+the previous output is kept, <out>/FAILED records why, and the build goes on.
 """
 from __future__ import annotations
 
 import argparse
 import hashlib
+import html
 import json
 import os
 import re
@@ -52,6 +53,7 @@ _WIKILINK = re.compile(r"\[\[([^\]|#]+)(?:#[^\]|]*)?(?:\|([^\]]+))?\]\]")
 _MDLINK = re.compile(r"\[([^\]]+)\]\([^)]*\)")
 _FNREF = re.compile(r"\[\^[^\]]+\]")
 _HEADING = re.compile(r"^(#{2,4})\s+(.+?)\s*#*\s*$")
+_EMPHASIS = re.compile(r"[*_`]")
 
 
 def plain(md: str) -> str:
@@ -59,6 +61,23 @@ def plain(md: str) -> str:
     md = _WIKILINK.sub(lambda m: m.group(2) or m.group(1), md)
     md = _MDLINK.sub(r"\1", md)
     return _FNREF.sub("", md)
+
+
+def _heading_key(text: str) -> str:
+    """Comparable form of a markdown heading and of the parser's toc text (HTML-escaped, tags stripped)."""
+    return " ".join(_EMPHASIS.sub("", html.unescape(plain(text))).split()).lower()
+
+
+def aliases_of(fm: dict[str, Any]) -> list[str]:
+    """Both alias keys, as web/src/lib/data.ts aliasesOf reads them; a YAML "Title: Subtitle" mapping is rejoined."""
+    out: list[str] = []
+    for v in (fm.get("alias"), fm.get("aliases")):
+        for a in v if isinstance(v, list) else [] if v is None else [v]:
+            if isinstance(a, dict) and len(a) == 1:
+                a = "{}: {}".format(*next(iter(a.items())))
+            if isinstance(a, (str, int, float)) and str(a).strip() and str(a).strip() not in out:
+                out.append(str(a).strip())
+    return out
 
 
 def _split_long(text: str) -> list[str]:
@@ -82,13 +101,20 @@ def chunk_entity(e: dict[str, Any]) -> list[dict[str, Any]]:
     Anchors come from the parser's toc so they match the rendered heading ids.
     Sections under MIN_WORDS fold into the one before them.
     """
-    anchors = {t["text"]: t["id"] for t in e.get("toc") or []}
+    # Matched in document order, so a repeated heading takes its own -2, -3 id.
+    toc = [(_heading_key(t["text"]), t["id"]) for t in e.get("toc") or []]
     sections: list[tuple[str, str, list[str]]] = [("", "", [])]
     for line in (e.get("body_md") or "").splitlines():
         m = _HEADING.match(line)
         if m:
-            heading = plain(m.group(2)).strip()
-            sections.append((heading, anchors.get(m.group(2).strip(), anchors.get(heading, "")), []))
+            heading = re.sub(r"[*`]", "", plain(m.group(2))).strip()
+            key, anchor = _heading_key(m.group(2)), ""
+            for j, (k, tid) in enumerate(toc):
+                if k == key:
+                    anchor = tid
+                    del toc[:j + 1]
+                    break
+            sections.append((heading, anchor, []))
         else:
             sections[-1][2].append(line)
 
@@ -101,10 +127,8 @@ def chunk_entity(e: dict[str, Any]) -> list[dict[str, Any]]:
         merged.append([heading, anchor, text])
 
     title = e["title"]
-    aliases = e.get("frontmatter", {}).get("aliases") or e.get("frontmatter", {}).get("alias") or []
-    if not isinstance(aliases, list):
-        aliases = [aliases]
-    lead = title + (f" (also {', '.join(map(str, aliases))})" if aliases else "")
+    aliases = [a for a in aliases_of(e.get("frontmatter") or {}) if a.lower() != title.lower()]
+    lead = title + (f" (also {', '.join(aliases)})" if aliases else "")
     chunks = []
     for i, (heading, anchor, text) in enumerate(merged):
         if i == 0 and e.get("summary") and e["summary"] not in text:
@@ -136,8 +160,12 @@ class Embedder:
                 "Authorization": f"Bearer {self.token}", "Content-Type": "application/json"})
             try:
                 with urllib.request.urlopen(req, timeout=120) as r:
-                    return json.load(r)["result"]["data"]
-            except (urllib.error.URLError, TimeoutError, KeyError) as err:
+                    rows = (json.load(r).get("result") or {}).get("data")
+                # Vectors pair with texts by position, so a short reply must never reach the cache.
+                if not isinstance(rows, list) or len(rows) != len(texts):
+                    raise ValueError(f"expected {len(texts)} vectors, got {len(rows) if isinstance(rows, list) else rows!r}")
+                return rows
+            except Exception as err:  # noqa: BLE001 -- dropped connections and bad bodies are retried too
                 if attempt == 4 or (isinstance(err, urllib.error.HTTPError) and err.code in (400, 401, 403)):
                     raise
                 time.sleep(2 ** attempt)
@@ -165,6 +193,12 @@ def save_cache(path: Path, cache: dict[str, np.ndarray]) -> None:
     keys = list(cache)
     tmp = path.with_suffix(".tmp.npz")
     np.savez(tmp, keys=np.array(keys), vecs=np.stack([cache[k] for k in keys]).astype(np.float16))
+    tmp.replace(path)
+
+
+def write_atomic(path: Path, data: bytes) -> None:
+    tmp = path.with_name(path.name + ".tmp")
+    tmp.write_bytes(data)
     tmp.replace(path)
 
 
@@ -213,7 +247,9 @@ def build(data: Path, embedder: Embedder | None, model: str = MODEL, dims: int =
     missing = sorted({k: c["text"] for k, c in zip(keys, chunks) if k not in cache}.items())
     if missing:
         if embedder is None:
-            print(f"[embed] {len(missing)} sections need embedding but no credentials are set; keeping the previous index", file=sys.stderr)
+            if cache:
+                raise RuntimeError(f"{len(missing)} sections need embedding but no credentials are set")
+            print("[embed] no credentials set; skipping similar entries", file=sys.stderr)
             return False
         print(f"[embed] embedding {len(missing)} of {len(chunks)} sections")
         # Saved per slice so an API failure partway keeps what was already paid for.
@@ -227,14 +263,14 @@ def build(data: Path, embedder: Embedder | None, model: str = MODEL, dims: int =
 
     vecs = normalize(np.stack([cache[k] for k in keys]).astype(np.float32), dims)
     q, scales = quantize(vecs)
-    (out / "vectors.bin").write_bytes(q.tobytes())
-    (out / "scales.bin").write_bytes(scales.tobytes())
-    (out / "index.json").write_text(json.dumps({
+    sim = similar([e["id"] for e in entities], [c["id"] for c in chunks], vecs)
+    write_atomic(out / "vectors.bin", q.tobytes())
+    write_atomic(out / "scales.bin", scales.tobytes())
+    write_atomic(out / "index.json", json.dumps({
         "model": model, "dims": dims, "query_prefix": QUERY_PREFIX, "lead_weight": LEAD_WEIGHT,
         "chunks": [[c["id"], c["anchor"], c["heading"]] for c in chunks],
-    }, separators=(",", ":")))
-    sim = similar([e["id"] for e in entities], [c["id"] for c in chunks], vecs)
-    (out / "similar.json").write_text(json.dumps(sim, separators=(",", ":")))
+    }, separators=(",", ":")).encode())
+    write_atomic(out / "similar.json", json.dumps(sim, separators=(",", ":")).encode())
     print(f"[embed] {len(chunks)} sections, {len(entities)} entries -> {out}")
     return True
 
@@ -248,10 +284,15 @@ def main() -> int:
     args = ap.parse_args()
     account, token = os.environ.get("CLOUDFLARE_ACCOUNT_ID"), os.environ.get("WORKERS_AI_API_TOKEN")
     embedder = Embedder(account, token, args.model) if account and token else None
+    marker = (args.out or args.data / "semantic") / "FAILED"
     try:
         build(args.data, embedder, args.model, args.dims, args.out)
+        marker.unlink(missing_ok=True)
     except Exception as err:  # noqa: BLE001 -- a failed embed must not fail the site build
         print(f"[embed] failed, keeping the previous index: {err}", file=sys.stderr)
+        # deploy/rebuild.sh reports this file as a failed check.
+        marker.parent.mkdir(parents=True, exist_ok=True)
+        marker.write_text(f"{type(err).__name__}: {err}\n")
     return 0
 
 

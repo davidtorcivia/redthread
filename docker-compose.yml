@@ -18,6 +18,8 @@ services:
           create_host_path: false
       - site:/site
       - og-cache:/app/web/.og-cache
+      # Embedding cache: without it every recreate re-embeds the whole vault.
+      - semantic:/app/data/semantic
 
   web:
     image: nginx:1-alpine
@@ -46,3 +48,4 @@ services:
 volumes:
   site:
   og-cache:
+  semantic:
