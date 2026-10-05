@@ -3,14 +3,16 @@ import { backlinks, hrefFor, TYPE_LABELS } from '../lib/data.ts';
 interface Props { id: string }
 const { id } = Astro.props;
 const links = backlinks(id).sort((a, b) => a.source_title.localeCompare(b.source_title));
+// Past about six rows of five columns the list folds behind "Show all".
+const FOLD_AT = 30;
 ---
 {links.length > 0 && (
-  <section class="backlinks hc-list-section" data-pagefind-ignore>
+  <section class="backlinks hc-list-section" id="mentioned-in" data-pagefind-ignore data-fold={links.length > FOLD_AT ? 'always' : undefined}>
     <h2 class="section-heading">
       Mentioned in
       <span class="hc-count-badge">{links.length}</span>
     </h2>
-    <ul class="hc-list">
+    <ul class="hc-list" id="mentioned-in-list">
       {links.map((b) => (
         <li class={`hc-item type-${b.source_type}`}>
           <a href={hrefFor({ id: b.source_id, type: b.source_type })} data-preview>
@@ -20,5 +22,6 @@ const links = backlinks(id).sort((a, b) => a.source_title.localeCompare(b.source
         </li>
       ))}
     </ul>
+    {links.length > FOLD_AT && <button type="button" class="fold-toggle" aria-controls="mentioned-in-list" aria-expanded="true" hidden>Show all {links.length} pages</button>}
   </section>
 )}

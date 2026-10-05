@@ -39,6 +39,13 @@ const cluster = communityOf(entity);
 const clusterShown = cluster && cluster.size >= CLUSTER_MIN_SIZE ? cluster : null;
 // Shown under the title and weighted in search, so an alias finds the entry.
 const aliases = aliasesOf(entity).filter((a) => a.toLowerCase() !== entity.title.toLowerCase());
+// The rest fold behind "+N more"; all stay in the DOM for search, and show without JavaScript.
+const ALIASES_SHOWN = 3;
+const moreAliases = aliases.length > ALIASES_SHOWN + 1 ? aliases.slice(ALIASES_SHOWN) : [];
+const ranks = [
+  entity.hub_rank && { href: `/bridges/#hu-${entity.id}`, text: `Hub #${entity.hub_rank}` },
+  entity.bridge_rank && { href: `/bridges/#br-${entity.id}`, text: `Bridge #${entity.bridge_rank}` },
+].filter(Boolean) as { href: string; text: string }[];
 
 const jsonLd = entityJsonLd(entity);
 ---
@@ -72,16 +79,18 @@ const jsonLd = entityJsonLd(entity);
       <Headline class={['entity-title', entity.title.length > 22 && 'long-title', entity.title.length > 55 && 'very-long-title'].filter(Boolean).join(' ')} title={entity.title} />
       <div class="band-row">
         {entity.summary && <p class="band-lede" set:html={renderInlineMd(entity.summary)} />}
-        <div class="band-facts">
-          <div><a href={`/${dir}/`}>{entity.category || typeLabel}</a>{aliases.length > 0 && <span data-pagefind-weight="10"> · {aliases.join(', ')}</span>}</div>
-          {(dateValue || locations.length > 0) && <div>{dateValue}{dateValue && locations.length > 0 && ' · '}{locations.join(', ')}</div>}
-          <div>Referenced on {entity.mention_count.toLocaleString()} pages{clusterShown && <> · <a href={`/clusters/#c-${clusterShown.id}`}>{clusterShown.label} cluster</a></>}</div>
-          {(entity.bridge_rank || entity.hub_rank) && <div>
-            {entity.bridge_rank && <a href={`/bridges/#br-${entity.id}`}>Bridge #{entity.bridge_rank}</a>}
-            {entity.bridge_rank && entity.hub_rank && ' · '}
-            {entity.hub_rank && <a href={`/bridges/#hu-${entity.id}`}>Hub #{entity.hub_rank}</a>}
-          </div>}
-        </div>
+        <dl class="band-facts">
+          <div><dt>Category</dt><dd><a href={`/${dir}/`}>{entity.category || typeLabel}</a></dd></div>
+          {aliases.length > 0 && <div><dt>Also known as</dt><dd class="band-aliases">
+            <span data-pagefind-weight="10">{(moreAliases.length ? aliases.slice(0, ALIASES_SHOWN) : aliases).join(', ')}{moreAliases.length > 0 && <span class="aliases-more">, {moreAliases.join(', ')}</span>}</span>
+            {moreAliases.length > 0 && <button type="button" class="aliases-toggle" aria-expanded="true" data-pagefind-ignore>+{moreAliases.length} more</button>}
+          </dd></div>}
+          {dateValue && <div><dt>Dates</dt><dd>{dateValue}</dd></div>}
+          {locations.length > 0 && <div><dt>Location</dt><dd>{locations.join(', ')}</dd></div>}
+          <div><dt>Mentioned on</dt><dd>{entity.mention_count.toLocaleString()} {entity.mention_count === 1 ? 'page' : 'pages'}</dd></div>
+          {clusterShown && <div><dt>Cluster</dt><dd><a href={`/clusters/#c-${clusterShown.id}`}>{clusterShown.label}</a></dd></div>}
+          {ranks.length > 0 && <div><dt>Rank</dt><dd>{ranks.map((r, i) => <>{i > 0 && ' · '}<a href={r.href}>{r.text}</a></>)}</dd></div>}
+        </dl>
       </div>
     </header>
     <div class="statement-wrap">
@@ -93,9 +102,9 @@ const jsonLd = entityJsonLd(entity);
     <Relations e={entity} />
 
     {entity.footnotes.length > 0 && (
-      <section class="footnotes-block">
+      <section class="footnotes-block" id="sources" data-fold="narrow">
         <h2 class="section-label">Sources</h2>
-        <ol>
+        <ol id="sources-list">
           {entity.footnotes.map((f) => (
             <li id={`fn-${f.id}`}>
               <span set:html={f.html ?? renderInlineMd(f.text)} />
@@ -103,6 +112,7 @@ const jsonLd = entityJsonLd(entity);
             </li>
           ))}
         </ol>
+        {entity.footnotes.length > 4 && <button type="button" class="fold-toggle" aria-controls="sources-list" aria-expanded="true" hidden data-pagefind-ignore>Show all {entity.footnotes.length} sources</button>}
       </section>
     )}
     {entity.footnotes.length > 0 && <FootnotePreviews />}
@@ -122,6 +132,38 @@ const jsonLd = entityJsonLd(entity);
       <h2 class="section-heading">Tags</h2>
       <div class="statement-chips">{entity.tags.map(t => <a href={tagHref(t)}>{t}</a>)}</div>
     </section>}
+
+    <script is:inline>
+      // Fold the long alias list, long sections marked data-fold ("always", or "narrow" for
+      // phones only), and nothing without JS. Opening is one way: a reader who expanded keeps it.
+      (() => {
+        const toggle = document.querySelector('.aliases-toggle');
+        const more = document.querySelector('.aliases-more');
+        if (toggle && more) {
+          more.hidden = true;
+          toggle.setAttribute('aria-expanded', 'false');
+          toggle.addEventListener('click', () => { more.hidden = false; toggle.remove(); });
+        }
+        const narrow = matchMedia('(max-width: 700px)');
+        for (const block of document.querySelectorAll('[data-fold]')) {
+          const button = block.querySelector('.fold-toggle');
+          if (!button) continue;
+          const open = () => { block.classList.remove('is-folded'); button.hidden = true; button.setAttribute('aria-expanded', 'true'); };
+          const phoneOnly = block.dataset.fold === 'narrow';
+          if ((phoneOnly && !narrow.matches) || (block.id === 'sources' && location.hash.startsWith('#fn-'))) { open(); continue; }
+          block.classList.add('is-folded');
+          button.hidden = false;
+          button.setAttribute('aria-expanded', 'false');
+          button.addEventListener('click', open);
+          if (phoneOnly) narrow.addEventListener('change', () => { if (!narrow.matches) open(); });
+          if (block.id === 'sources') {
+            // A footnote number or a link to one opens the list before the jump lands.
+            document.addEventListener('click', (e) => { if (e.target.closest && e.target.closest('a[href^="#fn-"]')) open(); }, true);
+            addEventListener('hashchange', () => { if (location.hash.startsWith('#fn-')) open(); });
+          }
+        }
+      })();
+    </script>
 
     <nav class="entry-pagination" aria-label="Adjacent entries">
       <span>{previous && <a href={hrefFor(previous)}>← {previous.title}</a>}</span>
