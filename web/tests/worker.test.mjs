@@ -476,6 +476,8 @@ test('worker: MCP discovery (server card, AI catalog, Link header, note on markd
   }
   const cat = await (await call('/.well-known/ai-catalog.json')).json();
   assert.equal(cat.entries[0].url, 'https://x.test/mcp/server-card');
+  assert.equal(cat.host.identifier, 'did:web:x.test');
+  assert.ok(cat.entries[0].displayName && cat.entries[0].representativeQueries.length >= 2);
   const api = await (await call('/.well-known/api-catalog')).json();
   assert.equal(api.linkset[1]['service-desc'][0].href, 'https://x.test/mcp/server-card');
   assert.match((await call('/people/a/')).headers.get('Link'), /rel="api-catalog"/);
