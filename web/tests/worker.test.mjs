@@ -3,6 +3,7 @@ import test from 'node:test';
 import { decodeHeader, handleRpc } from '../../worker/mcp.ts';
 import { Corpus, nameRank } from '../../worker/search.ts';
 import { ToolError, runTool } from '../../worker/tools.ts';
+import { datesIn, phrase, sentences, snippet, terms } from '../../worker/research.ts';
 
 // Four entries in 3 dims. Chunk vectors are int8 rows scaled by 1/127 (unit length after scaling).
 const entries = [
@@ -64,6 +65,35 @@ const adj = {
   dir: [[3, 0], [3, 1], [2], [0]],
   mentions: [5, 4, 1, 9],
 };
+const rec = (id, title, type, dir, extra = {}) => ({ id, title, type, path: `/${dir}/${id}/`, aliases: [], dates: {}, relations: [], ...extra });
+const src = (page, footnote, text) => ({ page, footnote, text });
+// beta employed_by gamma (typed, sourced); no wikilink between them goes beta -> delta.
+const recs = [
+  rec('alpha', 'Alpha Program', 'program', 'programs', { dates: { start: '1974' }, tags: ['CIA'], updated: '2026-01-02' }),
+  rec('beta', 'Beta Person', 'person', 'people', {
+    updated: '2026-03-01',
+    relations: [
+      { type: 'employed_by', target: 'gamma', target_title: 'Gamma Place', start: '1975', end: null, role: 'office not stated', source: src('beta', '1', 'Smith, Exempt from Disclosure, 1999.') },
+      { type: 'member_of', target: null, target_title: 'No Page Org', start: null, end: null, role: null, source: src('beta', '2', 'Jones 2001.') },
+    ],
+  }),
+  rec('gamma', 'Gamma Place', 'place', 'places', { aliases: ['Gamma'], dates: { start: '1975' } }),
+  rec('delta', 'Delta Org', 'organization', 'organizations'),
+];
+const fulltext = {
+  sections: [
+    ['alpha', '', '', 'Alpha began in late 1974. It moved.[^1] Gamma hosted it in winter 1975.[^2]'],
+    ['beta', 'career', 'Career', 'Beta joined Gamma on October 14, 1988.[^1] In 1990 it closed.\nUnrelated line about 1974.'],
+    ['gamma', '', '', 'Gamma opened in 1975. Others say October 18.[^1]'],
+    ['delta', '', '', 'Delta said Gamma opened 18 October 1988.[^1] Exempt text here.'],
+  ],
+  footnotes: {
+    alpha: { 1: 'Smith, Exempt from Disclosure, 1999.', 2: 'Doe 2005.' },
+    beta: { 1: 'Smith, Exempt from Disclosure, 1999.', 2: 'Jones 2001.' },
+    delta: { 1: 'Roe 2010.' },
+    gamma: { 1: 'Pilkington (2010) gives 18 October.' },
+  },
+};
 const data = (over = {}) => ({
   origin: 'https://x.test',
   corpus: corpus(),
@@ -71,6 +101,8 @@ const data = (over = {}) => ({
   similar: { alpha: [{ id: 'gamma', score: 0.9 }, { id: 'gone', score: 0.8 }] },
   embed: async () => [1, 0, 0],
   markdown: async (p) => (p === 'programs/alpha.md' ? '# Alpha' : null),
+  entries: async () => recs,
+  fulltext: async () => fulltext,
   ...over,
 });
 
@@ -100,7 +132,7 @@ test('graph tools: entry, neighbors, path, similar', async () => {
   assert.equal((await runTool(data(), 'get_entry', { id: 'Alpha Program' })).markdown, '# Alpha');
   const n = await runTool(data(), 'neighbors', { id: 'alpha' });
   assert.deepEqual(n.neighbors.map((x) => [x.id, x.link]), [['beta', 'links both ways'], ['delta', 'named in prose']]);
-  const p = await runTool(data(), 'find_path', { from: 'delta', to: 'gamma' });
+  const p = await runTool(data(), 'find_path', { from: 'delta', to: 'gamma', edges: 'any' });
   assert.deepEqual(p.path.map((x) => x.id), ['delta', 'alpha', 'beta', 'gamma']);
   assert.deepEqual(p.path.slice(1).map((x) => x.via), ['named together in prose', 'linked both ways', 'linked from the previous entry']);
   const s = await runTool(data(), 'similar', { id: 'alpha' });
@@ -117,7 +149,7 @@ test('MCP: initialize, list, call, notifications and errors', async () => {
   assert.equal((await rpc({ id: 1, method: 'initialize', params: { protocolVersion: '1999-01-01' } })).result.protocolVersion, '2025-11-25');
   assert.deepEqual(await raw({ method: 'notifications/initialized' }), { status: 202, body: null });
   const list = await rpc({ id: 2, method: 'tools/list' });
-  assert.deepEqual(list.result.tools.map((t) => t.name), ['search', 'get_entry', 'neighbors', 'find_path', 'similar']);
+  assert.deepEqual(list.result.tools.map((t) => t.name), ['search', 'search_semantic', 'search_lexical', 'search_citations', 'get_entry', 'neighbors', 'find_path', 'similar', 'timeline', 'list_entries']);
   assert.ok(!('run' in list.result.tools[0]));
   assert.equal(list.result.tools[0].annotations.readOnlyHint, true);
   assert.equal(list.result.resultType, undefined);
@@ -128,7 +160,7 @@ test('MCP: initialize, list, call, notifications and errors', async () => {
   assert.equal((await rpc({ id: 5, method: 'tools/call', params: { name: 'nope' } })).error.code, -32602);
   assert.equal((await rpc({ id: 6, method: 'resources/list' })).error.code, -32601);
   assert.deepEqual((await handleRpc(async () => null, { id: 7, method: 'ping' })).status, 400);
-  assert.equal((await rpc({ id: 8, method: 'tools/list' }, { 'MCP-Protocol-Version': '2025-06-18' })).result.tools.length, 5);
+  assert.equal((await rpc({ id: 8, method: 'tools/list' }, { 'MCP-Protocol-Version': '2025-06-18' })).result.tools.length, 10);
 });
 
 // Protocol 2026-07-28: per-request _meta plus mirrored headers.
@@ -147,7 +179,7 @@ test('MCP 2026-07-28: discover, list, call carry resultType, serverInfo and cach
   assert.equal(d.body.result._meta['io.modelcontextprotocol/serverInfo'].name, 'theinfoweb');
   assert.equal(d.body.result.cacheScope, 'public');
   const l = (await modern(2, 'tools/list')).body.result;
-  assert.equal(l.tools.length, 5);
+  assert.equal(l.tools.length, 10);
   assert.ok(l.ttlMs > 0);
   const c = (await modern(3, 'tools/call', { name: 'get_entry', arguments: { id: 'alpha' } })).body.result;
   assert.equal(c.resultType, 'complete');
@@ -272,7 +304,131 @@ test('worker: API catalog and OpenAPI describe every GET endpoint', async () => 
   const { linkset } = await cat.json();
   assert.equal(linkset[0]['service-desc'][0].href, 'https://x.test/api/openapi');
   const spec = await (await call('/api/openapi')).json();
-  assert.deepEqual(Object.keys(spec.paths), ['/api/search', '/api/entry', '/api/neighbors', '/api/path', '/api/similar']);
+  assert.deepEqual(Object.keys(spec.paths), ['/api/search', '/api/semantic', '/api/lexical', '/api/citations', '/api/entry', '/api/neighbors', '/api/path', '/api/similar', '/api/timeline', '/api/entries']);
+  const exclude = spec.paths['/api/path'].get.parameters.find((p) => p.name === 'exclude');
+  assert.deepEqual([exclude.style, exclude.explode], ['form', false]);
   const q = spec.paths['/api/search'].get.parameters.find((p) => p.name === 'q');
   assert.equal(q.required, true);
+});
+
+test('search_semantic skips the name boost and fails without embeddings', async () => {
+  const out = await runTool(data(), 'search_semantic', { query: 'beta person' });
+  assert.equal(out.mode, 'semantic only');
+  assert.equal(out.results[0].id, 'alpha');
+  await assert.rejects(runTool(data({ embed: async () => null }), 'search_semantic', { query: 'x' }), /unavailable/);
+});
+
+test('search_lexical: all terms, phrases, filters, snippets with their footnotes', async () => {
+  const out = await runTool(data(), 'search_lexical', { query: 'gamma "October 14"' });
+  assert.deepEqual(out.results.map((r) => r.id), ['beta']);
+  const [sec] = out.results[0].sections;
+  assert.equal(sec.url, 'https://x.test/people/beta/#career');
+  assert.ok(!sec.snippet.includes('[^'));
+  assert.deepEqual(sec.sources, [{ footnote: '1', text: 'Smith, Exempt from Disclosure, 1999.' }]);
+  const named = await runTool(data(), 'search_lexical', { query: 'gamma' });
+  assert.deepEqual(named.results.map((r) => r.id).sort(), ['alpha', 'beta', 'delta', 'gamma']);
+  assert.equal(named.results[0].id, 'gamma');
+  assert.deepEqual((await runTool(data(), 'search_lexical', { query: 'gamma', type: 'organization' })).results.map((r) => r.id), ['delta']);
+  assert.equal((await runTool(data(), 'search_lexical', { query: 'gam' })).results.length, 0);
+});
+
+test('search_citations groups identical footnotes and attaches the relations they source', async () => {
+  const out = await runTool(data(), 'search_citations', { query: '"exempt from disclosure"' });
+  assert.equal(out.matching_citations, 1);
+  assert.deepEqual(out.citing_entries.map((x) => [x.id, x.footnotes]), [['alpha', ['1']], ['beta', ['1']]]);
+  const [c] = out.citations;
+  assert.equal(c.cited_by_count, 2);
+  assert.deepEqual(c.cited_by.map((x) => [x.id, x.footnote]), [['alpha', '1'], ['beta', '1']]);
+  assert.deepEqual(c.relations.map((r) => [r.from, r.type, r.to]), [['beta', 'employed_by', 'gamma']]);
+});
+
+test('timeline by year range groups dated statements, frontmatter and relation dates', async () => {
+  const out = await runTool(data(), 'timeline', { year_from: '1974', year_to: '1975' });
+  assert.deepEqual(out.groups.map((g) => g.date), ['1974', 'late 1974', '1975', 'winter 1975', 'October 18']);
+  const late = out.groups[1].items[0];
+  assert.equal(late.kind, 'statement');
+  assert.equal(late.text, 'Alpha began in late 1974.');
+  assert.deepEqual(late.sources, [{ footnote: '1', text: 'Smith, Exempt from Disclosure, 1999.' }]);
+  assert.equal(late.source_inherited, true);
+  assert.deepEqual(out.groups[2].items.map((x) => x.kind), ['start', 'relation start', 'statement']);
+  await assert.rejects(runTool(data(), 'timeline', { year_from: 1900, year_to: 1990 }), /at most/);
+  await assert.rejects(runTool(data(), 'timeline', {}), /give/);
+  await assert.rejects(runTool(data(), 'timeline', { year_from: 1980, year_to: 1970 }), /must not be after/);
+});
+
+test('timeline by entry reads linking pages and keeps sentences about it', async () => {
+  const out = await runTool(data(), 'timeline', { entry: 'gamma' });
+  // beta neighbors gamma; delta does not, so its date stays out.
+  // "In 1990 it closed." follows a sentence naming Gamma; beta's next paragraph does not.
+  assert.deepEqual(out.groups.map((g) => g.date), ['1975', 'October 18', 'October 14 1988', '1990']);
+  assert.deepEqual(out.groups[0].items.map((x) => x.kind), ['start', 'relation start', 'statement']);
+  // A year-less date takes the year of the text before it, or in a footnote the entry's own year.
+  assert.deepEqual(out.groups[1].items.map((x) => x.kind), ['statement', 'footnote']);
+  assert.equal(out.groups[2].items[0].entry.id, 'beta');
+  assert.equal(out.groups[3].items[0].text, 'In 1990 it closed.');
+});
+
+test('text helpers: date forms, inferred years, abbreviations, inherited footnotes', () => {
+  const ds = datesIn('In late 1974 or winter of 1975, on October 14, 1988 or 18 October 1988, March 1975, mid-1970s, 1990; October 20.');
+  assert.deepEqual(ds.map((x) => [x.text, x.key]), [
+    ['late 1974', 19741000], ['winter of 1975', 19750100], ['October 14, 1988', 19881014], ['18 October 1988', 19881018],
+    ['March 1975', 19750300], ['1990', 19900000], ['October 20', 19901020],
+  ]);
+  assert.equal(ds.at(-1).inferred, true);
+  assert.deepEqual(datesIn('Aired October 18.'), []);
+  assert.deepEqual(datesIn('Book (2010) says 18 October.', { year: 1988, fixed: true }).map((x) => x.key), [20100000, 19881018]);
+  const ss = sentences('He joined the U.S. Army under Gen. Smith in 1974. He left.[^1] Alone.\nNext para.[^2]');
+  assert.deepEqual(ss.map((x) => [x.text, x.notes, x.inherited, x.para]), [
+    ['He joined the U.S. Army under Gen. Smith in 1974.', ['1'], true, 0],
+    ['He left.', ['1'], false, 0],
+    ['Alone.', [], false, 0],
+    ['Next para.', ['2'], false, 1],
+  ]);
+  assert.ok(new RegExp(phrase('Cover-Up Live!'), 'i').test('aired as Cover-Up Live!, then'));
+  // Day ranges keep their own year; a number before a word starting like a month is not a date.
+  assert.deepEqual(datesIn('Planning began in 1960. The landing ran April 17-19, 1961, and September 13 and 14, 1978.').map((x) => x.key),
+    [19600000, 19610417, 19780913]);
+  assert.deepEqual(datesIn('In 1974 officials 26 declared it; 14 marked items. Oct. 3 came.').map((x) => x.text), ['1974', 'Oct. 3']);
+  assert.deepEqual(sentences('He was released on Nov. 14, 2025.[^3] Then left.').map((x) => x.text), ['He was released on Nov. 14, 2025.', 'Then left.']);
+  // A snippet window never cuts a footnote marker in half.
+  const long = 'x'.repeat(200) + 'needle' + 'y'.repeat(157) + '[^12] tail';
+  assert.ok(snippet(long, /needle/g).includes('[^12]'));
+  assert.deepEqual(terms('"Exempt from  Disclosure" C++').map(String), ['/\\bExempt\\s+from\\s+Disclosure\\b/gi', '/\\bC\\+\\+/gi']);
+});
+
+test('find_path: typed relations, exclusions, links only, alternatives', async () => {
+  const typed = await runTool(data(), 'find_path', { from: 'beta', to: 'gamma', edges: 'relations' });
+  assert.deepEqual(typed.path.map((x) => x.id), ['beta', 'gamma']);
+  assert.equal(typed.path[1].relations[0].type, 'employed_by');
+  assert.equal(typed.path[1].relations[0].source.text, 'Smith, Exempt from Disclosure, 1999.');
+  assert.equal((await runTool(data(), 'find_path', { from: 'alpha', to: 'gamma', edges: 'relations' })).path, null);
+  const links = await runTool(data(), 'find_path', { from: 'delta', to: 'gamma' });
+  assert.equal(links.path, null);
+  assert.match(links.note, /try edges "any"/);
+  assert.equal((await runTool(data(), 'find_path', { from: 'delta', to: 'gamma', edges: 'any', exclude: 'alpha' })).path, null);
+  const k = await runTool(data(), 'find_path', { from: 'delta', to: 'gamma', edges: 'any', k: 3 });
+  assert.deepEqual(k.alternatives, []);
+  await assert.rejects(runTool(data(), 'find_path', { from: 'a', to: 'b', edges: 'teleport' }), /must be one of/);
+});
+
+test('list_entries pages frontmatter with filters', async () => {
+  const out = await runTool(data(), 'list_entries', { limit: 2 });
+  assert.equal(out.total, 4);
+  assert.equal(out.next_offset, 2);
+  assert.equal(out.bulk_url, 'https://x.test/entries.json');
+  assert.equal(out.entries[0].url, 'https://x.test/programs/alpha/');
+  assert.deepEqual((await runTool(data(), 'list_entries', { updated_since: '2026-02-01' })).entries.map((r) => r.id), ['beta']);
+  assert.deepEqual((await runTool(data(), 'list_entries', { tag: 'cia' })).entries.map((r) => r.id), ['alpha']);
+});
+
+test('timeline keeps same-key groups together; lexical bonus for many sections is bounded', async () => {
+  const ft = (sections) => ({ sections, footnotes: {} });
+  const t = await runTool(data({ fulltext: async () => ft([
+    ['alpha', '', '', 'In late 1974, X.'], ['beta', '', '', 'In October 1974, Y.'], ['delta', '', '', 'In late 1974, Z.'],
+  ]) }), 'timeline', { year: 1974 });
+  assert.deepEqual(t.groups.map((g) => [g.date, g.items.length]), [['1974', 1], ['late 1974', 2], ['October 1974', 1]]);
+  // gamma's title names the query once; delta repeats it across twelve sections.
+  const many = Array.from({ length: 12 }, (_, i) => ['delta', `s${i}`, '', 'Gamma Place']);
+  const both = await runTool(data({ fulltext: async () => ft([['gamma', '', '', 'Gamma Place'], ...many]) }), 'search_lexical', { query: 'gamma place' });
+  assert.equal(both.results[0].id, 'gamma');
 });

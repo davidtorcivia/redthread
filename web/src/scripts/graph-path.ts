@@ -8,7 +8,14 @@
  *  specific shared page (Angleton > KK MOUNTAIN > Oliver North). A hop backed
  *  only by a name match in prose (dir 0) costs 2 more, so wikilinked chains win.
  */
-export function findPath(adj: number[][], dir: number[][], src: number, dst: number): number[] | null {
+export interface PathOptions {
+  /** Nodes the path may not pass through (the endpoints excepted). */
+  blocked?: Uint8Array;
+  /** Cost added to the k-th edge out of v on top of the default, or null to forbid the edge. */
+  edgeCost?: (v: number, k: number) => number | null;
+}
+
+export function findPath(adj: number[][], dir: number[][], src: number, dst: number, opts: PathOptions = {}): number[] | null {
   if (src === dst) return [src];
   const n = adj.length;
   const dist = new Float64Array(n).fill(Infinity);
@@ -25,8 +32,10 @@ export function findPath(adj: number[][], dir: number[][], src: number, dst: num
     const neigh = adj[v];
     for (let k = 0; k < neigh.length; k++) {
       const w = neigh[k];
-      if (done[w]) continue;
-      const nd = d + 1 + Math.log(1 + adj[w].length) + (dir[v][k] === 0 ? 2 : 0);
+      if (done[w] || (opts.blocked?.[w] && w !== dst)) continue;
+      const extra = opts.edgeCost ? opts.edgeCost(v, k) : 0;
+      if (extra === null) continue;
+      const nd = d + 1 + Math.log(1 + adj[w].length) + (dir[v][k] === 0 ? 2 : 0) + extra;
       if (nd < dist[w]) {
         dist[w] = nd;
         prev[w] = v;

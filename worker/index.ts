@@ -4,6 +4,7 @@
 import type { Adjacency } from '../web/src/scripts/adjacency.ts';
 import { handleRpc, SERVER_INFO } from './mcp.ts';
 import { Corpus, type Index } from './search.ts';
+import type { Fulltext, Rec } from './research.ts';
 import { ToolError, TOOLS, runTool, type Data } from './tools.ts';
 
 interface R2Object { body: ReadableStream; httpEtag: string; httpMetadata?: { contentType?: string } }
@@ -22,7 +23,10 @@ interface Env {
 interface Ctx { waitUntil(p: Promise<unknown>): void }
 
 /** REST paths onto tool names; query parameters become the tool's arguments. */
-const API: Record<string, string> = { search: 'search', entry: 'get_entry', neighbors: 'neighbors', path: 'find_path', similar: 'similar' };
+const API: Record<string, string> = {
+  search: 'search', semantic: 'search_semantic', lexical: 'search_lexical', citations: 'search_citations',
+  entry: 'get_entry', neighbors: 'neighbors', path: 'find_path', similar: 'similar', timeline: 'timeline', entries: 'list_entries',
+};
 const MD_TYPE = 'text/markdown; charset=utf-8';
 const CORS = {
   'Access-Control-Allow-Origin': '*',
@@ -31,7 +35,7 @@ const CORS = {
   'Access-Control-Max-Age': '86400',
 };
 
-type Loaded = Omit<Data, 'origin' | 'embed' | 'markdown'>;
+type Loaded = Omit<Data, 'origin' | 'embed' | 'markdown' | 'entries' | 'fulltext'>;
 let loaded: { version: string; data: Promise<Loaded> } | null = null;
 
 async function load(env: Env, origin: string): Promise<Loaded> {
@@ -55,6 +59,21 @@ async function load(env: Env, origin: string): Promise<Loaded> {
   ]);
   return { adj, corpus: new Corpus(index, new Int8Array(vectors), new Float32Array(scales)), similar };
 }
+
+/** A JSON asset, fetched once per isolate; a failed fetch is retried by the next call. */
+function lazyAsset<T>(path: string): (env: Env, origin: string) => Promise<T> {
+  let p: Promise<T> | null = null;
+  return (env, origin) => {
+    p ??= env.ASSETS.fetch(new Request(origin + path))
+      .then((r) => (r.ok ? (r.json() as Promise<T>) : Promise.reject(new Error(`${path}: ${r.status}`))))
+      .catch((err) => { p = null; throw err; });
+    return p;
+  };
+}
+// ponytail: fulltext.json is ~19 MB, about 30 MB of heap with entries.json. Static assets cap at
+// 25 MiB per file, so past that it moves to R2 (or D1 with FTS5 for the lexical search).
+const entriesAsset = lazyAsset<Rec[]>('/entries.json');
+const fulltextAsset = lazyAsset<Fulltext>('/fulltext.json');
 
 /** Index and graph, loaded once per isolate and kept until a deploy changes the version. */
 function dataFor(env: Env, origin: string): Promise<Data> {
@@ -81,6 +100,8 @@ function dataFor(env: Env, origin: string): Promise<Data> {
       const o = await env.BUCKET.get(path);
       return o ? new Response(o.body).text() : null;
     },
+    entries: () => entriesAsset(env, origin),
+    fulltext: () => fulltextAsset(env, origin),
   }));
 }
 
@@ -135,7 +156,7 @@ function openapi(origin: string) {
   const paths: Record<string, object> = {};
   for (const [path, name] of Object.entries(API)) {
     const tool = TOOLS.find((t) => t.name === name)!;
-    const { properties, required } = tool.inputSchema as { properties: Record<string, { description?: string }>; required: readonly string[] };
+    const { properties, required } = tool.inputSchema as { properties: Record<string, { description?: string }>; required?: readonly string[] };
     paths[`/api/${path}`] = {
       get: {
         operationId: name,
@@ -144,9 +165,10 @@ function openapi(origin: string) {
         parameters: Object.entries(properties).map(([key, schema]) => ({
           name: name === 'search' && key === 'query' ? 'q' : key,
           in: 'query',
-          required: required.includes(key),
+          required: required?.includes(key) ?? false,
           description: schema.description,
           schema: { ...schema, description: undefined },
+          ...((schema as { type?: string }).type === 'array' ? { style: 'form', explode: false } : {}),
         })),
         responses: {
           200: { description: 'Tool result', content: { 'application/json': {} } },

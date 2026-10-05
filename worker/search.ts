@@ -115,9 +115,10 @@ export class Corpus {
     return hits.slice(0, POOL).map((h) => h[2]);
   }
 
-  /** Reciprocal-rank fusion of the dense and name rankings. With no query vector, names alone. */
-  search(query: string, qv: Float32Array | null, f: Filters = {}, limit = 10): Hit[] {
-    const names = this.byName(query, f);
+  /** Reciprocal-rank fusion of the dense and name rankings. With no query vector, names alone;
+   *  with useNames false, the dense ranking alone. */
+  search(query: string, qv: Float32Array | null, f: Filters = {}, limit = 10, useNames = true): Hit[] {
+    const names = useNames ? this.byName(query, f) : [];
     const dense = qv ? this.dense(qv, f) : null;
     const fused = new Map<number, number>();
     for (const list of [names, dense?.ranked ?? []]) {
