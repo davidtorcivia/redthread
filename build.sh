@@ -29,9 +29,10 @@ echo "[build] parsing $vault"
 # Similar entries and semantic search. Needs CLOUDFLARE_ACCOUNT_ID and WORKERS_AI_API_TOKEN;
 # without them, or on an API failure, the previous index is kept and the build goes on.
 "$python" "$root/build/embed.py" --data "$root/data"
+"$python" "$root/build/research.py" --data "$root/data"
 
 # Payloads the browser fetches at runtime, plus a markdown twin of every entry.
-cp -f "$root/data/previews.json" "$root/data/adjacency.json" "$public/"
+cp -f "$root/data/previews.json" "$root/data/adjacency.json" "$root/data/research/entries.json" "$root/data/research/fulltext.json" "$public/"
 find "$public" -mindepth 2 -maxdepth 2 -name '*.md' -type f -delete
 [[ -d "$root/data/md" ]] && cp -rf "$root/data/md/." "$public/"
 

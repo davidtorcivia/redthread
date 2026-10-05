@@ -58,11 +58,11 @@ _HEADING = re.compile(r"^(#{2,4})\s+(.+?)\s*#*\s*$")
 _EMPHASIS = re.compile(r"[*_`]")
 
 
-def plain(md: str) -> str:
-    """Link markup down to its visible text; footnote markers dropped."""
+def plain(md: str, keep_notes: bool = False) -> str:
+    """Link markup down to its visible text; footnote markers dropped unless keep_notes."""
     md = _WIKILINK.sub(lambda m: m.group(2) or m.group(1), md)
     md = _MDLINK.sub(r"\1", md)
-    return _FNREF.sub("", md)
+    return md if keep_notes else _FNREF.sub("", md)
 
 
 def _heading_key(text: str) -> str:

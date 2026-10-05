@@ -9,7 +9,7 @@ export interface Reply { status: number; body: object | null }
 const MODERN = ['2026-07-28'];
 const LEGACY = ['2025-11-25', '2025-06-18', '2025-03-26', '2024-11-05'];
 const SUPPORTED = [...MODERN, ...LEGACY];
-export const SERVER_INFO = { name: 'theinfoweb', title: 'The Info Web', version: '1.1.0' };
+export const SERVER_INFO = { name: 'theinfoweb', title: 'The Info Web', version: '1.2.0' };
 const CAPABILITIES = { tools: { listChanged: false } };
 /** The tool list and server description change only on deploy. */
 const CACHE = { ttlMs: 3_600_000, cacheScope: 'public' };
@@ -20,7 +20,9 @@ const UNSUPPORTED_VERSION = -32022;
 
 export const INSTRUCTIONS = `This server searches a cross-linked research archive of people, organizations, programs, events, concepts and places, mostly intelligence history, covert operations, finance and political scandal, with footnoted sources.
 
-Typical flow: search (by meaning or by name) -> get_entry for the full markdown with citations -> neighbors, similar or find_path to follow connections. Entry ids are URL slugs; tools also accept an exact title. Cite entries by their url.`;
+Typical flow: search (by meaning or by name) -> get_entry for the full markdown with citations -> neighbors, similar or find_path to follow connections. Entry ids are URL slugs; tools also accept an exact title. Cite entries by their url.
+
+search_lexical finds exact words and quoted phrases; search_semantic ranks by meaning alone; search_citations finds a source in the footnotes and everything that cites it. timeline puts every dated statement for a year or an entry side by side with its footnotes, which is where conflicting dates show up. find_path with edges "relations" follows only the typed, footnoted frontmatter relations (member_of, employed_by...), the best-sourced data in the archive. list_entries pages through frontmatter; bulk downloads are /entries.json and /fulltext.json.`;
 
 /** Every tool only reads the archive. */
 const ANNOTATIONS = { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false };

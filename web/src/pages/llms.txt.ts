@@ -50,8 +50,8 @@ export const GET: APIRoute = () => {
   if (AGENT_API) lines.push(
     '## Research API',
     '',
-    `- MCP server (streamable HTTP, no auth): \`${absUrl('/mcp')}\`. Tools: \`search\` (by meaning and by name, with type, tag and year filters; returns matching sections with deep links), \`get_entry\` (full markdown with citations), \`neighbors\`, \`find_path\`, \`similar\`.`,
-    `- The same tools over GET, returning JSON: \`${absUrl('/api/search')}?q=...\` (also \`type\`, \`tag\`, \`year_from\`, \`year_to\`, \`limit\`), \`/api/entry?id=\`, \`/api/neighbors?id=\`, \`/api/path?from=&to=\`, \`/api/similar?id=\`.`,
+    `- MCP server (streamable HTTP, no auth): \`${absUrl('/mcp')}\`. Tools: \`search\` (by meaning and by name, with type, tag and year filters; returns matching sections with deep links), \`search_semantic\` (by meaning only), \`search_lexical\` (exact words and "quoted phrases"), \`search_citations\` (find a source in the footnotes and every entry and typed relation that cites it), \`get_entry\` (full markdown with citations), \`neighbors\`, \`find_path\` (\`edges\`: \`links\`, \`any\` or \`relations\` for typed, footnoted relations only; \`exclude\` hubs; \`k\` alternative routes), \`similar\`, \`timeline\` (every dated statement for a year, range or entry, with its footnotes, grouped by date so conflicting accounts sit side by side), \`list_entries\` (frontmatter only).`,
+    `- The same tools over GET, returning JSON: \`${absUrl('/api/search')}?q=...\` (also \`type\`, \`tag\`, \`year_from\`, \`year_to\`, \`limit\`), \`/api/semantic?query=\`, \`/api/lexical?query=\`, \`/api/citations?query=\`, \`/api/entry?id=\`, \`/api/neighbors?id=\`, \`/api/path?from=&to=\` (also \`edges\`, \`exclude\` comma-separated, \`k\`), \`/api/similar?id=\`, \`/api/timeline?year=\` (or \`year_from\`/\`year_to\`, or \`entry\`), \`/api/entries\` (\`type\`, \`tag\`, \`updated_since\`, \`offset\`). OpenAPI: \`${absUrl('/api/openapi')}\`.`,
     '- Both are rate limited per IP. On HTTP 429, wait and retry.',
     '',
   );
@@ -61,6 +61,8 @@ export const GET: APIRoute = () => {
     `- [Sitemap](${absUrl('/sitemap.xml')}): full URL list with per-entry last-modified dates`,
     `- [Adjacency JSON](${absUrl('/adjacency.json')}): graph adjacency list: ids, types, and per-node neighbor index. Use this for graph reasoning instead of scraping individual pages.`,
     `- [Previews JSON](${absUrl('/previews.json')}): per-entity title, type, and short summary, used for wikilink hover previews`,
+    `- [Entries JSON](${absUrl('/entries.json')}): every entry's frontmatter (aliases, dates, location, tags, summary) and typed relations, each with the text of the footnote that sources it. No body text.`,
+    `- [Full text JSON](${absUrl('/fulltext.json')}): every entry's body as plain text by heading section (with \`[^n]\` footnote markers and section anchors), plus every footnote's text. About 19 MB.`,
     '',
     '## Optional',
     '',

@@ -75,8 +75,8 @@ Set `SITE_URL` to the public address before you build. Canonical links, social c
 
 `deploy/cloudflare.sh` publishes a built site to a Cloudflare Worker (Workers Paid). The Worker in `worker/` serves the static pages as assets and adds:
 
-- `/mcp`: an MCP server (streamable HTTP, stateless, no auth) with the tools `search`, `get_entry`, `neighbors`, `find_path` and `similar`.
-- `/api/search`, `/api/entry`, `/api/neighbors`, `/api/path`, `/api/similar`: the same tools over GET, returning JSON.
+- `/mcp`: an MCP server (streamable HTTP, stateless, no auth) with the tools `search`, `search_semantic`, `search_lexical`, `search_citations`, `get_entry`, `neighbors`, `find_path`, `similar`, `timeline` and `list_entries`. The lexical, citation, timeline and listing tools read `entries.json` and `fulltext.json`, which `build/research.py` writes and the site serves as public downloads; the Worker loads them on first use (about 30 MB of memory together).
+- `/api/search`, `/api/semantic`, `/api/lexical`, `/api/citations`, `/api/entry`, `/api/neighbors`, `/api/path`, `/api/similar`, `/api/timeline`, `/api/entries`: the same tools over GET, returning JSON. List arguments (`exclude`) are comma-separated.
 - `/.well-known/api-catalog` (RFC 9727): points at `/api/openapi`, an OpenAPI 3.1 description of the GET endpoints generated from the tool schemas, and at the MCP server.
 - OG images and the `.md` twins, read from R2 instead of the asset upload. That keeps the asset count near one file per page, under the 100,000-file limit per Worker version.
 - Markdown content negotiation: a page requested with `Accept: text/markdown` gets its `.md` twin (the home page gets `llms.txt`); other pages, and browsers, get HTML. Every page response carries `Vary: Accept`, which is why `run_worker_first` routes all paths except static bundles and data files through the Worker.

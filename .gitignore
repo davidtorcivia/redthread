@@ -11,6 +11,8 @@ web/.og-cache/
 web/.cf-assets/
 web/public/previews.json
 web/public/adjacency.json
+web/public/entries.json
+web/public/fulltext.json
 web/public/*/*.md
 
 # deploy/rebuild.sh state
