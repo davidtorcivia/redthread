@@ -88,7 +88,9 @@ async function modern(run: Run, id: Rpc['id'], method: string, params: Record<st
   // The body is the source of truth; mirrored headers must agree with it so intermediaries
   // that route or rate-limit on them cannot be fooled.
   const mismatch = (name: string, body: string) => {
-    const h = decodeHeader(headers.get(name));
+    // Only Mcp-Name (and Mcp-Param-*) may carry the base64 sentinel; the others compare raw.
+    const raw = headers.get(name);
+    const h = name === 'Mcp-Name' ? decodeHeader(raw) : raw;
     return h === body ? null : err(id, HEADER_MISMATCH, h == null ? `missing ${name} header` : `${name} header "${h}" does not match body value "${body}"`, 400);
   };
   const bad = mismatch('MCP-Protocol-Version', version) ?? mismatch('Mcp-Method', method)
@@ -128,6 +130,13 @@ export async function handleRpc(run: Run, msg: Rpc, headers: HeaderReader = new 
   const meta = params._meta && typeof params._meta === 'object' ? params._meta : null;
   const bodyVersion = meta?.[`${M}protocolVersion`];
   const headerVersion = headers.get('MCP-Protocol-Version');
+  if (bodyVersion !== undefined && typeof bodyVersion !== 'string') {
+    return err(id, -32602, `_meta["${M}protocolVersion"] must be a string`, 400);
+  }
+  // Checked before routing: a gateway may have acted on the header, whatever era the body claims.
+  if (bodyVersion !== undefined && headerVersion != null && headerVersion !== bodyVersion) {
+    return err(id, HEADER_MISMATCH, `MCP-Protocol-Version header "${headerVersion}" does not match body value "${bodyVersion}"`, 400);
+  }
 
   if (method !== 'initialize' && (bodyVersion !== undefined || (headerVersion && !LEGACY.includes(headerVersion)))) {
     const requested = typeof bodyVersion === 'string' ? bodyVersion : headerVersion;

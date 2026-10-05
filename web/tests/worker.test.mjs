@@ -179,6 +179,13 @@ test('MCP 2026-07-28: header validation, version errors, missing fields, unknown
   assert.deepEqual([unknown.status, unknown.body.error.code], [404, -32601]);
   assert.equal(decodeHeader('=?base64?SGVsbG8sIOS4lueVjA==?='), 'Hello, 世界');
   assert.equal(decodeHeader('plain'), 'plain');
+  const crossEra = await raw({ id: 9, method: 'tools/call', params: { name: 'search', arguments: { query: 'x' }, _meta: { ...meta, 'io.modelcontextprotocol/protocolVersion': '2025-11-25' } } },
+    { 'MCP-Protocol-Version': V, 'Mcp-Method': 'tools/list' });
+  assert.deepEqual([crossEra.status, crossEra.body.error.code], [400, -32020]);
+  const b64Method = await modern(10, 'tools/list', {}, { 'Mcp-Method': '=?base64?dG9vbHMvbGlzdA==?=' });
+  assert.equal(b64Method.body.error.code, -32020);
+  const numeric = await raw({ id: 11, method: 'tools/list', params: { _meta: { ...meta, 'io.modelcontextprotocol/protocolVersion': 20260728 } } });
+  assert.deepEqual([numeric.status, numeric.body.error.code], [400, -32602]);
 });
 
 // worker/index.ts with in-memory stand-ins for the Cache API, R2, assets and Workers AI.
