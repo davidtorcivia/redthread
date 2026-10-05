@@ -87,6 +87,8 @@ header.site :focus-visible,.statement-band :focus-visible {outline-color:var(--b
 .statement-read {display:grid;grid-template-columns:minmax(0,1fr) minmax(0,50rem) minmax(0,1fr);padding-top:3.4em;align-items:start}
 .statement-read .prose {grid-row:1;grid-column:2;min-width:0;max-width:none;margin:0;font-size:21px;line-height:1.55}
 .prose p {margin:0 0 1.15em;text-wrap:pretty}
+/* Long unbroken strings (file names, hashes, URLs) wrap instead of widening the page. */
+.prose :is(p,li,blockquote,td) {overflow-wrap:break-word}
 .prose > p:first-child::first-letter,.prose > p:first-child:has(> a:first-child)::first-letter {
   font-family:var(--sans);font-weight:800;font-size:3.9em;float:left;line-height:.78;padding:.06em .1em 0 0;letter-spacing:-.02em;color:inherit;margin:0
 }
@@ -99,7 +101,23 @@ header.site :focus-visible,.statement-band :focus-visible {outline-color:var(--b
 .prose a:focus-visible {outline:2px solid var(--ink);outline-offset:3px}
 .prose sup {font-size:.55em;color:var(--muted);vertical-align:.6em;line-height:0}
 .prose img {max-width:100%;height:auto}
-.prose table {display:block;max-width:100%;overflow-x:auto}
+/* Tables: sized to their content, scrolling inside .table-scroll when wider than the column.
+   Short cells stay on one line; long ones wrap at about 28em. */
+.prose .table-scroll {max-width:100%;overflow-x:auto;margin:1.6em 0 1.8em;border-top:2px solid var(--ink);border-bottom:1px solid var(--ink);overscroll-behavior-x:contain;
+  /* Edge shadows that show only while more columns are hidden: the paper-colored covers scroll
+     with the content (local) and hide the fixed shadows once an edge is reached. */
+  background:linear-gradient(to right,var(--paper) 40%,transparent) left/28px 100% no-repeat local,
+    linear-gradient(to left,var(--paper) 40%,transparent) right/28px 100% no-repeat local,
+    radial-gradient(farthest-side at 0 50%,color-mix(in srgb,var(--ink) 22%,transparent),transparent) left/16px 100% no-repeat scroll,
+    radial-gradient(farthest-side at 100% 50%,color-mix(in srgb,var(--ink) 22%,transparent),transparent) right/16px 100% no-repeat scroll}
+.prose .table-scroll:focus-visible {outline:2px solid var(--ink);outline-offset:3px}
+.prose table {border-collapse:collapse;width:max-content;min-width:100%;font:400 14px/1.4 var(--sans);font-variant-numeric:tabular-nums lining-nums}
+.prose th {font:600 11px/1.3 var(--sans);text-transform:uppercase;letter-spacing:.07em;color:var(--muted);text-align:left;vertical-align:bottom;padding:12px 16px 9px 0;border-bottom:1px solid var(--line-2);white-space:nowrap}
+.prose td {padding:10px 16px 10px 0;vertical-align:top;border-bottom:1px solid var(--line);max-width:28em}
+.prose tr:last-child td {border-bottom:0}
+.prose :is(th,td):last-child {padding-right:0}
+.prose tbody tr:hover td {background:var(--paper-2)}
+.prose td a[href]:not(.unresolved) {padding:0}
 .prose pre {max-width:100%;overflow-x:auto}
 .statement-read .entity-toc {
   grid-row:1;grid-column:3;position:sticky;top:24px;left:auto;width:auto;max-height:calc(100vh - 48px);overflow:auto;padding:0 0 0 3rem;margin:0;border:0;border-radius:0;background:none;
@@ -186,6 +204,11 @@ footer.site .foot-nav {gap:.6em 1.2em;font-size:15px}
   .statement-read .prose {font-size:11pt}
   .statement-read .entity-toc,.entity-article .path-widget,.entity-article .entity-network {display:none!important}
   .entity-article .footnotes-block {margin-top:1em}
+  /* Paper cannot scroll: tables fit the page width and their cells wrap. */
+  .prose .table-scroll {overflow:visible;background:none}
+  .prose table {width:auto;min-width:0;font-size:8.5pt}
+  .prose th {white-space:normal}
+  .prose td {max-width:none;overflow-wrap:anywhere}
 }
 
 /* Let browse tools use the same narrow screens as the reading pages. */

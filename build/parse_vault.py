@@ -850,6 +850,12 @@ def _process_headings(rendered: str) -> tuple[str, list[dict[str, Any]]]:
 def render_html(entities: list[dict[str, Any]], slug_index: dict[str, str]) -> None:
     """Add body_html and toc to each entity, and html to each footnote."""
     md = MarkdownIt("commonmark", {"html": False}).enable(["table", "strikethrough"])
+    # Wide tables scroll inside their own box instead of widening the page. tabindex lets Safari
+    # keyboard users scroll it (other browsers focus scroll boxes on their own); no landmark role,
+    # since a page of identically named "Table" regions only adds noise.
+    md.add_render_rule("table_open", lambda self, tokens, idx, options, env:
+                       '<div class="table-scroll" tabindex="0">\n<table>\n')
+    md.add_render_rule("table_close", lambda self, tokens, idx, options, env: "</table>\n</div>\n")
     href_for = make_href_resolver(entities, slug_index)
 
     def wikilink(m: re.Match) -> str:

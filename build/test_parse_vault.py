@@ -229,6 +229,13 @@ class TestRenderHtml(unittest.TestCase):
         self.assertIn('title="[[AT&amp;T]]"', out)
         self.assertIn("<code>[[AT&amp;T]]</code>", out)
 
+    def test_tables_scroll_in_their_own_region(self):
+        out = self.render("| A | B |\n|---|--:|\n| [[AT&T]] | 1 |")
+        self.assertRegex(out, r'^<div class="table-scroll" tabindex="0">\n<table>')
+        self.assertIn('<td style="text-align:right">1</td>', out)
+        self.assertTrue(out.rstrip().endswith("</table>\n</div>"))
+        self.assertIn('href="/organizations/att/"', out)
+
     def test_formatted_display_still_links(self):
         self.assertIn('<a class="wikilink" href="/organizations/att/"><em>AT&amp;T</em></a>',
                       self.render("[[AT&T|*AT&T*]]"))
