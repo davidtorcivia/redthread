@@ -204,6 +204,11 @@ footer.site .foot-nav {gap:.6em 1.2em;font-size:15px}
   .statement-read .prose {font-size:11pt}
   .statement-read .entity-toc,.entity-article .path-widget,.entity-article .entity-network {display:none!important}
   .entity-article .footnotes-block {margin-top:1em}
+  /* Paper cannot scroll: tables fit the page width and their cells wrap. */
+  .prose .table-scroll {overflow:visible;background:none}
+  .prose table {width:auto;min-width:0;font-size:8.5pt}
+  .prose th {white-space:normal}
+  .prose td {max-width:none;overflow-wrap:anywhere}
 }
 
 /* Let browse tools use the same narrow screens as the reading pages. */

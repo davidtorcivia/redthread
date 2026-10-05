@@ -850,9 +850,9 @@ def _process_headings(rendered: str) -> tuple[str, list[dict[str, Any]]]:
 def render_html(entities: list[dict[str, Any]], slug_index: dict[str, str]) -> None:
     """Add body_html and toc to each entity, and html to each footnote."""
     md = MarkdownIt("commonmark", {"html": False}).enable(["table", "strikethrough"])
-    # Wide tables scroll inside their own focusable region instead of widening the page.
-    md.add_render_rule("table_open", lambda self, tokens, idx, options, env:
-                       '<div class="table-scroll" tabindex="0" role="region" aria-label="Table">\n<table>\n')
+    # Wide tables scroll inside their own box instead of widening the page. Browsers make an
+    # overflowing scroll box keyboard-focusable on their own, so no tabindex or landmark.
+    md.add_render_rule("table_open", lambda self, tokens, idx, options, env: '<div class="table-scroll">\n<table>\n')
     md.add_render_rule("table_close", lambda self, tokens, idx, options, env: "</table>\n</div>\n")
     href_for = make_href_resolver(entities, slug_index)
 
