@@ -6,11 +6,13 @@ const items = similar(id, limit);
 ---
 {items.length > 0 && <section class="related-section statement-list" data-pagefind-ignore>
   <h2 class="section-heading">Similar entries <span>by subject matter</span></h2>
-  {items.map(e => <div class="statement-item">
-    <div class="item-facts">
-      {TYPE_LABELS[e.type]}
-      {!isLinked(id, e.id) && <> · <b>not linked</b></>}
-    </div>
-    <a class="item-title" href={hrefFor(e)}>{e.title}</a>
-  </div>)}
+  <div class="related-cols">
+    {items.map(e => <div class="statement-item">
+      <div class="item-facts">
+        {TYPE_LABELS[e.type]}
+        {!isLinked(id, e.id) && <> · <b>not linked</b></>}
+      </div>
+      <a class="item-title" href={hrefFor(e)}>{e.title}</a>
+    </div>)}
+  </div>
 </section>}
