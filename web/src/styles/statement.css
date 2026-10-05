@@ -89,8 +89,9 @@ header.site :focus-visible,.statement-band :focus-visible {outline-color:var(--b
 .prose p {margin:0 0 1.15em;text-wrap:pretty}
 /* Long unbroken strings (file names, hashes, URLs) wrap instead of widening the page. */
 .prose :is(p,li,blockquote,td) {overflow-wrap:break-word}
+/* Ink, not inherit: a linked first word would hand the cap the link's dark text, floated off its highlight. */
 .prose > p:first-child::first-letter,.prose > p:first-child:has(> a:first-child)::first-letter {
-  font-family:var(--sans);font-weight:800;font-size:3.9em;float:left;line-height:.78;padding:.06em .1em 0 0;letter-spacing:-.02em;color:inherit;margin:0
+  font-family:var(--sans);font-weight:800;font-size:3.9em;float:left;line-height:.78;padding:.06em .1em 0 0;letter-spacing:-.02em;color:var(--ink);margin:0
 }
 .prose h2,.prose h3,.prose h4 {font-family:var(--sans);font-variation-settings:"wdth" 88;font-weight:700;letter-spacing:-.01em;color:var(--ink)}
 .prose h2 {font-size:22px;margin:2.6em 0 .6em;text-transform:uppercase}
@@ -146,6 +147,17 @@ footer.site {border:0;background:none;margin:0 var(--gutter);padding:0}
 footer.site .container {max-width:none;border-top:2px solid var(--ink);margin-top:2em;padding:1em 0 3em;display:flex;justify-content:space-between;align-items:baseline;gap:2rem}
 footer.site .foot-brand {font:600 18px/1.5 var(--sans);letter-spacing:-.01em;text-transform:none;white-space:nowrap}
 footer.site .foot-nav {gap:.6em 1.2em;font-size:15px}
+footer.site .container:has(+ .foot-contact) {padding-bottom:1.2em}
+footer.site .foot-contact {display:grid;grid-template-columns:minmax(7rem,12rem) minmax(0,1fr) auto;gap:.5rem 2rem;align-items:baseline;border-top:1px solid var(--line-2);padding:1.3em 0 3em;text-align:left}
+footer.site .foot-label {margin:0;font:600 .72rem/1.4 var(--sans);text-transform:uppercase;letter-spacing:.12em;color:var(--muted)}
+footer.site .foot-mail {margin:0;display:flex;flex-direction:column;gap:.3em}
+footer.site .foot-mail a {font:600 clamp(20px,2.2vw,28px)/1.15 var(--sans);letter-spacing:-.02em;color:var(--ink);background:none;overflow-wrap:anywhere}
+footer.site .foot-mail a:hover {color:var(--accent)}
+footer.site .foot-mail span {font:400 15px/1.4 var(--serif);color:var(--muted)}
+footer.site .foot-pgp {margin:0;display:flex;flex-direction:column;align-items:flex-end;gap:.4em}
+footer.site .foot-pgp a {background:none}
+footer.site .foot-pgp a:hover {color:var(--accent)}
+footer.site .foot-pgp code {display:flex;flex-direction:column;font:13px/1.5 var(--mono);letter-spacing:.06em;color:var(--ink);background:none;padding:0;text-align:right}
 .browse-header {max-width:none;background:var(--band);padding:4rem var(--gutter) 2rem}
 .browse-header h1 {font-family:var(--sans);font-size:clamp(48px,8vw,120px);font-weight:800;letter-spacing:-.04em;line-height:.95;text-transform:uppercase;color:inherit}
 .browse-body {max-width:none;padding-left:var(--gutter);padding-right:var(--gutter)}
@@ -180,6 +192,9 @@ footer.site .foot-nav {gap:.6em 1.2em;font-size:15px}
   .entity-article .backlinks .hc-list {columns:2}
   .entity-article .footnotes-block ol {columns:1}
   footer.site .container {flex-wrap:wrap}
+  footer.site .foot-contact {grid-template-columns:minmax(0,1fr)}
+  footer.site .foot-pgp {align-items:flex-start}
+  footer.site .foot-pgp code {text-align:left}
 }
 @media (max-width:600px) {
   .statement-band {padding-bottom:26px}
