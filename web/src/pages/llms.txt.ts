@@ -2,7 +2,7 @@
 // JSON payloads rather than listing thousands of entries inline.
 import type { APIRoute } from 'astro';
 import { BROWSE_TYPES, entities, entitiesByType, hrefFor, topHubs, TYPE_DIRS, TYPE_LABELS, TYPE_PLURALS } from '../lib/data.ts';
-import { absUrl, SITE_DESCRIPTION, SITE_TITLE } from '../lib/site.ts';
+import { absUrl, AGENT_API, SITE_DESCRIPTION, SITE_TITLE } from '../lib/site.ts';
 
 // Brackets in a title would end the markdown link text early.
 const linkText = (s: string) => s.replace(/[[\]]/g, '\\$&');
@@ -47,6 +47,14 @@ export const GET: APIRoute = () => {
     }
     lines.push('');
   }
+  if (AGENT_API) lines.push(
+    '## Research API',
+    '',
+    `- MCP server (streamable HTTP, no auth): \`${absUrl('/mcp')}\`. Tools: \`search\` (by meaning and by name, with type, tag and year filters; returns matching sections with deep links), \`get_entry\` (full markdown with citations), \`neighbors\`, \`find_path\`, \`similar\`.`,
+    `- The same tools over GET, returning JSON: \`${absUrl('/api/search')}?q=...\` (also \`type\`, \`tag\`, \`year_from\`, \`year_to\`, \`limit\`), \`/api/entry?id=\`, \`/api/neighbors?id=\`, \`/api/path?from=&to=\`, \`/api/similar?id=\`.`,
+    '- Both are rate limited per IP (60 requests a minute).',
+    '',
+  );
   lines.push(
     '## Raw data',
     '',

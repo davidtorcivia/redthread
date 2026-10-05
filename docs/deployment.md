@@ -70,3 +70,29 @@ nginx binds to `127.0.0.1`, so put something in front of it: Cloudflare Tunnel, 
 With Cloudflare Tunnel, add a public hostname that routes `your.domain` to `http://localhost:8080`.
 
 Set `SITE_URL` to the public address before you build. Canonical links, social cards, and the sitemap all use it.
+
+## Cloudflare Workers
+
+`deploy/cloudflare.sh` publishes a built site to a Cloudflare Worker (Workers Paid). The Worker in `worker/` serves the static pages as assets and adds:
+
+- `/mcp`: an MCP server (streamable HTTP, stateless, no auth) with the tools `search`, `get_entry`, `neighbors`, `find_path` and `similar`.
+- `/api/search`, `/api/entry`, `/api/neighbors`, `/api/path`, `/api/similar`: the same tools over GET, returning JSON.
+- OG images and the `.md` twins, read from R2 instead of the asset upload. That keeps the asset count near one file per page, under the 100,000-file limit per Worker version.
+
+Search needs the semantic index, so set `CLOUDFLARE_ACCOUNT_ID` and `WORKERS_AI_API_TOKEN` for the build (see [configuration](configuration.md)). Without it, `search` answers that the index is not built and the other tools still work.
+
+Setup:
+
+1. Create an R2 bucket: `npx wrangler r2 bucket create <name>`.
+2. Copy `worker/wrangler.example.jsonc` somewhere outside the repo, then set the Worker name, your domain, the bucket name, and the paths: `main` points at `worker/index.ts`, and `assets.directory` must match `ASSETS_DIR`.
+3. After each build, run:
+
+   ```sh
+   CLOUDFLARE_ACCOUNT_ID=... CLOUDFLARE_API_TOKEN=... R2_BUCKET=<name> \
+     ASSETS_DIR=<assets.directory> deploy/cloudflare.sh path/to/wrangler.jsonc
+   ```
+
+   The token needs Workers Scripts Edit and R2 read and write. To port the nginx security headers, write a [`_headers`](https://developers.cloudflare.com/workers/static-assets/headers/) file and pass it as `HEADERS_FILE`.
+4. Set `AGENT_API=1` in `.env` so `llms.txt` lists the endpoints.
+
+Uploads go through the Cloudflare REST API at 3 requests a second, and only files whose MD5 changed are sent. The first deploy of a large site takes a while (about 40 minutes for 7,000 files); later ones send a few dozen. Each search embeds the query with Workers AI (about $0.01 per 40,000 queries at current prices), and the Worker caches tool results for an hour. A per-IP rate limit of 60 requests a minute covers `/api/*` and `/mcp`.

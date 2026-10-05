@@ -5,7 +5,7 @@ import '../styles/statement.css';
 import '../styles/graph.css';
 import '../styles/path.css';
 import { CARD_TEMPLATE_HASH } from '../lib/og-card';
-import { absUrl, ANALYTICS, BUILD_ID as V, pageTitle, SITE_DESCRIPTION, SITE_TITLE } from '../lib/site.ts';
+import { absUrl, AGENT_API, ANALYTICS, BUILD_ID as V, pageTitle, SITE_DESCRIPTION, SITE_TITLE } from '../lib/site.ts';
 
 interface Props {
   title: string;
@@ -192,7 +192,7 @@ const breadcrumbSchema = breadcrumbs?.length
       </div>
     </footer>
 
-    <div id="pf-modal" role="dialog" aria-modal="true" aria-label="Search">
+    <div id="pf-modal" role="dialog" aria-modal="true" aria-label="Search" data-semantic={AGENT_API ? '' : undefined}>
       <div class="pf-shell">
         <div class="pf-header"><span>Search</span><button type="button" id="pf-close" aria-label="Close search">Close</button></div>
         <p id="pf-error" role="status" hidden>Search could not load. <button type="button" id="pf-reload">Reload the page</button> to try again.</p>
@@ -444,28 +444,87 @@ const breadcrumbSchema = breadcrumbs?.length
           quick.id = 'pf-quick';
           quick.hidden = true;
           drawer.parentNode.insertBefore(quick, drawer);
+          const meaning = modal.hasAttribute('data-semantic') ? document.createElement('div') : null;
+          if (meaning) {
+            meaning.id = 'pf-meaning';
+            meaning.hidden = true;
+            drawer.parentNode.insertBefore(meaning, drawer);
+            // A link to a section of the current page only changes the hash, so close the dialog.
+            meaning.addEventListener('click', (e) => { if (e.target.closest('a')) closeModal(); });
+          }
           const query = () => input.value.trim().toLowerCase();
           input.addEventListener('input', () => {
             if (!query()) renderQuick([], '');
             loadNames().then((names) => renderQuick(names, query()));
+            if (meaning) searchMeaning(meaning, input.value.trim());
           });
           mount.querySelector('.pagefind-ui__search-clear')?.addEventListener('click', () => renderQuick([], ''));
           // Arrow keys move between the input and the quick matches.
           input.addEventListener('keydown', (e) => {
-            if (e.key !== 'ArrowDown' || quick.hidden) return;
-            const first = quick.querySelector('.pf-quick-item');
+            if (e.key !== 'ArrowDown') return;
+            const first = modal.querySelector('#pf-quick:not([hidden]) .pf-quick-item, #pf-meaning:not([hidden]) .pf-quick-item');
             if (first) { e.preventDefault(); first.focus(); }
           });
-          quick.addEventListener('keydown', (e) => {
+          const onListKey = (e) => {
             if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
-            const items = [...quick.querySelectorAll('.pf-quick-item')];
+            const items = [...modal.querySelectorAll('#pf-quick:not([hidden]) .pf-quick-item, #pf-meaning:not([hidden]) .pf-quick-item')];
             const i = items.indexOf(document.activeElement);
             if (i < 0) return;
             e.preventDefault();
             if (e.key === 'ArrowDown') (items[i + 1] || items[i]).focus();
             else if (i === 0) input.focus();
             else items[i - 1].focus();
-          });
+          };
+          quick.addEventListener('keydown', onListKey);
+          meaning?.addEventListener('keydown', onListKey);
+        }
+
+        // Matches by meaning from the Worker's /api/search, for questions rather than names.
+        // Asked only for two or more words; a rate limit, outage or missing Worker hides the list.
+        let meaningTimer = 0;
+        let meaningAbort = null;
+        function searchMeaning(box, q) {
+          clearTimeout(meaningTimer);
+          meaningAbort?.abort();
+          if (q.split(/\s+/).length < 2) { box.hidden = true; return; }
+          meaningTimer = setTimeout(async () => {
+            meaningAbort = new AbortController();
+            try {
+              const r = await fetch('/api/search?limit=6&q=' + encodeURIComponent(q), { signal: meaningAbort.signal });
+              if (!r.ok) throw new Error(String(r.status));
+              renderMeaning(box, (await r.json()).results || []);
+            } catch (err) {
+              if (err.name !== 'AbortError') box.hidden = true;
+            }
+          }, 350);
+        }
+        function renderMeaning(box, results) {
+          box.replaceChildren();
+          box.hidden = !results.length;
+          if (!results.length) return;
+          const label = document.createElement('div');
+          label.className = 'pf-quick-label';
+          label.textContent = 'By meaning';
+          box.appendChild(label);
+          for (const r of results) {
+            // Link straight to the section that matched, when it is not the opening one.
+            const sec = r.sections?.find((s) => s.heading);
+            const url = new URL(sec ? sec.url : r.url);
+            const a = document.createElement('a');
+            a.className = 'pf-quick-item type-' + r.type;
+            a.href = url.pathname + url.hash;
+            const t = document.createElement('span');
+            t.className = 'pf-quick-type';
+            t.textContent = TYPE_LABELS[r.type] || r.type;
+            a.append(t, r.title);
+            if (sec) {
+              const h = document.createElement('span');
+              h.className = 'pf-quick-section';
+              h.textContent = sec.heading;
+              a.append(h);
+            }
+            box.appendChild(a);
+          }
         }
 
         // An unresolved wikilink has no page; clicking it searches for the name instead.
