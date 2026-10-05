@@ -125,3 +125,59 @@ test('MCP: initialize, list, call, notifications and errors', async () => {
   assert.equal((await rpc({ id: 6, method: 'resources/list' })).error.code, -32601);
   assert.equal((await handleRpc(async () => null, { id: 7, method: 'ping' })).error.code, -32600);
 });
+
+// worker/index.ts with in-memory stand-ins for the Cache API, R2, assets and Workers AI.
+const store = new Map();
+globalThis.caches = {
+  default: {
+    match: async (req) => store.get(req.url)?.clone(),
+    put: async (req, res) => { store.set(req.url, res); },
+  },
+};
+const { default: worker } = await import('../../worker/index.ts');
+const env = (over = {}) => ({
+  ASSETS: { fetch: async (req) => new Response(`asset ${new URL(req.url).pathname}`, { status: new URL(req.url).pathname.endsWith('.md') ? 404 : 200 }) },
+  BUCKET: { get: async (key) => (key === 'people/a.md' ? { body: new Response('# A').body, httpEtag: '"e"' } : null) },
+  AI: { run: async () => { throw new Error('no AI in tests'); } },
+  ...over,
+});
+const ctx = { waitUntil: (p) => p };
+const call = (path, init, e = env()) => worker.fetch(new Request('https://x.test' + path, init), e, ctx);
+
+test('worker: R2 paths, 404 fallback, HEAD, malformed escapes, cache key keeps the query', async () => {
+  store.clear();
+  const md = await call('/people/a.md');
+  assert.equal(md.headers.get('Content-Type'), 'text/markdown; charset=utf-8');
+  assert.equal(await md.text(), '# A');
+  assert.equal((await call('/people/missing.md')).status, 404);
+  assert.equal(await (await call('/people/%E0.md')).text(), 'asset /people/%E0.md');
+  const head = await call('/people/a.md', { method: 'HEAD' });
+  assert.equal(head.status, 200);
+  assert.equal(await head.text(), '');
+  assert.ok(store.has('https://x.test/people/a.md'));
+  await call('/og/people/a.png?v=1', {}, env({ BUCKET: { get: async () => ({ body: new Response('png').body, httpEtag: '"p"' }) } }));
+  assert.ok(store.has('https://x.test/og/people/a.png?v=1'));
+});
+
+test('worker: MCP handshake works when the data cannot load; tool errors stay JSON-RPC', async () => {
+  const broken = env({ ASSETS: { fetch: async () => new Response('', { status: 500 }) } });
+  const post = (body) => call('/mcp', { method: 'POST', body: JSON.stringify(body) }, broken);
+  const init = await (await post({ jsonrpc: '2.0', id: 1, method: 'initialize', params: null })).json();
+  assert.equal(init.result.serverInfo.name, 'theinfoweb');
+  assert.equal((await post({ jsonrpc: '2.0', method: 'notifications/initialized' })).status, 202);
+  const failed = await (await post({ jsonrpc: '2.0', id: 2, method: 'tools/call', params: { name: 'neighbors', arguments: { id: 'a' } } })).json();
+  assert.equal(failed.error.code, -32603);
+  assert.equal((await call('/mcp', { method: 'OPTIONS' })).headers.get('Access-Control-Allow-Origin'), '*');
+  assert.equal((await call('/mcp')).status, 405);
+  assert.equal((await call('/mcp', { method: 'POST', body: '{' })).status, 400);
+  assert.equal((await call('/api/search?q=x', {}, broken)).status, 503);
+  assert.equal((await call('/api/nope')).status, 404);
+});
+
+test('worker: the rate limiter answers 429 before any work', async () => {
+  const limited = env({ LIMITER: { limit: async () => ({ success: false }) } });
+  const res = await call('/api/search?q=x', {}, limited);
+  assert.equal(res.status, 429);
+  assert.equal(res.headers.get('Retry-After'), '60');
+  assert.equal((await call('/mcp', { method: 'POST', body: '{}' }, limited)).status, 429);
+});

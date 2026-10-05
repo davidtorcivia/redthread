@@ -450,7 +450,9 @@ const breadcrumbSchema = breadcrumbs?.length
             meaning.hidden = true;
             drawer.parentNode.insertBefore(meaning, drawer);
             // A link to a section of the current page only changes the hash, so close the dialog.
-            meaning.addEventListener('click', (e) => { if (e.target.closest('a')) closeModal(); });
+            meaning.addEventListener('click', (e) => {
+              if (e.target.closest('a') && e.button === 0 && !e.metaKey && !e.ctrlKey && !e.shiftKey && !e.altKey) closeModal();
+            });
           }
           const query = () => input.value.trim().toLowerCase();
           input.addEventListener('input', () => {
@@ -458,7 +460,10 @@ const breadcrumbSchema = breadcrumbs?.length
             loadNames().then((names) => renderQuick(names, query()));
             if (meaning) searchMeaning(meaning, input.value.trim());
           });
-          mount.querySelector('.pagefind-ui__search-clear')?.addEventListener('click', () => renderQuick([], ''));
+          mount.querySelector('.pagefind-ui__search-clear')?.addEventListener('click', () => {
+            renderQuick([], '');
+            if (meaning) searchMeaning(meaning, '');
+          });
           // Arrow keys move between the input and the quick matches.
           input.addEventListener('keydown', (e) => {
             if (e.key !== 'ArrowDown') return;
@@ -507,8 +512,8 @@ const breadcrumbSchema = breadcrumbs?.length
           label.textContent = 'By meaning';
           box.appendChild(label);
           for (const r of results) {
-            // Link straight to the section that matched, when it is not the opening one.
-            const sec = r.sections?.find((s) => s.heading);
+            // Link straight to the best-matching section, unless that is the opening one.
+            const sec = r.sections?.[0]?.heading ? r.sections[0] : null;
             const url = new URL(sec ? sec.url : r.url);
             const a = document.createElement('a');
             a.className = 'pf-quick-item type-' + r.type;

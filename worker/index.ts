@@ -15,12 +15,20 @@ interface Env {
   LIMITER?: { limit(opts: { key: string }): Promise<{ success: boolean }> };
   /** R2 prefix semantic/<version>/ written by deploy/cloudflare.sh with this deploy. */
   SEMANTIC_VERSION?: string;
+  /** Changes on every deploy, so cached tool results never outlive the data they came from. */
+  CF_VERSION_METADATA?: { id: string };
 }
 interface Ctx { waitUntil(p: Promise<unknown>): void }
 
 /** REST paths onto tool names; query parameters become the tool's arguments. */
 const API: Record<string, string> = { search: 'search', entry: 'get_entry', neighbors: 'neighbors', path: 'find_path', similar: 'similar' };
 const MD_TYPE = 'text/markdown; charset=utf-8';
+const CORS = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+  'Access-Control-Allow-Headers': 'Content-Type, Accept, Mcp-Protocol-Version, Mcp-Session-Id',
+  'Access-Control-Max-Age': '86400',
+};
 
 type Loaded = Omit<Data, 'origin' | 'embed' | 'markdown'>;
 let loaded: { version: string; data: Promise<Loaded> } | null = null;
@@ -94,7 +102,7 @@ async function limited(env: Env, req: Request): Promise<Response | null> {
 
 /** Tool results cached at the edge, keyed by tool, arguments and index version. */
 async function cachedTool(env: Env, ctx: Ctx, data: Data, name: string, args: Record<string, unknown>): Promise<unknown> {
-  const key = new Request(`${data.origin}/__tool/${name}?v=${env.SEMANTIC_VERSION ?? ''}&a=${encodeURIComponent(JSON.stringify(args))}`);
+  const key = new Request(`${data.origin}/__tool/${name}?v=${env.CF_VERSION_METADATA?.id ?? env.SEMANTIC_VERSION ?? ''}&a=${encodeURIComponent(JSON.stringify(args))}`);
   const cache = (caches as unknown as { default: Cache }).default;
   const hit = await cache.match(key);
   if (hit) return hit.json();
@@ -107,7 +115,7 @@ async function cachedTool(env: Env, ctx: Ctx, data: Data, name: string, args: Re
 }
 
 async function api(req: Request, env: Env, ctx: Ctx, url: URL): Promise<Response> {
-  if (req.method === 'OPTIONS') return new Response(null, { headers: { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Methods': 'GET' } });
+  if (req.method === 'OPTIONS') return new Response(null, { status: 204, headers: CORS });
   if (req.method !== 'GET') return json({ error: 'use GET' }, 405, { Allow: 'GET' });
   const tool = API[url.pathname.slice('/api/'.length)];
   if (!tool) return json({ error: `unknown endpoint; try ${Object.keys(API).map((k) => '/api/' + k).join(', ')}` }, 404);
@@ -119,11 +127,13 @@ async function api(req: Request, env: Env, ctx: Ctx, url: URL): Promise<Response
     return json(await cachedTool(env, ctx, await dataFor(env, url.origin), tool, args), 200, { 'Cache-Control': 'public, max-age=300' });
   } catch (err) {
     if (err instanceof ToolError) return json({ error: err.message }, 400);
-    throw err;
+    console.error(err);
+    return json({ error: 'temporarily unavailable' }, 503, { 'Retry-After': '30' });
   }
 }
 
 async function mcp(req: Request, env: Env, ctx: Ctx, url: URL): Promise<Response> {
+  if (req.method === 'OPTIONS') return new Response(null, { status: 204, headers: CORS });
   if (req.method !== 'POST') return json({ error: 'MCP endpoint: POST JSON-RPC here (streamable HTTP, stateless)' }, 405, { Allow: 'POST' });
   const block = await limited(env, req);
   if (block) return block;
@@ -134,19 +144,33 @@ async function mcp(req: Request, env: Env, ctx: Ctx, url: URL): Promise<Response
     return json({ jsonrpc: '2.0', id: null, error: { code: -32700, message: 'parse error' } }, 400);
   }
   if (Array.isArray(msg)) return json({ jsonrpc: '2.0', id: null, error: { code: -32600, message: 'batches are not supported' } }, 400);
-  const data = await dataFor(env, url.origin);
-  const out = await handleRpc((name, args) => cachedTool(env, ctx, data, name, args), msg as never);
-  return out ? json(out) : new Response(null, { status: 202 });
+  // Only tools/call loads the index, so the handshake answers even when the data cannot load.
+  const run = async (name: string, args: Record<string, unknown>) => cachedTool(env, ctx, await dataFor(env, url.origin), name, args);
+  try {
+    const out = await handleRpc(run, msg as never);
+    return out ? json(out) : new Response(null, { status: 202, headers: { 'Access-Control-Allow-Origin': '*' } });
+  } catch (err) {
+    console.error(err);
+    const id = (msg as { id?: unknown })?.id ?? null;
+    return json({ jsonrpc: '2.0', id, error: { code: -32603, message: 'temporarily unavailable' } });
+  }
 }
 
 /** OG images and markdown twins, which live in R2 to keep the asset count down. */
 async function fromBucket(req: Request, env: Env, ctx: Ctx, url: URL): Promise<Response> {
   if (req.method !== 'GET' && req.method !== 'HEAD') return new Response(null, { status: 405, headers: { Allow: 'GET, HEAD' } });
   const cache = (caches as unknown as { default: Cache }).default;
-  const key = new Request(url.origin + url.pathname);
+  let path: string;
+  try {
+    path = decodeURIComponent(url.pathname.slice(1));
+  } catch {
+    return env.ASSETS.fetch(req);  // malformed escapes: the site's 404 page
+  }
+  // The query is part of the key: OG links carry ?v=<card template hash> to bust caches.
+  const key = new Request(url.origin + url.pathname + url.search);
   const hit = await cache.match(key);
   const res = hit ?? await (async () => {
-    const o = await env.BUCKET.get(decodeURIComponent(url.pathname.slice(1)));
+    const o = await env.BUCKET.get(path);
     if (!o) return null;
     const md = url.pathname.endsWith('.md');
     const r = new Response(o.body, {

@@ -6,8 +6,9 @@
 
 `upload` sends only files whose MD5 differs from the object's ETag and prints the semantic
 index version (a content hash, used as the R2 prefix semantic/<version>/). `prune` runs after
-the Worker deploy: it deletes objects the site no longer has, keeping the current and the
-previous semantic version, and refuses to delete more than a quarter of the bucket.
+the Worker deploy: it deletes og/, <type>/<slug>.md and semantic/ objects the site no longer
+has, keeps the current and three earlier semantic versions, and refuses to delete more than a
+quarter of the bucket. Other keys in the bucket are never touched.
 Stdlib only; the token needs R2 read and write on the bucket.
 
 This goes through the Cloudflare REST API, which allows 1,200 requests per 5 minutes per
@@ -33,6 +34,9 @@ TYPES = {".png": "image/png", ".md": "text/markdown; charset=utf-8", ".json": "a
          ".bin": "application/octet-stream"}
 SEMANTIC_FILES = ("index.json", "vectors.bin", "scales.bin", "similar.json")
 MAX_PRUNE_SHARE = 0.25
+# Semantic versions kept besides the current one. Not just the previous: a deploy that failed
+# after its upload leaves a newer version that was never live.
+KEEP_VERSIONS = 3
 REQUESTS_PER_SECOND = 3
 
 
@@ -88,6 +92,12 @@ class R2:
         self._req("DELETE", f"{self.base}/{urllib.parse.quote(key)}")
 
 
+def managed(key: str) -> bool:
+    """Keys this script owns; anything else in the bucket is left alone."""
+    parts = key.split("/")
+    return parts[0] in ("og", "semantic") or (len(parts) == 2 and key.endswith(".md"))
+
+
 def site_files(dist: Path) -> dict[str, Path]:
     """OG images and the <type>/<slug>.md twins, keyed by their URL path."""
     files = {p.relative_to(dist).as_posix(): p for p in (dist / "og").rglob("*.png")}
@@ -129,9 +139,10 @@ def prune(r2: R2, dist: Path, keep: str, force: bool = False) -> None:
         if k.startswith("semantic/"):
             v = k.split("/")[1]
             versions[v] = max(versions.get(v, ""), o.get("last_modified", ""))
-    previous = sorted((v for v in versions if v != keep), key=lambda v: versions[v])[-1:]
+    previous = sorted((v for v in versions if v != keep), key=lambda v: versions[v])[-KEEP_VERSIONS:]
     kept = {keep, *previous}
-    stale = [k for k in remote if (k.split("/")[1] not in kept if k.startswith("semantic/") else k not in files)]
+    stale = [k for k in remote if managed(k)
+             and (k.split("/")[1] not in kept if k.startswith("semantic/") else k not in files)]
     if stale and len(stale) > MAX_PRUNE_SHARE * len(remote) and not force:
         raise SystemExit(f"[r2] refusing to delete {len(stale)} of {len(remote)} objects; rerun prune with --force if intended")
     with ThreadPoolExecutor(4) as pool:

@@ -19,8 +19,10 @@ export async function handleRpc(run: Run, msg: Rpc): Promise<object | null> {
   if (!msg || typeof msg !== 'object' || msg.jsonrpc !== '2.0' || typeof msg.method !== 'string') {
     return fail(msg?.id, -32600, 'invalid request');
   }
-  const { id, method, params = {} } = msg;
+  const { id, method } = msg;
   if (id === undefined) return null;
+  const params = msg.params ?? {};
+  if (typeof params !== 'object' || Array.isArray(params)) return fail(id, -32602, 'params must be an object');
   switch (method) {
     case 'initialize': {
       const asked = params.protocolVersion;
