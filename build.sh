@@ -47,7 +47,8 @@ out="$root/web/.dist-build"
 echo "[build] building site"
 npx astro build --outDir "$out"
 npx pagefind --site "$out"
-rm -f "$out"/search-index/pagefind-{component-ui,modular-ui}.{js,css} "$out/search-index/pagefind-highlight.js"
+# The site uses Pagefind's JS API (scripts/search-palette.ts), none of its bundled UIs.
+rm -f "$out"/search-index/pagefind-{ui,component-ui,modular-ui}.{js,css} "$out/search-index/pagefind-highlight.js"
 
 # Precompressed copies for nginx gzip_static.
 find "$out" -type f -size +1024c \

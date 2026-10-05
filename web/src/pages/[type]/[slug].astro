@@ -60,6 +60,8 @@ const jsonLd = entityJsonLd(entity);
     class="entity-article"
     data-pagefind-body
     data-pagefind-meta={`title:${entity.title}`}
+    data-recent-title={entity.title}
+    data-recent-type={entity.type}
   >
     <span data-pagefind-filter={`type:${typeLabel}`} hidden></span>
     {entity.category && (

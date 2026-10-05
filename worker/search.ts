@@ -1,5 +1,8 @@
 // Semantic + name search over the index build/embed.py writes. Pure: no Workers APIs, so
 // Node tests import it directly.
+import { nameRank } from '../web/src/scripts/search-rank.ts';
+
+export { nameRank };
 
 /** [id, title, type, summary, tags, primary year, aliases] */
 export type Entry = [string, string, string, string, string[], number | null, string[]];
@@ -31,16 +34,6 @@ export interface Hit {
 
 const RRF_K = 60;
 const POOL = 50;
-
-/** 0 exact, 1 prefix, 2 word prefix, 3 substring, 9 no match; the site search's quickRank. */
-export function nameRank(keys: string[], q: string): number {
-  let best = 9;
-  for (const k of keys) {
-    const r = k === q ? 0 : k.startsWith(q) ? 1 : k.includes(' ' + q) ? 2 : k.includes(q) ? 3 : 9;
-    if (r < best) best = r;
-  }
-  return best;
-}
 
 export class Corpus {
   readonly byId = new Map<string, number>();

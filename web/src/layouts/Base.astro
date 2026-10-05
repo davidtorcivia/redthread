@@ -134,9 +134,6 @@ const breadcrumbSchema = breadcrumbs?.length
     )}
 
     <link rel="icon" href={favicon} />
-    <link href="/search-index/pagefind-ui.css" rel="stylesheet" />
-    {/* Deferred scripts run in order, so PagefindUI exists before the module script below. */}
-    <script src="/search-index/pagefind-ui.js" defer is:inline></script>
     {preloadAdjacency && (
       <link rel="preload" as="fetch" href={`/adjacency.json?v=${V}`} crossorigin="anonymous" />
     )}
@@ -193,16 +190,27 @@ const breadcrumbSchema = breadcrumbs?.length
     </footer>
 
     <div id="pf-modal" role="dialog" aria-modal="true" aria-label="Search" data-semantic={AGENT_API ? '' : undefined}>
-      <div class="pf-shell">
-        <div class="pf-header"><span>Search</span><button type="button" id="pf-close" aria-label="Close search">Close</button></div>
-        <p id="pf-error" role="status" hidden>Search could not load. <button type="button" id="pf-reload">Reload the page</button> to try again.</p>
-        <div id="pf-mount"></div>
+      <div class="sp-shell">
+        <div class="sp-bar">
+          <svg class="sp-icon" viewBox="0 0 20 20" aria-hidden="true"><circle cx="8.5" cy="8.5" r="6" /><path d="M13 13l5 5" /></svg>
+          <input id="sp-input" type="search" role="combobox" aria-expanded="true" aria-controls="sp-results" aria-autocomplete="list"
+            autocomplete="off" autocapitalize="off" spellcheck="false" enterkeyhint="go"
+            placeholder={AGENT_API ? 'Search or ask a question' : 'Search the archive'} />
+          <span id="sp-spinner" class="sp-spinner" hidden aria-hidden="true"></span>
+          <button type="button" id="pf-close" class="sp-close" aria-label="Close search"><kbd>Esc</kbd><span>Close</span></button>
+        </div>
+        <div id="sp-results" class="sp-results" role="listbox" aria-label="Search results"></div>
+        <div class="sp-foot" aria-hidden="true">
+          <span><kbd>↑</kbd><kbd>↓</kbd> move</span><span><kbd>↵</kbd> open</span><span><kbd>esc</kbd> close</span>
+          {AGENT_API && <span class="sp-foot-note">Questions are matched by meaning</span>}
+        </div>
+        <p id="sp-status" class="sr-only" role="status"></p>
       </div>
     </div>
 
     {/* Bundled into one cached module shared by every page. Modules are deferred, so the DOM is ready. */}
     <script>
-      import { loadAdjacency } from '../scripts/adjacency';
+      import { initSearch } from '../scripts/search-palette';
       import { entityHref, TYPE_LABELS } from '../scripts/entity-types';
       import { escapeHtml as esc, renderInlineMd } from '../lib/inline-md';
 
@@ -356,261 +364,12 @@ const breadcrumbSchema = breadcrumbs?.length
         }
       });
 
-      // Search modal (Pagefind), opened with the header button or Cmd/Ctrl+K.
-      {
-        const modal = document.getElementById('pf-modal');
-        const mount = document.getElementById('pf-mount');
-        const trigger = document.getElementById('search-open');
-        const loadError = document.getElementById('pf-error');
-        let pfReady = false;
-        // Whatever opened the modal gets focus back on close.
-        let opener = null;
-        document.getElementById('pf-reload').addEventListener('click', () => location.reload());
-        document.getElementById('pf-close').addEventListener('click', closeModal);
-
-        function init() {
-          if (pfReady) return;
-          if (!window.PagefindUI) { loadError.hidden = false; return; }
-          try {
-            new window.PagefindUI({
-              element: '#pf-mount',
-              bundlePath: '/search-index/',
-              showImages: false,
-              showSubResults: true,
-              resetStyles: false,
-              placeholder: 'Search the vault…',
-            });
-            pfReady = true;
-            loadError.hidden = true;
-          } catch {
-            loadError.hidden = false;
-          }
-        }
-        // Pagefind mounts its input asynchronously; poll briefly for it.
-        function withInput(fn, retries = 12) {
-          const input = mount.querySelector('input');
-          if (input) fn(input);
-          else if (retries > 0) setTimeout(() => withInput(fn, retries - 1), 40);
-        }
-
-        // Pagefind ranks by term frequency with no title boost, so an entry's own page can
-        // sink below pages that repeat its name. List title and alias matches above the results.
-        let quick = null;
-        let namesP = null;
-        const loadNames = () => namesP ??= loadAdjacency()
-          .then((d) => d.ids.map((id, i) => ({
-            title: d.titles[i],
-            type: d.types[i],
-            href: entityHref(d.types[i], id),
-            keys: [d.titles[i], ...(d.aliases?.[String(i)] || [])].map((k) => k.toLowerCase()),
-          })))
-          .catch(() => []);
-        // 0 exact, 1 prefix, 2 word prefix, 3 substring, 9 no match.
-        const quickRank = (n, q) => Math.min(...n.keys.map((k) =>
-          k === q ? 0 : k.startsWith(q) ? 1 : k.includes(' ' + q) ? 2 : k.includes(q) ? 3 : 9));
-        function renderQuick(names, q) {
-          quick.replaceChildren();
-          const top = q.length < 2 ? [] : names
-            .map((n) => [quickRank(n, q), n])
-            .filter(([s]) => s < 9)
-            .sort((a, b) => a[0] - b[0] || a[1].title.length - b[1].title.length)
-            .slice(0, 8);
-          quick.hidden = !top.length;
-          if (!top.length) return;
-          const label = document.createElement('div');
-          label.className = 'pf-quick-label';
-          label.textContent = 'Entries';
-          quick.appendChild(label);
-          for (const [, n] of top) {
-            const a = document.createElement('a');
-            a.className = 'pf-quick-item type-' + n.type;
-            a.href = n.href;
-            const t = document.createElement('span');
-            t.className = 'pf-quick-type';
-            t.textContent = TYPE_LABELS[n.type] || n.type;
-            a.append(t, n.title);
-            quick.appendChild(a);
-          }
-        }
-        function wireQuick(retries = 12) {
-          if (quick) return;
-          const input = mount.querySelector('input');
-          const drawer = mount.querySelector('.pagefind-ui__drawer');
-          if (!input || !drawer) {
-            if (retries > 0) setTimeout(() => wireQuick(retries - 1), 40);
-            return;
-          }
-          quick = document.createElement('div');
-          quick.id = 'pf-quick';
-          quick.hidden = true;
-          drawer.parentNode.insertBefore(quick, drawer);
-          const meaning = modal.hasAttribute('data-semantic') ? document.createElement('div') : null;
-          if (meaning) {
-            meaning.id = 'pf-meaning';
-            meaning.hidden = true;
-            drawer.parentNode.insertBefore(meaning, drawer);
-            // A link to a section of the current page only changes the hash, so close the dialog.
-            meaning.addEventListener('click', (e) => {
-              if (e.target.closest('a') && e.button === 0 && !e.metaKey && !e.ctrlKey && !e.shiftKey && !e.altKey) closeModal();
-            });
-          }
-          const query = () => input.value.trim().toLowerCase();
-          input.addEventListener('input', () => {
-            if (!query()) renderQuick([], '');
-            loadNames().then((names) => renderQuick(names, query()));
-            if (meaning) searchMeaning(meaning, input.value.trim());
-          });
-          mount.querySelector('.pagefind-ui__search-clear')?.addEventListener('click', () => {
-            renderQuick([], '');
-            if (meaning) searchMeaning(meaning, '');
-          });
-          // Arrow keys move between the input and the quick matches.
-          input.addEventListener('keydown', (e) => {
-            if (e.key !== 'ArrowDown') return;
-            const first = modal.querySelector('#pf-quick:not([hidden]) .pf-quick-item, #pf-meaning:not([hidden]) .pf-quick-item');
-            if (first) { e.preventDefault(); first.focus(); }
-          });
-          const onListKey = (e) => {
-            if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
-            const items = [...modal.querySelectorAll('#pf-quick:not([hidden]) .pf-quick-item, #pf-meaning:not([hidden]) .pf-quick-item')];
-            const i = items.indexOf(document.activeElement);
-            if (i < 0) return;
-            e.preventDefault();
-            if (e.key === 'ArrowDown') (items[i + 1] || items[i]).focus();
-            else if (i === 0) input.focus();
-            else items[i - 1].focus();
-          };
-          quick.addEventListener('keydown', onListKey);
-          meaning?.addEventListener('keydown', onListKey);
-        }
-
-        // Matches by meaning from the Worker's /api/search, for questions rather than names.
-        // Asked only for two or more words; a rate limit, outage or missing Worker hides the list.
-        let meaningTimer = 0;
-        let meaningAbort = null;
-        function searchMeaning(box, q) {
-          clearTimeout(meaningTimer);
-          meaningAbort?.abort();
-          if (q.split(/\s+/).length < 2) { box.hidden = true; return; }
-          meaningTimer = setTimeout(async () => {
-            meaningAbort = new AbortController();
-            try {
-              const r = await fetch('/api/search?limit=6&q=' + encodeURIComponent(q), { signal: meaningAbort.signal });
-              if (!r.ok) throw new Error(String(r.status));
-              renderMeaning(box, (await r.json()).results || []);
-            } catch (err) {
-              if (err.name !== 'AbortError') box.hidden = true;
-            }
-          }, 350);
-        }
-        function renderMeaning(box, results) {
-          box.replaceChildren();
-          box.hidden = !results.length;
-          if (!results.length) return;
-          const label = document.createElement('div');
-          label.className = 'pf-quick-label';
-          label.textContent = 'By meaning';
-          box.appendChild(label);
-          for (const r of results) {
-            // Link straight to the best-matching section, unless that is the opening one.
-            const sec = r.sections?.[0]?.heading ? r.sections[0] : null;
-            const url = new URL(sec ? sec.url : r.url);
-            const a = document.createElement('a');
-            a.className = 'pf-quick-item type-' + r.type;
-            a.href = url.pathname + url.hash;
-            const t = document.createElement('span');
-            t.className = 'pf-quick-type';
-            t.textContent = TYPE_LABELS[r.type] || r.type;
-            a.append(t, r.title);
-            if (sec) {
-              const h = document.createElement('span');
-              h.className = 'pf-quick-section';
-              h.textContent = sec.heading;
-              a.append(h);
-            }
-            box.appendChild(a);
-          }
-        }
-
-        // An unresolved wikilink has no page; clicking it searches for the name instead.
-        document.addEventListener('click', (e) => {
-          const a = e.target.closest?.('a.wikilink.unresolved');
-          if (!a) return;
-          e.preventDefault();
-          openModal();
-          opener = a;
-          withInput((input) => {
-            input.value = a.dataset.target || a.textContent.trim();
-            input.dispatchEvent(new Event('input', { bubbles: true }));
-          });
-        });
-        // Middle-click would open a useless "#" tab.
-        document.addEventListener('auxclick', (e) => {
-          if (e.target.closest?.('a.wikilink.unresolved')) e.preventDefault();
-        });
-
-        // Inert background keeps Tab and assistive tech inside the dialog.
-        function setBackgroundInert(on) {
-          for (const sel of ['header.site', 'main', 'footer.site']) document.querySelector(sel)?.toggleAttribute('inert', on);
-        }
-        function openModal() {
-          setMenuOpen(false);
-          init();
-          wireQuick();
-          modal.classList.add('open');
-          setBackgroundInert(true);
-          // Focus synchronously inside the user gesture so iOS raises the keyboard;
-          // the forced layout makes the input focusable.
-          void modal.offsetHeight;
-          withInput((input) => {
-            input.focus();
-            input.select();
-          });
-        }
-        function closeModal() {
-          modal.classList.remove('open');
-          setBackgroundInert(false);
-          const back = opener && document.contains(opener) ? opener : trigger;
-          opener = null;
-          if (back.getClientRects().length) back.focus();
-          else navToggle.focus();
-        }
-        // Trap Tab inside the dialog.
-        modal.addEventListener('keydown', (e) => {
-          if (e.key !== 'Tab' || !modal.classList.contains('open')) return;
-          const focusables = [...modal.querySelectorAll(
-            'a[href], button:not([disabled]), input:not([disabled]), [tabindex]:not([tabindex="-1"])'
-          )].filter((el) => el.getClientRects().length && getComputedStyle(el).visibility !== 'hidden');
-          if (!focusables.length) return;
-          const first = focusables[0];
-          const last = focusables[focusables.length - 1];
-          if (e.shiftKey && document.activeElement === first) {
-            e.preventDefault();
-            last.focus();
-          } else if (!e.shiftKey && document.activeElement === last) {
-            e.preventDefault();
-            first.focus();
-          }
-        });
-        modal.addEventListener('mousedown', (e) => {
-          if (e.target === modal) closeModal();
-        });
-        document.addEventListener('keydown', (e) => {
-          if ((e.metaKey || e.ctrlKey) && !e.altKey && e.key.toLowerCase() === 'k') {
-            e.preventDefault();
-            if (modal.classList.contains('open')) closeModal();
-            else openModal();
-          } else if (e.key === 'Escape' && modal.classList.contains('open')) {
-            closeModal();
-          }
-        });
-
-        // Wire the button before init() so it still opens the modal if Pagefind throws.
-        trigger.addEventListener('click', openModal);
-        trigger.disabled = false;
-        // Mount Pagefind now so its input exists on first open.
-        init();
-      }
+      // Search dialog, opened with the header button or Cmd/Ctrl+K.
+      initSearch({
+        semantic: document.getElementById('pf-modal').hasAttribute('data-semantic'),
+        onOpen: () => setMenuOpen(false),
+        fallbackFocus: () => navToggle,
+      });
     </script>
   </body>
 </html>

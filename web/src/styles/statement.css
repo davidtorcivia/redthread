@@ -219,10 +219,6 @@ footer.site .foot-nav {gap:.6em 1.2em;font-size:15px}
 header.site,.statement-band,.browse-header {color-scheme:only light;--ink:#0d0d0d;--ink-2:#0d0d0d;--band-ink:#0d0d0d;color:#0d0d0d}
 .headline-word {white-space:nowrap}
 
-/* Anchor Clear to the input, rather than the growing results form. */
-#pf-modal .pagefind-ui__search-input {height:3.25rem;padding-right:5rem;border-radius:0}
-#pf-modal .pagefind-ui__search-clear {top:0;right:.35rem;height:3.25rem;min-height:0;margin:0;padding:0 .6rem;transform:none;display:flex;align-items:center;justify-content:center;line-height:1}
-#pf-modal .pf-shell {border-radius:0}
 .toc-disclosure>summary {display:none}
 @media(max-width:900px) {
   .statement-read {padding-top:28px}
@@ -247,8 +243,7 @@ header.site,.statement-band,.browse-header {color-scheme:only light;--ink:#0d0d0
 .changelog-article,.path-article {max-width:none;padding:58px var(--gutter) 32px}
 .changelog-article>.entity-dek,.path-article>.entity-dek {max-width:48em;font-size:21px;line-height:1.45}
 .cl-title,.hc-title,.cat-list .entry-title,.cat-section h2,
-.hover-preview .hp-title,.path-suggest-item .ps-title,.path-node .pn-title,
-#pf-modal .pagefind-ui__result-link {
+.hover-preview .hp-title,.path-suggest-item .ps-title,.path-node .pn-title {
   font-family:var(--sans);font-variation-settings:"wdth" 88;font-weight:650;letter-spacing:-.02em
 }
 .cl-title {font-size:clamp(24px,2.4vw,34px);line-height:1.08}
@@ -268,13 +263,6 @@ header.site,.statement-band,.browse-header {color-scheme:only light;--ink:#0d0d0
 
 /* Thin utility-page headers have balanced space above and below navigation. */
 body.utility header.site .bar {padding-bottom:18px}
-#pf-modal .pf-shell {overflow-y:auto;max-height:calc(100dvh - 6rem)}
-.pf-header {display:flex;align-items:center;justify-content:space-between;margin:0 0 8px;font:600 14px/1.3 var(--sans)}
-#pf-close,#pf-reload {font:500 14px/1.3 var(--sans);border:0;background:none;color:var(--ink);cursor:pointer}
-#pf-close {min-height:36px;padding:6px 10px}
-#pf-close:hover,#pf-reload:hover {color:var(--accent)}
-#pf-reload {text-decoration:underline;padding:0}
-#pf-error {font:400 16px/1.5 var(--sans);margin:8px 0 16px}
 
 /* Show the action available for the current reading theme. */
 header.site .theme-toggle {display:inline-flex;align-items:center;justify-content:center;min-width:44px;min-height:44px}
