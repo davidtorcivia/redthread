@@ -1199,6 +1199,9 @@ body.net-fullscreen-active { overflow: hidden; }
   color: var(--muted-2);
   text-align: right;
 }
+@media (max-width: 600px) {
+  :is(#pf-quick, #pf-meaning) .pf-quick-section { display: none; }
+}
 #pf-modal .pagefind-ui__drawer {
   max-height: calc(80vh - 6rem);
   overflow-y: auto;
