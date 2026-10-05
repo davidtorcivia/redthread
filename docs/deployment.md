@@ -94,5 +94,6 @@ Setup:
 
    The token needs Workers Scripts Edit and R2 read and write. To port the nginx security headers, write a [`_headers`](https://developers.cloudflare.com/workers/static-assets/headers/) file and pass it as `HEADERS_FILE`.
 4. Set `AGENT_API=1` in `.env` so `llms.txt` lists the endpoints.
+5. Add a zone rate-limiting rule (Security > WAF > Rate limiting rules; one is included on the Free plan) on your domain: match `starts_with(http.request.uri.path, "/api/") or http.request.uri.path eq "/mcp"`, count per IP, for example 20 requests per 10 seconds, action Block. The Worker's own limiter binding is only a best-effort second layer: its counters are per location and permissive.
 
-Uploads go through the Cloudflare REST API at 3 requests a second, and only files whose MD5 changed are sent. The first deploy of a large site takes a while (about 40 minutes for 7,000 files); later ones send a few dozen. Each search embeds the query with Workers AI (about $0.01 per 40,000 queries at current prices), and the Worker caches tool results for an hour. A per-IP rate limit of 60 requests a minute covers `/api/*` and `/mcp`.
+Uploads go through the Cloudflare REST API at 3 requests a second, and only files whose MD5 changed are sent. The first deploy of a large site takes a while (about 40 minutes for 7,000 files); later ones send a few dozen. Each search embeds the query with Workers AI (about $0.01 per 40,000 queries at current prices), and the Worker caches tool results for an hour. The rate limit is the zone rule from step 5.

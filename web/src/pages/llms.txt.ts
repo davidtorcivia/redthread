@@ -52,7 +52,7 @@ export const GET: APIRoute = () => {
     '',
     `- MCP server (streamable HTTP, no auth): \`${absUrl('/mcp')}\`. Tools: \`search\` (by meaning and by name, with type, tag and year filters; returns matching sections with deep links), \`get_entry\` (full markdown with citations), \`neighbors\`, \`find_path\`, \`similar\`.`,
     `- The same tools over GET, returning JSON: \`${absUrl('/api/search')}?q=...\` (also \`type\`, \`tag\`, \`year_from\`, \`year_to\`, \`limit\`), \`/api/entry?id=\`, \`/api/neighbors?id=\`, \`/api/path?from=&to=\`, \`/api/similar?id=\`.`,
-    '- Both are rate limited per IP (60 requests a minute).',
+    '- Both are rate limited per IP. On HTTP 429, wait and retry.',
     '',
   );
   lines.push(
