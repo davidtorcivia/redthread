@@ -52,6 +52,13 @@ export function findPath(adj: number[][], dir: number[][], src: number, dst: num
   return path.reverse();
 }
 
+/** Wikilinked hops only, falling back to names mentioned together in prose only when no linked
+ *  chain exists (about 1 pair in 400). A prose hop is the weakest evidence, and a quarter of
+ *  unrestricted paths used one. The site's path pages use this. */
+export function findLinkedPath(adj: number[][], dir: number[][], src: number, dst: number): number[] | null {
+  return findPath(adj, dir, src, dst, { edgeCost: (v, k) => (dir[v][k] === 0 ? null : 0) }) ?? findPath(adj, dir, src, dst);
+}
+
 class MinHeap {
   private keys: number[] = [];
   private vals: number[] = [];

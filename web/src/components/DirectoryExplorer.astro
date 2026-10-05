@@ -10,18 +10,26 @@ const { items, directory = 'People', singular = 'person' } = Astro.props as {
 const pluralLower = directory.toLowerCase();
 const indefinite = /^[aeiou]/i.test(singular) ? 'an' : 'a';
 const featuredCategory = directory === 'People' ? 'Key Figures' : `Key ${directory}`;
+// A person's category is now their role; key figures carry a KeyFigure tag instead. The old
+// category still counts, so the card survives either side of the vault migration.
+const featuredTag = directory === 'People' ? 'keyfigure' : '';
+const isFeatured = (item: Entity) =>
+  item.category === featuredCategory || (!!featuredTag && (item.tags ?? []).some((t) => String(t).toLowerCase() === featuredTag));
+const featured = items.filter(isFeatured);
 const categories = new Map<string, Entity[]>();
 for (const item of items) {
+  if (item.category === featuredCategory) continue;
   const name = item.category || 'Uncategorized';
   const group = categories.get(name) ?? [];
   group.push(item);
   categories.set(name, group);
 }
 const rankedCategories = [...categories].sort((a, b) => b[1].length - a[1].length || a[0].localeCompare(b[0]));
-const leadLimit = categories.size <= 9 ? categories.size : 6;
-const leadCategories = [
-  ...rankedCategories.filter(([name]) => name === featuredCategory),
-  ...rankedCategories.filter(([name]) => name !== featuredCategory).slice(0, leadLimit - Number(categories.has(featuredCategory))),
+const cardCount = categories.size + Number(featured.length > 0);
+const leadLimit = cardCount <= 9 ? cardCount : 6;
+const leadCategories: [string, Entity[]][] = [
+  ...(featured.length ? [[featuredCategory, featured] as [string, Entity[]]] : []),
+  ...rankedCategories.slice(0, leadLimit - Number(featured.length > 0)),
 ];
 const leadNames = new Set(leadCategories.map(([name]) => name));
 const otherCategories = rankedCategories.filter(([name]) => !leadNames.has(name));
@@ -33,7 +41,7 @@ const initialFor = (title: string) => {
 const letters = new Set(items.map((item) => initialFor(item.title)).filter(Boolean));
 const aliasesFor = (item: Entity) => aliasesOf(item).join(' ');
 ---
-<div class="people-directory" id="people-directory" data-directory={directory} data-singular={singular} data-plural={pluralLower}>
+<div class="people-directory" id="people-directory" data-directory={directory} data-featured={featuredCategory} data-singular={singular} data-plural={pluralLower}>
   <header class:list={['browse-header', 'people-header', { 'long-title': directory.length > 10 }]}>
     <h1>{directory}</h1>
     <span class="people-total">{items.length.toLocaleString()} entries</span>
@@ -101,7 +109,7 @@ const aliasesFor = (item: Entity) => aliasesOf(item).join(' ');
 
       <ul class="people-results" id="people-results">
         {items.map((item) => (
-          <li class="person-row" data-category={item.category || 'Uncategorized'} data-letter={initialFor(item.title)} data-mentions={item.mention_count ?? 0} data-aliases={aliasesFor(item)}>
+          <li class="person-row" data-category={item.category || 'Uncategorized'} data-featured={isFeatured(item) ? '' : undefined} data-letter={initialFor(item.title)} data-mentions={item.mention_count ?? 0} data-aliases={aliasesFor(item)}>
             <div class="person-row-main">
               <a href={hrefFor(item)}>{item.title}</a>
             </div>
@@ -142,6 +150,7 @@ const aliasesFor = (item: Entity) => aliasesOf(item).join(' ');
       aliases: normalize(node.dataset.aliases),
       summary: normalize(node.querySelector('.person-row-summary')?.textContent),
       category: node.dataset.category,
+      featured: 'featured' in node.dataset,
       letter: node.dataset.letter,
       mentions: Number(node.dataset.mentions) || 0,
     }));
@@ -167,7 +176,7 @@ const aliasesFor = (item: Entity) => aliasesOf(item).join(' ');
       const term = normalize(query.trim());
       let matches = rows.filter((row) => {
         if (term) return row.title.includes(term) || row.aliases.includes(term) || row.summary.includes(term);
-        if (category) return row.category === category;
+        if (category) return category === root.dataset.featured ? row.featured : row.category === category;
         if (letter) return row.letter === letter;
         return true;
       });

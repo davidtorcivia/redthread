@@ -432,3 +432,12 @@ test('timeline keeps same-key groups together; lexical bonus for many sections i
   const both = await runTool(data({ fulltext: async () => ft([['gamma', '', '', 'Gamma Place'], ...many]) }), 'search_lexical', { query: 'gamma place' });
   assert.equal(both.results[0].id, 'gamma');
 });
+
+test('site path finder prefers wikilinks and falls back to prose co-mentions', async () => {
+  const { findLinkedPath: sitePath } = await import('../src/scripts/graph-path.ts');
+  // 0-1 prose only (short); 0-2-3-1 wikilinked (longer); 4 reachable only through prose.
+  const adj = [[1, 2], [0, 3, 4], [0, 3], [1, 2], [1]];
+  const dir = [[0, 3], [0, 3, 0], [3, 3], [3, 3], [0]];
+  assert.deepEqual(sitePath(adj, dir, 0, 1), [0, 2, 3, 1]);
+  assert.deepEqual(sitePath(adj, dir, 0, 4), [0, 1, 4]);
+});

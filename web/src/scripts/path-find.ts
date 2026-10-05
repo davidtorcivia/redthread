@@ -1,6 +1,6 @@
 import { loadAdjacency, type Adjacency } from './adjacency';
 import { TYPE_LABELS, entityHref, el } from './entity-types';
-export { findPath } from './graph-path';
+export { findLinkedPath as findPath } from './graph-path';
 
 /** Why two consecutive path nodes are connected. */
 function hopReason(data: Adjacency, a: number, b: number): string {
