@@ -9,7 +9,7 @@ export interface Reply { status: number; body: object | null }
 const MODERN = ['2026-07-28'];
 const LEGACY = ['2025-11-25', '2025-06-18', '2025-03-26', '2024-11-05'];
 const SUPPORTED = [...MODERN, ...LEGACY];
-const SERVER_INFO = { name: 'theinfoweb', title: 'The Info Web', version: '1.1.0' };
+export const SERVER_INFO = { name: 'theinfoweb', title: 'The Info Web', version: '1.1.0' };
 const CAPABILITIES = { tools: { listChanged: false } };
 /** The tool list and server description change only on deploy. */
 const CACHE = { ttlMs: 3_600_000, cacheScope: 'public' };
