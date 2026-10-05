@@ -616,7 +616,24 @@ export class GraphEngine {
     canvas.addEventListener('mousedown', (e) => onDown(e.clientX, e.clientY));
     window.addEventListener('mouseup', (e) => onUp(e.clientX, e.clientY, false, e.shiftKey));
     canvas.addEventListener('mousemove', (e) => onMove(e.clientX, e.clientY));
+    // The entity graph sits in a scrolling page: the wheel scrolls past it unless the reader
+    // asks to zoom, with Ctrl/Cmd (a trackpad pinch sets ctrlKey too) or by clicking the graph.
+    // The full graph is the whole page, so it zooms on any wheel.
+    let engaged = this.opts.profile === 'full';
+    const hint = document.createElement('div');
+    hint.className = 'net-wheel-hint';
+    hint.textContent = `${/Mac|iPhone|iPad/.test(navigator.platform) ? '⌘' : 'Ctrl'} + scroll to zoom, or click the graph first`;
+    hint.hidden = true;
+    canvas.parentElement?.append(hint);
+    let hintTimer: ReturnType<typeof setTimeout> | undefined;
+    const showHint = () => {
+      hint.hidden = false;
+      clearTimeout(hintTimer);
+      hintTimer = setTimeout(() => { hint.hidden = true; }, 1400);
+    };
+    canvas.addEventListener('pointerdown', () => { engaged = true; hint.hidden = true; });
     canvas.addEventListener('mouseleave', () => {
+      if (this.opts.profile !== 'full') engaged = false;
       if (this.hoveredIdx !== -1 || this.hoveredEdge !== -1) {
         this.hoveredIdx = -1;
         this.hoveredEdge = -1;
@@ -626,6 +643,7 @@ export class GraphEngine {
       canvas.style.cursor = '';
     });
     canvas.addEventListener('wheel', (e) => {
+      if (!engaged && !e.ctrlKey && !e.metaKey) { showHint(); return; }
       e.preventDefault();
       const p = local(e.clientX, e.clientY);
       zoomAt(p.x, p.y, Math.exp(-Math.max(-100, Math.min(100, e.deltaY)) * .002));
