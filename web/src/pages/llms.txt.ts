@@ -67,6 +67,7 @@ export const GET: APIRoute = () => {
     `- [Previews JSON](${absUrl('/previews.json')}): per-entity title, type, and short summary, used for wikilink hover previews`,
     `- [Entries JSON](${absUrl('/entries.json')}): every entry's frontmatter (aliases, dates, location, tags, summary) and typed relations, each with the text of the footnote that sources it. No body text.`,
     `- [Full text JSON](${absUrl('/fulltext.json')}): every entry's body as plain text by heading section (with \`[^n]\` footnote markers and section anchors), plus every footnote's text. About 19 MB.`,
+    `- [llms-full.txt](${absUrl('/llms-full.txt')}): how the full text is published, with the formats of the bulk downloads`,
     '',
     ...(CONTACT_EMAIL ? ['## Contact', '', `- Tips, documents, corrections and press: ${CONTACT_EMAIL}${CONTACT_PGP ? ` (OpenPGP fingerprint ${CONTACT_PGP})` : ''}`, ''] : []),
     '## Optional',

@@ -110,6 +110,37 @@ const pgpGroups = CONTACT_PGP.match(/[0-9A-F]{4}/g) ?? [];
     <link rel="canonical" href={canonical} />
     <link rel="alternate" type="application/atom+xml" title={`${SITE_TITLE}: Changelog`} href="/feed.xml" />
     {AGENT_API && <link rel="ai-catalog" href="/.well-known/ai-catalog.json" />}
+    {AGENT_API && (
+      <script is:inline>
+        // WebMCP: in browsers with an agent API, offer the archive's GET tools (described by
+        // /api/openapi) to the agent. Other browsers skip it without a request.
+        (() => {
+          const mc = document.modelContext || navigator.modelContext;
+          if (!mc || !mc.registerTool) return;
+          fetch('/api/openapi').then((r) => r.json()).then((spec) => {
+            for (const [path, { get: op }] of Object.entries(spec.paths)) {
+              const properties = {}, required = [];
+              for (const p of op.parameters) {
+                properties[p.name] = { ...p.schema, ...(p.description ? { description: p.description } : {}) };
+                if (p.required) required.push(p.name);
+              }
+              Promise.resolve(mc.registerTool({
+                name: op.operationId,
+                description: op.description,
+                inputSchema: { type: 'object', properties, required },
+                async execute(args) {
+                  const q = new URLSearchParams();
+                  for (const [k, v] of Object.entries(args || {})) {
+                    if (v != null && v !== '') q.set(k, Array.isArray(v) ? v.join(',') : String(v));
+                  }
+                  return (await fetch(`${path}?${q}`)).json();
+                },
+              })).catch(() => {});
+            }
+          }).catch(() => {});
+        })();
+      </script>
+    )}
 
     <meta property="og:site_name" content={SITE_TITLE} />
     <meta property="og:title" content={title} />

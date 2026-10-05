@@ -485,3 +485,15 @@ test('worker: MCP discovery (server card, AI catalog, Link header, note on markd
   assert.ok(md.startsWith('# A'));
   assert.match(md, /MCP server for agents at https:\/\/x\.test\/mcp/);
 });
+
+test('agent skill: the index digest matches the SKILL.md bytes; frontmatter is valid', async () => {
+  process.env.AGENT_API = '1';
+  const { createHash } = await import('node:crypto');
+  const { skillIndex, skillMarkdown, SKILL_NAME } = await import('../src/lib/agent-skill.ts');
+  const md = skillMarkdown();
+  const [entry] = skillIndex().skills;
+  assert.equal(entry.name, SKILL_NAME);
+  assert.equal(entry.digest, `sha256:${createHash('sha256').update(md).digest('hex')}`);
+  const fm = md.split('---\n')[1];
+  assert.match(fm, /^name: archive-research\ndescription: ".+"\n$/);
+});
