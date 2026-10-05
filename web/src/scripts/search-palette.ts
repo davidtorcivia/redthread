@@ -120,7 +120,7 @@ export function initSearch(opts: { semantic: boolean; onOpen(): void; fallbackFo
     return a;
   }
 
-  function render(sections: { label: string; rows: Row[]; more?: () => void; moreLabel?: string }[], empty?: string) {
+  function render(sections: { label: string; rows: Row[]; more?: (e: Event) => void; moreLabel?: string }[], empty?: string) {
     list.replaceChildren();
     let i = 0;
     for (const s of sections) {
@@ -155,11 +155,12 @@ export function initSearch(opts: { semantic: boolean; onOpen(): void; fallbackFo
   }
 
   const options = () => [...list.querySelectorAll<HTMLAnchorElement>('.sp-row')];
-  function setActive(i: number, scroll = false) {
+  /** `user` marks a move by keyboard or mouse; only those pin the highlight across repaints. */
+  function setActive(i: number, scroll = false, user = false) {
     const rows = options();
     rows.forEach((r, k) => r.setAttribute('aria-selected', String(k === i)));
     active = i;
-    activeHref = rows[i]?.getAttribute('href') ?? null;
+    if (user) activeHref = rows[i]?.getAttribute('href') ?? null;
     if (i >= 0 && rows[i]) {
       input.setAttribute('aria-activedescendant', rows[i].id);
       if (scroll) rows[i].scrollIntoView({ block: 'nearest' });
@@ -202,10 +203,12 @@ export function initSearch(opts: { semantic: boolean; onOpen(): void; fallbackFo
   /** Entry type from a page path like /people/allen-dulles/ via previews.json. */
   const typeOf = (previews: Record<string, Preview>, path: string) => previews[path.split('/').filter(Boolean)[1] ?? '']?.type;
 
-  async function textRows(q: string, previews: Record<string, Preview>): Promise<{ rows: Row[]; total: number }> {
+  /** null when a newer Pagefind search superseded this one. */
+  async function textRows(q: string, previews: Record<string, Preview>): Promise<{ rows: Row[]; total: number } | null> {
     const pf = await loadPagefind();
-    const res = pf && await pf.debouncedSearch(q, {}, 120);
-    if (!res) return { rows: [], total: 0 };
+    if (!pf) return { rows: [], total: 0 };
+    const res = await pf.debouncedSearch(q, {}, 120);
+    if (!res) return null;
     const data = await Promise.all(res.results.slice(0, textShown).map((r) => r.data()));
     return {
       total: res.results.length,
@@ -241,12 +244,13 @@ export function initSearch(opts: { semantic: boolean; onOpen(): void; fallbackFo
   }
 
   /** "Show more" fetches more full-text rows only; names and meaning results stay as they are. */
-  async function showMore() {
+  async function showMore(e: Event) {
     const mine = seq;
     textShown += TEXT_PAGE;
-    input.focus();
+    // The button is replaced on repaint; keep keyboard users in the input (a tap would only raise the keyboard).
+    if ((e.currentTarget as HTMLElement).matches(':focus-visible')) input.focus();
     const text = await textRows(state.q, state.previews);
-    if (mine !== seq) return;
+    if (mine !== seq || !text) return;
     state.text = text;
     paint(true);
   }
@@ -272,7 +276,7 @@ export function initSearch(opts: { semantic: boolean; onOpen(): void; fallbackFo
     const meaningSoon = new Promise((r) => setTimeout(r, 300)).then(() => (mine === seq ? meaningRows(q) : []));
     await Promise.all([
       meaningSoon.then((r) => { if (mine === seq) { state.meaning = r; paint(false); } }),
-      textRows(q, previews).then((r) => { if (mine === seq) { state.text = r; paint(false); } }),
+      textRows(q, previews).then((r) => { if (mine === seq && r) { state.text = r; paint(false); } }),
     ]);
     if (mine === seq) { spinner.hidden = true; paint(true); }
   }
@@ -311,7 +315,7 @@ export function initSearch(opts: { semantic: boolean; onOpen(): void; fallbackFo
       if (!rows.length) return;
       e.preventDefault();
       const next = e.key === 'ArrowDown' ? Math.min(active + 1, rows.length - 1) : Math.max(active - 1, 0);
-      setActive(next, true);
+      setActive(next, true, true);
     } else if (e.key === 'Enter' && active >= 0 && rows[active]) {
       e.preventDefault();
       if (e.metaKey || e.ctrlKey) window.open(rows[active].href, '_blank', 'noopener');
@@ -320,7 +324,7 @@ export function initSearch(opts: { semantic: boolean; onOpen(): void; fallbackFo
   });
   list.addEventListener('mousemove', (e) => {
     const row = (e.target as Element).closest('.sp-row');
-    if (row) setActive(options().indexOf(row as HTMLAnchorElement));
+    if (row) setActive(options().indexOf(row as HTMLAnchorElement), false, true);
   });
   // A section link on the current page only changes the hash, so close the dialog ourselves.
   list.addEventListener('click', (e) => {
