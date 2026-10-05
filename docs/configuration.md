@@ -22,6 +22,8 @@ Redthread reads two files in the repo root. Both are gitignored.
 | `REBUILD_INTERVAL` | `300` | Seconds between checks in watch mode. |
 | `CLOUDFLARE_ACCOUNT_ID` | off | Cloudflare account that runs the embedding model for similar entries. |
 | `WORKERS_AI_API_TOKEN` | off | API token with Workers AI Read and Edit. With this and `CLOUDFLARE_ACCOUNT_ID` set, each build embeds the sections that changed (model `@cf/baai/bge-m3`, roughly $0.04 to embed 3,500 entries from scratch) and lists similar entries on every page. Without them the section is left out. |
+| `CONTACT_EMAIL` | empty | Address shown in the footer, for tips, corrections and press. No contact row when empty. |
+| `CONTACT_PGP` | empty | Fingerprint (40 hex digits, spaces allowed) of that address's OpenPGP key. The footer shows it and links to the key on keys.openpgp.org. |
 | `AGENT_API` | `0` | Set to `1` when the site runs behind the Cloudflare Worker (see [deployment](deployment.md#cloudflare-workers)). `llms.txt` then advertises the MCP server and the `/api/` endpoints. |
 | `HEALTHCHECK_URL` | off | A [healthchecks.io](https://healthchecks.io) style URL. It gets pinged after every check, and `/fail` is pinged when a build fails. |
 

@@ -16,6 +16,15 @@ export const ANALYTICS = env.ANALYTICS_SRC && env.ANALYTICS_ID
 /** Set when the site runs behind worker/ (deploy/cloudflare.sh), which serves /api/* and /mcp. */
 export const AGENT_API = env.AGENT_API === '1';
 
+/** Footer contact address, and the fingerprint of its OpenPGP key (both optional). */
+export const CONTACT_EMAIL = env.CONTACT_EMAIL || '';
+const pgp = (env.CONTACT_PGP || '').replace(/\s+/g, '').toUpperCase();
+// 40 hex digits (a v4 key): keys.openpgp.org, where the footer links, serves no other kind.
+if (pgp && !/^[0-9A-F]{40}$/.test(pgp)) {
+  throw new Error(`CONTACT_PGP must be a 40 hex digit key fingerprint, got "${env.CONTACT_PGP}"`);
+}
+export const CONTACT_PGP = pgp;
+
 /** Cache-busting version for the shared JSON payloads, computed by build.sh. */
 export const BUILD_ID = env.PUBLIC_BUILD_ID || 'dev';
 

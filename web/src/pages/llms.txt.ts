@@ -2,7 +2,7 @@
 // JSON payloads rather than listing thousands of entries inline.
 import type { APIRoute } from 'astro';
 import { BROWSE_TYPES, entities, entitiesByType, hrefFor, topHubs, TYPE_DIRS, TYPE_LABELS, TYPE_PLURALS } from '../lib/data.ts';
-import { absUrl, AGENT_API, SITE_DESCRIPTION, SITE_TITLE } from '../lib/site.ts';
+import { absUrl, AGENT_API, CONTACT_EMAIL, CONTACT_PGP, SITE_DESCRIPTION, SITE_TITLE } from '../lib/site.ts';
 
 // Brackets in a title would end the markdown link text early.
 const linkText = (s: string) => s.replace(/[[\]]/g, '\\$&');
@@ -64,6 +64,7 @@ export const GET: APIRoute = () => {
     `- [Entries JSON](${absUrl('/entries.json')}): every entry's frontmatter (aliases, dates, location, tags, summary) and typed relations, each with the text of the footnote that sources it. No body text.`,
     `- [Full text JSON](${absUrl('/fulltext.json')}): every entry's body as plain text by heading section (with \`[^n]\` footnote markers and section anchors), plus every footnote's text. About 19 MB.`,
     '',
+    ...(CONTACT_EMAIL ? ['## Contact', '', `- Tips, documents, corrections and press: ${CONTACT_EMAIL}${CONTACT_PGP ? ` (OpenPGP fingerprint ${CONTACT_PGP})` : ''}`, ''] : []),
     '## Optional',
     '',
     `- [Changelog](${absUrl('/changelog/')}): recent vault updates`,
