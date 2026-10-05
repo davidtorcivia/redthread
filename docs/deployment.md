@@ -77,7 +77,9 @@ Set `SITE_URL` to the public address before you build. Canonical links, social c
 
 - `/mcp`: an MCP server (streamable HTTP, stateless, no auth) with the tools `search`, `get_entry`, `neighbors`, `find_path` and `similar`.
 - `/api/search`, `/api/entry`, `/api/neighbors`, `/api/path`, `/api/similar`: the same tools over GET, returning JSON.
+- `/.well-known/api-catalog` (RFC 9727): points at `/api/openapi`, an OpenAPI 3.1 description of the GET endpoints generated from the tool schemas, and at the MCP server.
 - OG images and the `.md` twins, read from R2 instead of the asset upload. That keeps the asset count near one file per page, under the 100,000-file limit per Worker version.
+- Markdown content negotiation: a page requested with `Accept: text/markdown` gets its `.md` twin (the home page gets `llms.txt`); other pages, and browsers, get HTML. Every page response carries `Vary: Accept`, which is why `run_worker_first` routes all paths except static bundles and data files through the Worker.
 
 Search needs the semantic index, so set `CLOUDFLARE_ACCOUNT_ID` and `WORKERS_AI_API_TOKEN` for the build (see [configuration](configuration.md)). Without it, `search` answers that the index is not built and the other tools still work.
 

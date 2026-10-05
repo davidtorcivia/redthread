@@ -245,3 +245,34 @@ test('worker: the rate limiter answers 429 before any work', async () => {
   assert.equal(res.headers.get('Retry-After'), '60');
   assert.equal((await call('/mcp', { method: 'POST', body: '{}' }, limited)).status, 429);
 });
+
+test('worker: Accept: text/markdown gets the twin, or llms.txt at /, else HTML; all Vary: Accept', async () => {
+  store.clear();
+  const md = { headers: { Accept: 'text/markdown, text/html;q=0.9' } };
+  for (const path of ['/people/a/', '/people/a']) {
+    const r = await call(path, md);
+    assert.equal(r.headers.get('Content-Type'), 'text/markdown; charset=utf-8');
+    assert.equal(await r.text(), '# A');
+    assert.match(r.headers.get('Vary'), /Accept/);
+  }
+  const home = await call('/', md);
+  assert.equal(home.headers.get('Content-Type'), 'text/markdown; charset=utf-8');
+  assert.equal(await home.text(), 'asset /llms.txt');
+  const noTwin = await call('/tags/', md);
+  assert.equal(await noTwin.text(), 'asset /tags/');
+  const html = await call('/people/a/');
+  assert.equal(await html.text(), 'asset /people/a/');
+  assert.match(html.headers.get('Vary'), /Accept/);
+  assert.equal(await (await call('/_astro/x.js', md)).text(), 'asset /_astro/x.js');
+});
+
+test('worker: API catalog and OpenAPI describe every GET endpoint', async () => {
+  const cat = await call('/.well-known/api-catalog');
+  assert.equal(cat.headers.get('Content-Type'), 'application/linkset+json');
+  const { linkset } = await cat.json();
+  assert.equal(linkset[0]['service-desc'][0].href, 'https://x.test/api/openapi');
+  const spec = await (await call('/api/openapi')).json();
+  assert.deepEqual(Object.keys(spec.paths), ['/api/search', '/api/entry', '/api/neighbors', '/api/path', '/api/similar']);
+  const q = spec.paths['/api/search'].get.parameters.find((p) => p.name === 'q');
+  assert.equal(q.required, true);
+});

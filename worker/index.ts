@@ -1,9 +1,10 @@
 // Cloudflare Worker in front of the static site. Serves /api/* and /mcp (research tools over
-// the semantic index), OG images and markdown twins from R2, and everything else from assets.
+// the semantic index), OG images and markdown twins from R2 (also by Accept: text/markdown on
+// the page URL), and everything else from assets.
 import type { Adjacency } from '../web/src/scripts/adjacency.ts';
-import { handleRpc } from './mcp.ts';
+import { handleRpc, SERVER_INFO } from './mcp.ts';
 import { Corpus, type Index } from './search.ts';
-import { ToolError, runTool, type Data } from './tools.ts';
+import { ToolError, TOOLS, runTool, type Data } from './tools.ts';
 
 interface R2Object { body: ReadableStream; httpEtag: string; httpMetadata?: { contentType?: string } }
 interface Env {
@@ -114,9 +115,55 @@ async function cachedTool(env: Env, ctx: Ctx, data: Data, name: string, args: Re
   return out;
 }
 
+/** RFC 9727 catalog: the REST API (described by /api/openapi) and the MCP server. */
+const catalog = (origin: string) => ({
+  linkset: [
+    {
+      anchor: `${origin}/api/`,
+      'service-desc': [{ href: `${origin}/api/openapi`, type: 'application/openapi+json' }],
+      'service-doc': [{ href: `${origin}/llms.txt`, type: 'text/markdown' }],
+    },
+    {
+      anchor: `${origin}/mcp`,
+      'service-doc': [{ href: `${origin}/llms.txt`, type: 'text/markdown' }],
+    },
+  ],
+});
+
+/** OpenAPI for the GET endpoints, built from the same tool schemas MCP lists. */
+function openapi(origin: string) {
+  const paths: Record<string, object> = {};
+  for (const [path, name] of Object.entries(API)) {
+    const tool = TOOLS.find((t) => t.name === name)!;
+    const { properties, required } = tool.inputSchema as { properties: Record<string, { description?: string }>; required: readonly string[] };
+    paths[`/api/${path}`] = {
+      get: {
+        operationId: name,
+        summary: tool.title,
+        description: tool.description,
+        parameters: Object.entries(properties).map(([key, schema]) => ({
+          name: name === 'search' && key === 'query' ? 'q' : key,
+          in: 'query',
+          required: required.includes(key),
+          description: schema.description,
+          schema: { ...schema, description: undefined },
+        })),
+        responses: {
+          200: { description: 'Tool result', content: { 'application/json': {} } },
+          400: { description: 'Invalid arguments' },
+          429: { description: 'Rate limited; see Retry-After' },
+          503: { description: 'Temporarily unavailable' },
+        },
+      },
+    };
+  }
+  return { openapi: '3.1.0', info: { title: SERVER_INFO.title, version: SERVER_INFO.version }, servers: [{ url: origin }], paths };
+}
+
 async function api(req: Request, env: Env, ctx: Ctx, url: URL): Promise<Response> {
   if (req.method === 'OPTIONS') return new Response(null, { status: 204, headers: CORS });
   if (req.method !== 'GET') return json({ error: 'use GET' }, 405, { Allow: 'GET' });
+  if (url.pathname === '/api/openapi') return json(openapi(url.origin), 200, { 'Content-Type': 'application/openapi+json', 'Cache-Control': 'public, max-age=3600' });
   const tool = API[url.pathname.slice('/api/'.length)];
   if (!tool) return json({ error: `unknown endpoint; try ${Object.keys(API).map((k) => '/api/' + k).join(', ')}` }, 404);
   const block = await limited(env, req);
@@ -192,12 +239,38 @@ async function fromBucket(req: Request, env: Env, ctx: Ctx, url: URL): Promise<R
   return req.method === 'HEAD' ? new Response(null, { headers: res.headers }) : res;
 }
 
+/** Accept: text/markdown gets the page's markdown twin (llms.txt for the home page); pages
+ * without a twin, and every other client, get HTML. Both carry Vary: Accept. */
+async function negotiate(req: Request, env: Env, ctx: Ctx, url: URL): Promise<Response> {
+  let res: Response;
+  if (!(req.headers.get('Accept') ?? '').includes('text/markdown')) {
+    res = await env.ASSETS.fetch(req);
+  } else if (url.pathname === '/') {
+    res = await env.ASSETS.fetch(new Request(url.origin + '/llms.txt', req));
+    if (res.ok) {
+      res = new Response(res.body, res);
+      res.headers.set('Content-Type', MD_TYPE);
+    }
+  } else {
+    // /people/sam-lake/ -> /people/sam-lake.md; a miss falls back to the HTML page.
+    const twin = new URL(url.pathname.replace(/\/$/, '') + '.md', url.origin);
+    res = await fromBucket(req, env, ctx, twin);
+  }
+  res = new Response(res.body, res);
+  res.headers.append('Vary', 'Accept');
+  return res;
+}
+
 export default {
   async fetch(req: Request, env: Env, ctx: Ctx): Promise<Response> {
     const url = new URL(req.url);
     if (url.pathname === '/mcp') return mcp(req, env, ctx, url);
     if (url.pathname.startsWith('/api/')) return api(req, env, ctx, url);
+    if (url.pathname === '/.well-known/api-catalog') {
+      return json(catalog(url.origin), 200, { 'Content-Type': 'application/linkset+json', 'Cache-Control': 'public, max-age=3600' });
+    }
     if (url.pathname.startsWith('/og/') || url.pathname.endsWith('.md')) return fromBucket(req, env, ctx, url);
+    if (url.pathname === '/' || url.pathname.endsWith('/') || !url.pathname.slice(1).includes('.')) return negotiate(req, env, ctx, url);
     return env.ASSETS.fetch(req);
   },
 };
