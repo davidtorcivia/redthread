@@ -17,7 +17,7 @@ USER node
 COPY --chown=node:node web/package.json web/package-lock.json web/
 RUN cd web && npm ci --no-audit --no-fund
 COPY --chown=node:node . .
-RUN mkdir -p web/.og-cache data
+RUN mkdir -p web/.og-cache data/semantic
 
 ENV PYTHON=/opt/venv/bin/python VAULT_PATH=/vault DIST_DIR=/site
 CMD ["deploy/rebuild.sh", "--watch"]

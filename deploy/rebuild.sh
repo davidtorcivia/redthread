@@ -21,6 +21,10 @@ vault="${VAULT_PATH:?Set VAULT_PATH to your vault directory}"
 export VAULT_PATH="$vault"
 stamp_file="$root/.last-build"
 build_log="$root/.last-build.log"
+# Left by build/embed.py when similar entries could not be refreshed.
+embed_failed="$root/data/semantic/FAILED"
+python="${PYTHON:-python3}"
+[[ -x "$root/.venv/bin/python" && -z "${PYTHON:-}" ]] && python="$root/.venv/bin/python"
 
 log() { printf '[%s] %s\n' "$(date -Iseconds)" "$*"; }
 
@@ -47,14 +51,29 @@ check() {
   fi
   stamp="$(fingerprint)"
   if [[ "$force" == 0 && "$stamp" == "$(cat "$stamp_file" 2>/dev/null)" ]]; then
-    ping
-    return 0
+    if [[ ! -f "$embed_failed" ]]; then
+      ping
+      return 0
+    fi
+    # Retry a failed embed on its own; rebuild the site only once it succeeds.
+    "$python" "$root/build/embed.py" --data "$root/data" > "$build_log" 2>&1 || true
+    if [[ -f "$embed_failed" ]]; then
+      ping fail
+      return 0
+    fi
+    log "embedding recovered"
   fi
   log "building"
   if "$root/build.sh" > "$build_log" 2>&1; then
     printf '%s' "$stamp" > "$stamp_file"
     log "built"
-    ping
+    # The site is up either way; a failed embed only leaves similar entries stale.
+    if [[ -f "$embed_failed" ]]; then
+      log "embedding failed: $(cat "$embed_failed")"
+      ping fail
+    else
+      ping
+    fi
   else
     # build.sh only publishes on success, so the last good site keeps serving.
     log "build failed, last 40 lines:"

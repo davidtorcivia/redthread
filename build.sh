@@ -26,6 +26,9 @@ command -v rsync >/dev/null || { echo "[build] rsync is required" >&2; exit 1; }
 
 echo "[build] parsing $vault"
 "$python" "$root/build/parse_vault.py" --vault "$vault" --out "$root/data"
+# Similar entries and semantic search. Needs CLOUDFLARE_ACCOUNT_ID and WORKERS_AI_API_TOKEN;
+# without them, or on an API failure, the previous index is kept and the build goes on.
+"$python" "$root/build/embed.py" --data "$root/data"
 
 # Payloads the browser fetches at runtime, plus a markdown twin of every entry.
 cp -f "$root/data/previews.json" "$root/data/adjacency.json" "$public/"

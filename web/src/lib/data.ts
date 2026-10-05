@@ -209,6 +209,24 @@ function aliasText(a: unknown): string[] {
   return pairs.length === 1 ? [`${pairs[0][0]}: ${pairs[0][1]}`] : [];
 }
 
+const similarById = memo(() => loadOptional<Record<string, { id: string; score: number }[]>>('semantic/similar.json', {}));
+
+/** Nearest entries by embedding similarity (build/embed.py), skipping ids no longer in the vault. */
+export function similar(id: string, limit = 8): Entity[] {
+  return (similarById()[id] ?? []).map((s) => entity(s.id)).filter((e): e is Entity => !!e).slice(0, limit);
+}
+
+const linkedPairs = memo(() => {
+  const s = new Set<string>();
+  for (const e of edges()) if (e.target_id) s.add(`${e.source}\0${e.target_id}`).add(`${e.target_id}\0${e.source}`);
+  return s;
+});
+
+/** Whether either page links to or names the other. */
+export function isLinked(a: string, b: string): boolean {
+  return linkedPairs().has(`${a}\0${b}`);
+}
+
 export function entitiesByTag(slug: string): Entity[] {
   return tagIndex().get(slug)?.entities ?? [];
 }
