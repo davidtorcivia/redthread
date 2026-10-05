@@ -19,7 +19,10 @@ const TEXT_PAGE = 5;
 function readRecent(): Row[] {
   try {
     const v = JSON.parse(localStorage.getItem(RECENT_KEY) || '[]');
-    return Array.isArray(v) ? v.filter((r) => r && typeof r.href === 'string' && typeof r.title === 'string') : [];
+    // Only same-site paths and plain fields come back out of storage.
+    return Array.isArray(v) ? v
+      .filter((r) => r && typeof r.href === 'string' && r.href.startsWith('/') && !r.href.startsWith('//') && typeof r.title === 'string')
+      .map((r) => ({ href: r.href, title: r.title, type: typeof r.type === 'string' ? r.type : undefined })) : [];
   } catch {
     return [];
   }
@@ -45,6 +48,9 @@ export function initSearch(opts: { semantic: boolean; onOpen(): void; fallbackFo
   const trigger = document.getElementById('search-open') as HTMLButtonElement;
   let opener: HTMLElement | null = null;
   let active = -1;
+  /** The highlighted row survives repaints while results stream in. */
+  let activeHref: string | null = null;
+  let pagefindFailed = false;
   let seq = 0;
   let textShown = TEXT_PAGE;
 
@@ -67,8 +73,11 @@ export function initSearch(opts: { semantic: boolean; onOpen(): void; fallbackFo
       const url = new URL('/search-index/pagefind.js', location.href).href;
       const pf: Pagefind = await import(/* @vite-ignore */ url);
       await pf.options({ excerptLength: 22 });
+      pagefindFailed = false;
       return pf;
     } catch {
+      pagefindFailed = true;
+      pagefindP = null;  // retried on the next search
       return null;
     }
   })();
@@ -141,7 +150,8 @@ export function initSearch(opts: { semantic: boolean; onOpen(): void; fallbackFo
       p.textContent = empty;
       list.append(p);
     }
-    setActive(i ? 0 : -1);
+    const keep = options().findIndex((r) => r.getAttribute('href') === activeHref);
+    setActive(i ? Math.max(keep, 0) : -1);
   }
 
   const options = () => [...list.querySelectorAll<HTMLAnchorElement>('.sp-row')];
@@ -149,6 +159,7 @@ export function initSearch(opts: { semantic: boolean; onOpen(): void; fallbackFo
     const rows = options();
     rows.forEach((r, k) => r.setAttribute('aria-selected', String(k === i)));
     active = i;
+    activeHref = rows[i]?.getAttribute('href') ?? null;
     if (i >= 0 && rows[i]) {
       input.setAttribute('aria-activedescendant', rows[i].id);
       if (scroll) rows[i].scrollIntoView({ block: 'nearest' });
@@ -205,10 +216,46 @@ export function initSearch(opts: { semantic: boolean; onOpen(): void; fallbackFo
     };
   }
 
+  let state = { q: '', named: [] as [number, Row][], meaning: [] as Row[], text: { rows: [] as Row[], total: 0 }, previews: {} as Record<string, Preview> };
+
+  function paint(final: boolean) {
+    const { q, named, meaning, text } = state;
+    const top = mergeTop(named, meaning);
+    const topHrefs = new Set(top.map((r) => r.href.split('#')[0]));
+    const rest = text.rows.filter((r) => !topHrefs.has(r.href.split('#')[0]));
+    const failed = final && pagefindFailed;
+    render([
+      { label: 'Top results', rows: top },
+      {
+        label: 'Mentioned in', rows: rest,
+        ...(text.total > textShown ? { more: showMore, moreLabel: `Show more (${text.total - textShown} left)` } : {}),
+      },
+    ], final ? (failed ? 'Full-text search could not load. Reload the page to try again.' : `No matches for “${q}”. Try fewer words, or a name.`) : undefined);
+    if (failed && top.length) {
+      const p = document.createElement('p');
+      p.className = 'sp-empty';
+      p.textContent = 'Full-text results could not load. Reload the page to try again.';
+      list.append(p);
+    }
+    status.textContent = final ? `${top.length + rest.length} results` : '';
+  }
+
+  /** "Show more" fetches more full-text rows only; names and meaning results stay as they are. */
+  async function showMore() {
+    const mine = seq;
+    textShown += TEXT_PAGE;
+    input.focus();
+    const text = await textRows(state.q, state.previews);
+    if (mine !== seq) return;
+    state.text = text;
+    paint(true);
+  }
+
   async function run() {
     const q = input.value.trim();
     const mine = ++seq;
-    if (!q) { spinner.hidden = true; status.textContent = ''; return showHome(); }
+    if (q !== state.q) activeHref = null;
+    if (!q) { state.q = ''; spinner.hidden = true; status.textContent = ''; return showHome(); }
     const ql = q.toLowerCase();
     const [names, previews] = await Promise.all([loadNames(), loadPreviews()]);
     if (mine !== seq) return;
@@ -218,27 +265,14 @@ export function initSearch(opts: { semantic: boolean; onOpen(): void; fallbackFo
       .slice(0, TOP_MAX)
       .map(([r, n]) => [r, { href: n.href, type: n.type, title: n.title, detail: previews[n.id]?.summary ?? undefined }]);
     // Names render at once; meaning and full text fill in as they arrive.
-    let meaning: Row[] = [];
-    let text = { rows: [] as Row[], total: 0 };
-    const paint = (final: boolean) => {
-      if (mine !== seq) return;
-      const top = mergeTop(named, meaning);
-      const topHrefs = new Set(top.map((r) => r.href.split('#')[0]));
-      const rest = text.rows.filter((r) => !topHrefs.has(r.href.split('#')[0]));
-      render([
-        { label: 'Top results', rows: top },
-        {
-          label: 'Mentioned in', rows: rest,
-          ...(text.total > textShown ? { more: () => { textShown += TEXT_PAGE; void run(); }, moreLabel: `Show more (${text.total - textShown} left)` } : {}),
-        },
-      ], final ? `No matches for “${q}”. Try fewer words, or a name.` : undefined);
-      status.textContent = final ? `${top.length + rest.length} results` : '';
-    };
+    state = { q, named, meaning: [], text: { rows: [], total: 0 }, previews };
     paint(false);
     spinner.hidden = false;
+    // Each /api/search call counts against the per-IP limit, so wait for typing to pause.
+    const meaningSoon = new Promise((r) => setTimeout(r, 300)).then(() => (mine === seq ? meaningRows(q) : []));
     await Promise.all([
-      meaningRows(q).then((r) => { meaning = r; paint(false); }),
-      textRows(q, previews).then((r) => { text = r; paint(false); }),
+      meaningSoon.then((r) => { if (mine === seq) { state.meaning = r; paint(false); } }),
+      textRows(q, previews).then((r) => { if (mine === seq) { state.text = r; paint(false); } }),
     ]);
     if (mine === seq) { spinner.hidden = true; paint(true); }
   }
