@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { handleRpc } from '../../worker/mcp.ts';
+import { decodeHeader, handleRpc } from '../../worker/mcp.ts';
 import { Corpus, nameRank } from '../../worker/search.ts';
 import { ToolError, runTool } from '../../worker/tools.ts';
 
@@ -107,23 +107,78 @@ test('graph tools: entry, neighbors, path, similar', async () => {
   assert.deepEqual(s.similar.map((x) => x.id), ['gamma']);
 });
 
-const rpc = (msg) => handleRpc((name, args) => runTool(data(), name, args), { jsonrpc: '2.0', ...msg });
+const run = (name, args) => runTool(data(), name, args);
+const raw = (msg, headers) => handleRpc(run, { jsonrpc: '2.0', ...msg }, new Headers(headers));
+const rpc = async (msg, headers) => (await raw(msg, headers)).body;
 
 test('MCP: initialize, list, call, notifications and errors', async () => {
   const init = await rpc({ id: 1, method: 'initialize', params: { protocolVersion: '2025-06-18' } });
   assert.equal(init.result.protocolVersion, '2025-06-18');
   assert.equal((await rpc({ id: 1, method: 'initialize', params: { protocolVersion: '1999-01-01' } })).result.protocolVersion, '2025-11-25');
-  assert.equal(await rpc({ method: 'notifications/initialized' }), null);
+  assert.deepEqual(await raw({ method: 'notifications/initialized' }), { status: 202, body: null });
   const list = await rpc({ id: 2, method: 'tools/list' });
   assert.deepEqual(list.result.tools.map((t) => t.name), ['search', 'get_entry', 'neighbors', 'find_path', 'similar']);
   assert.ok(!('run' in list.result.tools[0]));
+  assert.equal(list.result.tools[0].annotations.readOnlyHint, true);
+  assert.equal(list.result.resultType, undefined);
   const call = await rpc({ id: 3, method: 'tools/call', params: { name: 'get_entry', arguments: { id: 'alpha' } } });
   assert.deepEqual(call.result.content, [{ type: 'text', text: '# Alpha' }]);
   const bad = await rpc({ id: 4, method: 'tools/call', params: { name: 'search', arguments: {} } });
   assert.equal(bad.result.isError, true);
   assert.equal((await rpc({ id: 5, method: 'tools/call', params: { name: 'nope' } })).error.code, -32602);
   assert.equal((await rpc({ id: 6, method: 'resources/list' })).error.code, -32601);
-  assert.equal((await handleRpc(async () => null, { id: 7, method: 'ping' })).error.code, -32600);
+  assert.deepEqual((await handleRpc(async () => null, { id: 7, method: 'ping' })).status, 400);
+  assert.equal((await rpc({ id: 8, method: 'tools/list' }, { 'MCP-Protocol-Version': '2025-06-18' })).result.tools.length, 5);
+});
+
+// Protocol 2026-07-28: per-request _meta plus mirrored headers.
+const V = '2026-07-28';
+const meta = { 'io.modelcontextprotocol/protocolVersion': V, 'io.modelcontextprotocol/clientCapabilities': {} };
+const modern = (id, method, params = {}, extra = {}) => raw(
+  { id, method, params: { ...params, _meta: meta } },
+  { 'MCP-Protocol-Version': V, 'Mcp-Method': method, ...(params.name ? { 'Mcp-Name': params.name } : {}), ...extra },
+);
+
+test('MCP 2026-07-28: discover, list, call carry resultType, serverInfo and cache hints', async () => {
+  const d = await modern(1, 'server/discover');
+  assert.equal(d.status, 200);
+  assert.equal(d.body.result.resultType, 'complete');
+  assert.deepEqual(d.body.result.supportedVersions.slice(0, 2), [V, '2025-11-25']);
+  assert.equal(d.body.result._meta['io.modelcontextprotocol/serverInfo'].name, 'theinfoweb');
+  assert.equal(d.body.result.cacheScope, 'public');
+  const l = (await modern(2, 'tools/list')).body.result;
+  assert.equal(l.tools.length, 5);
+  assert.ok(l.ttlMs > 0);
+  const c = (await modern(3, 'tools/call', { name: 'get_entry', arguments: { id: 'alpha' } })).body.result;
+  assert.equal(c.resultType, 'complete');
+  assert.deepEqual(c.content, [{ type: 'text', text: '# Alpha' }]);
+  const e = (await modern(4, 'tools/call', { name: 'search', arguments: {} })).body.result;
+  assert.equal(e.isError, true);
+  assert.equal((await modern(5, 'ping')).body.result.resultType, 'complete');
+});
+
+test('MCP 2026-07-28: header validation, version errors, missing fields, unknown methods', async () => {
+  const mismatch = await modern(1, 'tools/call', { name: 'search', arguments: { query: 'x' } }, { 'Mcp-Name': 'similar' });
+  assert.deepEqual([mismatch.status, mismatch.body.error.code], [400, -32020]);
+  const noMethod = await raw({ id: 2, method: 'tools/list', params: { _meta: meta } }, { 'MCP-Protocol-Version': V });
+  assert.deepEqual([noMethod.status, noMethod.body.error.code], [400, -32020]);
+  const versionHeader = await modern(3, 'tools/list', {}, { 'MCP-Protocol-Version': '2025-11-25' });
+  assert.equal(versionHeader.body.error.code, -32020);
+  const encoded = await modern(4, 'tools/call', { name: 'get_entry', arguments: { id: 'alpha' } }, { 'Mcp-Name': '=?base64?Z2V0X2VudHJ5?=' });
+  assert.equal(encoded.status, 200);
+  const future = await raw({ id: 5, method: 'tools/list', params: { _meta: { ...meta, 'io.modelcontextprotocol/protocolVersion': '2099-01-01' } } },
+    { 'MCP-Protocol-Version': '2099-01-01', 'Mcp-Method': 'tools/list' });
+  assert.deepEqual([future.status, future.body.error.code, future.body.error.data.requested], [400, -32022, '2099-01-01']);
+  assert.ok(future.body.error.data.supported.includes(V));
+  const headerOnly = await raw({ id: 6, method: 'tools/list' }, { 'MCP-Protocol-Version': V, 'Mcp-Method': 'tools/list' });
+  assert.deepEqual([headerOnly.status, headerOnly.body.error.code], [400, -32602]);
+  const noCaps = await raw({ id: 7, method: 'tools/list', params: { _meta: { 'io.modelcontextprotocol/protocolVersion': V } } },
+    { 'MCP-Protocol-Version': V, 'Mcp-Method': 'tools/list' });
+  assert.deepEqual([noCaps.status, noCaps.body.error.code], [400, -32602]);
+  const unknown = await modern(8, 'resources/list');
+  assert.deepEqual([unknown.status, unknown.body.error.code], [404, -32601]);
+  assert.equal(decodeHeader('=?base64?SGVsbG8sIOS4lueVjA==?='), 'Hello, 世界');
+  assert.equal(decodeHeader('plain'), 'plain');
 });
 
 // worker/index.ts with in-memory stand-ins for the Cache API, R2, assets and Workers AI.

@@ -26,7 +26,7 @@ const MD_TYPE = 'text/markdown; charset=utf-8';
 const CORS = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-  'Access-Control-Allow-Headers': 'Content-Type, Accept, Mcp-Protocol-Version, Mcp-Session-Id',
+  'Access-Control-Allow-Headers': 'Content-Type, Accept, MCP-Protocol-Version, Mcp-Method, Mcp-Name, Mcp-Session-Id',
   'Access-Control-Max-Age': '86400',
 };
 
@@ -134,6 +134,8 @@ async function api(req: Request, env: Env, ctx: Ctx, url: URL): Promise<Response
 
 async function mcp(req: Request, env: Env, ctx: Ctx, url: URL): Promise<Response> {
   if (req.method === 'OPTIONS') return new Response(null, { status: 204, headers: CORS });
+  // Origin is not checked: the server is public, read-only and takes no credentials, so a
+  // cross-origin caller can do nothing a direct one cannot.
   if (req.method !== 'POST') return json({ error: 'MCP endpoint: POST JSON-RPC here (streamable HTTP, stateless)' }, 405, { Allow: 'POST' });
   const block = await limited(env, req);
   if (block) return block;
@@ -147,8 +149,8 @@ async function mcp(req: Request, env: Env, ctx: Ctx, url: URL): Promise<Response
   // Only tools/call loads the index, so the handshake answers even when the data cannot load.
   const run = async (name: string, args: Record<string, unknown>) => cachedTool(env, ctx, await dataFor(env, url.origin), name, args);
   try {
-    const out = await handleRpc(run, msg as never);
-    return out ? json(out) : new Response(null, { status: 202, headers: { 'Access-Control-Allow-Origin': '*' } });
+    const { status, body } = await handleRpc(run, msg as never, req.headers);
+    return body ? json(body, status) : new Response(null, { status, headers: { 'Access-Control-Allow-Origin': '*' } });
   } catch (err) {
     console.error(err);
     const id = (msg as { id?: unknown })?.id ?? null;

@@ -140,6 +140,7 @@ const idProp = { type: 'string', description: 'Entry id (the URL slug, such as "
 export const TOOLS = [
   {
     name: 'search',
+    title: 'Search the archive',
     description: 'Search entries by meaning and by name. Returns the best entries with their summary, URLs, and the sections that matched (heading, deep link, snippet). Works for natural-language questions ("CIA chemist who ran the LSD program"), names, aliases and codenames.',
     inputSchema: {
       type: 'object',
@@ -157,24 +158,28 @@ export const TOOLS = [
   },
   {
     name: 'get_entry',
+    title: 'Read an entry',
     description: 'Full text of one entry as markdown: frontmatter (aliases, dates, typed relations with sources), body with links rewritten to site URLs, and footnoted citations.',
     inputSchema: { type: 'object', properties: { id: idProp }, required: ['id'] },
     run: getEntry,
   },
   {
     name: 'neighbors',
+    title: 'Connected entries',
     description: 'Entries directly connected to one entry in the link graph, wikilinked ones first, each marked "links to", "linked from", "links both ways", or "named in prose".',
     inputSchema: { type: 'object', properties: { id: idProp, limit: { type: 'integer', minimum: 1, maximum: 200, default: 40 } }, required: ['id'] },
     run: neighbors,
   },
   {
     name: 'find_path',
+    title: 'Find a chain of connections',
     description: 'Shortest documented chain of connections between two entries. Steers around mega-hubs such as "United States" so each hop is a specific shared page.',
     inputSchema: { type: 'object', properties: { from: idProp, to: idProp }, required: ['from', 'to'] },
     run: path,
   },
   {
     name: 'similar',
+    title: 'Similar entries',
     description: 'Entries most similar in subject matter to one entry, whether or not they link to it. Useful for finding related material the links miss.',
     inputSchema: { type: 'object', properties: { id: idProp, limit: { type: 'integer', minimum: 1, maximum: 12, default: 8 } }, required: ['id'] },
     run: similar,
