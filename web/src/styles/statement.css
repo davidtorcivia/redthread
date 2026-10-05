@@ -54,8 +54,10 @@ header.site :focus-visible,.statement-band :focus-visible {outline-color:var(--b
 .statement-band h1.very-long-title {--headline-size:clamp(48px,6vw,96px)}
 .band-row {display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:2rem;align-items:end;margin-top:1.4em}
 .band-lede {margin:0;font-size:clamp(20px,2.2vw,28px);line-height:1.25;font-weight:400;max-width:34em;text-wrap:pretty}
-.band-facts {grid-column:2;justify-self:end;width:min(100%,34rem);margin:0;display:grid;grid-template-columns:max-content minmax(0,1fr);gap:.35em 1.1em;align-items:baseline;font-family:var(--sans);font-size:15px;line-height:1.4;font-weight:500;overflow-wrap:anywhere}
-.band-facts > div {display:contents}
+.band-facts {font-family:var(--sans);font-size:16px;line-height:1.5;font-weight:500;text-align:right;text-wrap:pretty;grid-column:2;overflow-wrap:anywhere}
+/* Entry pages: labeled rows. The home page keeps the plain right-aligned lines above. */
+dl.band-facts {justify-self:end;width:min(100%,34rem);margin:0;display:grid;grid-template-columns:max-content minmax(0,1fr);gap:.35em 1.1em;align-items:baseline;font-size:15px;line-height:1.4;text-align:left}
+dl.band-facts > div {display:contents}
 .band-facts dt {font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.09em;opacity:.72;text-align:right;white-space:nowrap}
 .band-facts dd {margin:0;text-wrap:pretty}
 .aliases-toggle {margin:0 0 0 .3em;padding:0;border:0;border-bottom:1px solid currentColor;background:none;color:inherit;font:inherit;font-weight:600;cursor:pointer}
@@ -198,7 +200,8 @@ footer.site .foot-pgp code {display:flex;flex-direction:column;font:13px/1.5 var
 }
 @media (max-width:900px) {
   .band-row {grid-template-columns:1fr}
-  .band-facts {grid-column:1;justify-self:start;width:100%}
+  .band-facts {grid-column:1;text-align:left}
+  dl.band-facts {justify-self:start;width:100%}
   .band-facts dt {text-align:left}
   .statement-read {grid-template-columns:minmax(0,1fr)}
   .statement-read .prose {grid-column:1;grid-row:2}
