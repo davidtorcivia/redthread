@@ -95,8 +95,8 @@ try {
   // The preload, path widget, local graph and quick search share one request.
   await page.locator('.entity-network .net-canvas').scrollIntoViewIfNeeded();
   await page.keyboard.press('Control+k');
-  await page.locator('.pagefind-ui__search-input').fill(hub.title);
-  await page.locator('#pf-quick .pf-quick-item').first().waitFor();
+  await page.locator('#sp-input').fill(hub.title);
+  await page.locator('.sp-row').first().waitFor();
   await page.keyboard.press('Escape');
   await page.waitForLoadState('networkidle');
   assert.equal(adjacencyRequests, 1, 'adjacency.json requests on an entry page');
@@ -128,16 +128,17 @@ try {
   assert(!/\d(?:people|concepts|organizations|programs|events|places)/i.test(await page.locator('.cluster-meta').first().innerText()));
   await page.locator('#nav-toggle').click();
   await page.locator('.search-trigger').click();
-  const input = page.locator('.pagefind-ui__search-input');
+  const input = page.locator('#sp-input');
   await input.fill(searchTerm);
-  await page.locator('.pagefind-ui__result-link').first().waitFor();
-  const clear = await page.locator('.pagefind-ui__search-clear').boundingBox();
-  const inputBox = await input.boundingBox();
-  assert(Math.abs(clear.y + clear.height / 2 - inputBox.y - inputBox.height / 2) < 1);
+  await page.locator('.sp-group:has(.sp-label:text("Mentioned in")) .sp-row').first().waitFor();
+  // The first row is active; arrow keys move the highlight and Enter opens it.
+  assert.equal(await page.locator('.sp-row').first().getAttribute('aria-selected'), 'true');
+  await input.press('ArrowDown');
+  assert.equal(await page.locator('.sp-row').nth(1).getAttribute('aria-selected'), 'true');
   await input.fill('zzqxnomatch nonexistentplatypuszzz');
-  await page.getByText(/no results for/i).waitFor();
-  await page.locator('.pagefind-ui__search-clear').click();
-  assert.equal(await input.inputValue(), '');
+  await page.locator('.sp-empty').waitFor();
+  await input.fill('');
+  await page.locator('.sp-label', { hasText: 'Most connected' }).waitFor();
   await page.locator('#pf-close').click();
   assert(!(await page.locator('main').evaluate(el => el.inert)));
 
@@ -161,10 +162,12 @@ try {
 
   const failed = await browser.newContext({ viewport: { width: 1440, height: 900 } });
   const failedPage = await failed.newPage();
-  await failedPage.route('**/search-index/pagefind-ui.js', route => route.abort());
+  // Without the full-text index, name matches still work.
+  await failedPage.route('**/search-index/**', route => route.abort());
   await failedPage.goto(base);
   await failedPage.locator('.search-trigger').click();
-  assert(await failedPage.locator('#pf-error').isVisible());
+  await failedPage.locator('#sp-input').fill(hub.title);
+  await failedPage.locator('.sp-row').first().waitFor();
   await failedPage.locator('#pf-close').click();
   await failed.close();
 
