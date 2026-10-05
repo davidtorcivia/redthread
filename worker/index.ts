@@ -166,8 +166,10 @@ async function fromBucket(req: Request, env: Env, ctx: Ctx, url: URL): Promise<R
   } catch {
     return env.ASSETS.fetch(req);  // malformed escapes: the site's 404 page
   }
-  // The query is part of the key: OG links carry ?v=<card template hash> to bust caches.
-  const key = new Request(url.origin + url.pathname + url.search);
+  // OG links carry ?v=<card template hash> to bust caches; other query strings are ignored,
+  // so random ones cannot force R2 reads.
+  const v = url.searchParams.get('v');
+  const key = new Request(url.origin + url.pathname + (v ? `?v=${encodeURIComponent(v)}` : ''));
   const hit = await cache.match(key);
   const res = hit ?? await (async () => {
     const o = await env.BUCKET.get(path);

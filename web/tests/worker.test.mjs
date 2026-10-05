@@ -157,6 +157,8 @@ test('worker: R2 paths, 404 fallback, HEAD, malformed escapes, cache key keeps t
   assert.ok(store.has('https://x.test/people/a.md'));
   await call('/og/people/a.png?v=1', {}, env({ BUCKET: { get: async () => ({ body: new Response('png').body, httpEtag: '"p"' }) } }));
   assert.ok(store.has('https://x.test/og/people/a.png?v=1'));
+  await call('/people/a.md?junk=1');
+  assert.ok(!store.has('https://x.test/people/a.md?junk=1'));
 });
 
 test('worker: MCP handshake works when the data cannot load; tool errors stay JSON-RPC', async () => {
