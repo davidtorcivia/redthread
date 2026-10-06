@@ -90,6 +90,9 @@ const pgpGroups = CONTACT_PGP.match(/[0-9A-F]{4}/g) ?? [];
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
+    {/* Latin Archivo + upright Source Serif: every page uses both, and preloading skips the wait on the CSS. */}
+    <link rel="preload" as="font" type="font/woff2" href="/fonts/k3kQo8UDI-1M0wlSfdnoLg.woff2" crossorigin />
+    <link rel="preload" as="font" type="font/woff2" href="/fonts/vEFI2_tTDB4M7-auWDN0ahZJW1gb8tc.woff2" crossorigin />
     {/* Theme must run before paint, including behind Cloudflare Rocket Loader. */}
     <script is:inline data-cfasync="false">
       {
