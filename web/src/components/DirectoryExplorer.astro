@@ -64,7 +64,7 @@ const aliasesFor = (item: Entity) => aliasesOf(item).join(' ');
           {leadCategories.map(([name, group]) => (
             <button class="people-category-card" type="button" data-category={name} aria-pressed="false">
               <span class="people-category-name">{name}</span>
-              <span class="people-category-bottom"><span>{group.length.toLocaleString()} {pluralLower}</span><span aria-hidden="true">↗</span></span>
+              <span class="people-category-bottom"><span>{group.length.toLocaleString()} {group.length === 1 ? singular : pluralLower}</span><span aria-hidden="true">↗</span></span>
             </button>
           ))}
         </div>
@@ -75,7 +75,7 @@ const aliasesFor = (item: Entity) => aliasesOf(item).join(' ');
               {otherCategories.map(([name, group]) => (
                 <button class="people-category-card" type="button" data-category={name} aria-pressed="false">
                   <span class="people-category-name">{name}</span>
-                  <span class="people-category-bottom"><span>{group.length.toLocaleString()} {pluralLower}</span><span aria-hidden="true">↗</span></span>
+                  <span class="people-category-bottom"><span>{group.length.toLocaleString()} {group.length === 1 ? singular : pluralLower}</span><span aria-hidden="true">↗</span></span>
                 </button>
               ))}
             </div>

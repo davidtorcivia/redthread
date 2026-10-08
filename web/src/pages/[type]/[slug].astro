@@ -10,7 +10,7 @@ import SimilarEntries from '../../components/SimilarEntries.astro';
 import Relations from '../../components/Relations.astro';
 import TableOfContents from '../../components/TableOfContents.astro';
 import FootnotePreviews from '../../components/FootnotePreviews.astro';
-import { aliasesOf, entities, hrefFor, communityOf, CLUSTER_MIN_SIZE, tagHref, renderInlineMd, TYPE_DIRS, TYPE_LABELS, TYPE_PLURALS } from '../../lib/data.ts';
+import { aliasesOf, BROWSE_TYPES, entities, hrefFor, communityOf, CLUSTER_MIN_SIZE, tagHref, renderInlineMd, TYPE_DIRS, TYPE_LABELS, TYPE_PLURALS } from '../../lib/data.ts';
 import { formatDates } from '../../lib/dates.ts';
 import { entityJsonLd } from '../../lib/schema.ts';
 import type { Entity } from '../../lib/types.ts';
@@ -80,7 +80,9 @@ const jsonLd = entityJsonLd(entity);
       <div class="band-row">
         {entity.summary && <p class="band-lede" set:html={renderInlineMd(entity.summary)} />}
         <dl class="band-facts">
-          <div><dt>Category</dt><dd><a href={`/${dir}/`}>{entity.category || typeLabel}</a></dd></div>
+          <div><dt>Category</dt><dd>{BROWSE_TYPES.includes(entity.type)
+            ? <a href={entity.category ? `/${dir}/?category=${encodeURIComponent(entity.category)}#people-index` : `/${dir}/`}>{entity.category || typeLabel}</a>
+            : entity.category || typeLabel}</dd></div>
           {aliases.length > 0 && <div><dt>Also known as</dt><dd class="band-aliases">
             <span data-pagefind-weight="10">{(moreAliases.length ? aliases.slice(0, ALIASES_SHOWN) : aliases).join(', ')}{moreAliases.length > 0 && <span class="aliases-more">, {moreAliases.join(', ')}</span>}</span>
             {moreAliases.length > 0 && <button type="button" class="aliases-toggle" aria-expanded="true" data-pagefind-ignore>+{moreAliases.length} more</button>}
@@ -162,6 +164,49 @@ const jsonLd = entityJsonLd(entity);
             addEventListener('hashchange', () => { if (location.hash.startsWith('#fn-')) open(); });
           }
         }
+      })();
+
+      // Each h3 folds the content up to the next h1-h3. Open by default; find-in-page
+      // (hidden=until-found) and any in-page link into a folded section reopen it.
+      (() => {
+        const bodies = new Map();
+        for (const h of document.querySelectorAll('.prose > h3')) {
+          const body = document.createElement('div');
+          body.className = 'h3-body';
+          let n = h.nextElementSibling;
+          while (n && !/^H[1-3]$/.test(n.tagName)) { const next = n.nextElementSibling; body.append(n); n = next; }
+          if (!body.childElementCount) continue;
+          body.id = `${h.id || 'section-' + bodies.size}-body`;
+          h.after(body);
+          const button = document.createElement('button');
+          button.type = 'button';
+          button.className = 'h3-toggle';
+          button.setAttribute('aria-expanded', 'true');
+          button.setAttribute('aria-controls', body.id);
+          button.append(...h.childNodes);
+          button.insertAdjacentHTML('beforeend', '<svg class="h3-chev" viewBox="0 0 12 12" aria-hidden="true"><path d="M2.5 4.5 6 8l3.5-3.5"/></svg>');
+          h.append(button);
+          const set = (open) => {
+            button.setAttribute('aria-expanded', String(open));
+            h.classList.toggle('is-collapsed', !open);
+            if (open) body.removeAttribute('hidden'); else body.setAttribute('hidden', 'until-found');
+          };
+          button.addEventListener('click', () => set(button.getAttribute('aria-expanded') !== 'true'));
+          body.addEventListener('beforematch', () => set(true));
+          bodies.set(body, set);
+        }
+        if (!bodies.size) return;
+        const reveal = (id) => {
+          const body = id && document.getElementById(decodeURIComponent(id))?.closest('.h3-body');
+          if (body) bodies.get(body)(true);
+        };
+        // Capture phase, so the section is open before the TOC's own scroll handler measures.
+        document.addEventListener('click', (e) => {
+          const a = e.target.closest && e.target.closest('a[href^="#"]');
+          if (a) reveal(a.getAttribute('href').slice(1));
+        }, true);
+        addEventListener('hashchange', () => reveal(location.hash.slice(1)));
+        reveal(location.hash.slice(1));
       })();
     </script>
 

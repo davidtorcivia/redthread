@@ -118,6 +118,16 @@ dl.band-facts > div {display:contents}
 .prose h2 {font-size:22px;margin:2.6em 0 .6em;text-transform:uppercase}
 .prose h3 {font-size:21px;margin:2.6em 0 .6em;text-transform:uppercase}
 .prose h4 {font-size:20px}
+/* Collapsible h3 sections (entity pages): the button carries the heading text */
+.h3-toggle {all:unset;cursor:pointer;display:inline;-webkit-tap-highlight-color:transparent}
+.h3-toggle:focus-visible {outline:2px solid var(--accent);outline-offset:3px}
+.h3-chev {display:inline-block;width:.62em;height:.62em;margin-left:.45em;vertical-align:.08em;fill:none;stroke:var(--muted-2);stroke-width:2;transition:transform .2s ease,stroke .15s}
+.h3-toggle:hover .h3-chev,.h3-toggle:focus-visible .h3-chev {stroke:var(--accent)}
+.prose h3.is-collapsed {color:var(--muted);margin-bottom:0}
+.prose h3.is-collapsed .h3-chev {transform:rotate(-90deg)}
+.prose h3.is-collapsed + .h3-body + h3 {margin-top:1.4em}
+@media (prefers-reduced-motion:reduce) {.h3-chev {transition:none}}
+@media print {.h3-chev {display:none} .h3-body[hidden] {display:block!important;content-visibility:visible!important}}
 .prose a[href]:not(.unresolved) {background:#ffe86b;color:#0d0d0d;border:0;padding:0 .1em;-webkit-box-decoration-break:clone;box-decoration-break:clone;text-decoration:none}
 .prose a[href]:not(.unresolved):hover {background:#ffdc38;color:#0d0d0d}
 .prose a:focus-visible {outline:2px solid var(--ink);outline-offset:3px}
