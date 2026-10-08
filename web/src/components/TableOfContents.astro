@@ -58,6 +58,7 @@ const { entries } = Astro.props;
         }
         let last = headings[0];
         for (const h of headings) {
+          if (h.closest('[hidden]')) continue; // inside a folded section: no real position
           if (h.getBoundingClientRect().top <= 120) last = h;
           else break;
         }
