@@ -310,3 +310,20 @@ export interface Focus {
 
 /** Homepage "In focus": recently active pages plus pinned ones, and the most-edited cluster. */
 export const focus = memo(() => loadOptional<Focus>('focus.json', { days: 30, pages: [], cluster: null }));
+
+export interface Dispatch {
+  id: string;
+  title: string;
+  date: string;
+  summary: string | null;
+  tags: string[];
+  entities: string[];
+  body_html: string;
+  footnotes: { id: string; text: string; html?: string }[];
+}
+
+/** Published dispatches, newest first (see dispatchDir in config.json). */
+export const dispatches = memo(() => loadOptional<Dispatch[]>('dispatches.json', []));
+export function dispatchesCiting(id: string): Dispatch[] {
+  return dispatches().filter((d) => d.entities.includes(id));
+}

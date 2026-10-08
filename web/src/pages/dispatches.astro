@@ -1,0 +1,60 @@
+---
+import Base from '../layouts/Base.astro';
+import { dispatches, entity, hrefFor, renderInlineMd, TYPE_LABELS } from '../lib/data.ts';
+
+const items = dispatches();
+
+function dayLabel(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  return d.toLocaleString('en-US', { month: 'long', day: 'numeric', year: 'numeric', timeZone: 'UTC' });
+}
+---
+<Base
+  bodyClass="utility"
+  title="Dispatches"
+  description="Dated, sourced narratives of findings that tie entries in the vault together."
+>
+  <article class="changelog-article dispatches">
+    <h1 class="entity-title">Dispatches</h1>
+    <p class="cl-summary">Findings that connect records across the vault, newest first. Every claim is footnoted and every name links to its entry. <a href="/dispatches.xml">Feed</a>.</p>
+
+    {items.length === 0 && <p class="changelog-empty">No dispatches yet.</p>}
+
+    {items.map((d) => (
+      <section class="dispatch" id={d.id}>
+        <div class="cl-head">
+          <span class="cl-day"><time datetime={d.date}>{dayLabel(d.date)}</time></span>
+        </div>
+        <h2 class="section-heading"><a href={`#${d.id}`}>{d.title}</a></h2>
+        {d.summary && <p class="cl-summary" set:html={renderInlineMd(d.summary)} />}
+        <div class="prose" set:html={d.body_html} />
+        {d.footnotes.length > 0 && (
+          <section class="footnotes-block">
+            <h3 class="section-label">Sources</h3>
+            <ol>
+              {d.footnotes.map((f) => (
+                <li id={`${d.id}-fn-${f.id}`}>
+                  <span set:html={f.html ?? renderInlineMd(f.text)} />
+                  {' '}<a class="fn-back" href={`#${d.id}-fnref-${f.id}`} aria-label="back to reference">↩</a>
+                </li>
+              ))}
+            </ol>
+          </section>
+        )}
+        {d.entities.length > 0 && (
+          <ul class="hc-list" aria-label="Entries this dispatch draws on">
+            {d.entities.map((id) => entity(id)).filter(Boolean).map((e) => (
+              <li class={`hc-item type-${e!.type}`}>
+                <a href={hrefFor(e!)} data-preview>
+                  <span class="hc-eyebrow">{TYPE_LABELS[e!.type]}</span>
+                  <span class="hc-title">{e!.title}</span>
+                </a>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+    ))}
+  </article>
+</Base>

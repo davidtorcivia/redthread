@@ -2,6 +2,7 @@
 import Base from '../../layouts/Base.astro';
 import Headline from '../../components/Headline.astro';
 import Backlinks from '../../components/Backlinks.astro';
+import DispatchLinks from '../../components/DispatchLinks.astro';
 import HiddenConnections from '../../components/HiddenConnections.astro';
 import NetworkGraph from '../../components/NetworkGraph.astro';
 import PathWidget from '../../components/PathWidget.astro';
@@ -128,6 +129,8 @@ const jsonLd = entityJsonLd(entity);
     <PathWidget fromId={entity.id} fromTitle={entity.title} />
 
     <NetworkGraph id={entity.id} title={entity.title} />
+
+    <DispatchLinks id={entity.id} />
 
     <Backlinks id={entity.id} />
     {entity.tags.length > 0 && <section class="statement-list" data-pagefind-ignore>

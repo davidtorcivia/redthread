@@ -1,0 +1,23 @@
+---
+import { dispatchesCiting } from '../lib/data.ts';
+interface Props { id: string }
+const items = dispatchesCiting(Astro.props.id);
+---
+{items.length > 0 && (
+  <section class="backlinks hc-list-section" id="dispatches" data-pagefind-ignore>
+    <h2 class="section-heading">
+      Dispatches
+      <span class="hc-count-badge">{items.length}</span>
+    </h2>
+    <ul class="hc-list">
+      {items.map((d) => (
+        <li class="hc-item">
+          <a href={`/dispatches/#${d.id}`}>
+            <span class="hc-eyebrow">{d.date}</span>
+            <span class="hc-title">{d.title}</span>
+          </a>
+        </li>
+      ))}
+    </ul>
+  </section>
+)}

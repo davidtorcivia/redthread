@@ -46,6 +46,9 @@ DEFAULT_CONFIG = {
     },
     # Optional note whose [[wikilinks]] are pinned to the homepage "In focus" list.
     "focusFile": None,
+    # Top-level folder of dispatches: dated, sourced narratives that cite entries. They are
+    # published on /dispatches/ and in its feed, never as entries, graph nodes or search results.
+    "dispatchDir": None,
 }
 
 # Site URL directory per entity type.
@@ -847,8 +850,9 @@ def _process_headings(rendered: str) -> tuple[str, list[dict[str, Any]]]:
     return HEADING.sub(repl, rendered), toc
 
 
-def render_html(entities: list[dict[str, Any]], slug_index: dict[str, str]) -> None:
-    """Add body_html and toc to each entity, and html to each footnote."""
+def render_html(entities: list[dict[str, Any]], slug_index: dict[str, str],
+                items: list[dict[str, Any]] | None = None) -> None:
+    """Add body_html and toc to each entity (or to `items`, linked against entities), and html to each footnote."""
     md = MarkdownIt("commonmark", {"html": False}).enable(["table", "strikethrough"])
     # Wide tables scroll inside their own box instead of widening the page. tabindex lets Safari
     # keyboard users scroll it (other browsers focus scroll boxes on their own); no landmark role,
@@ -876,10 +880,50 @@ def render_html(entities: list[dict[str, Any]], slug_index: dict[str, str]) -> N
         return autolink_urls(_map_text(
             rendered, _NOT_TEXT, lambda s: FN_REF.sub(footnote_ref, WIKILINK.sub(wikilink, s))))
 
-    for e in entities:
+    for e in (entities if items is None else items):
         e["body_html"], e["toc"] = _process_headings(rewrite(md.render(EMBED.sub("", e["body_md"]))))
         for fn in e["footnotes"]:
             fn["html"] = rewrite(md.renderInline(fn["text"]))
+
+
+def build_dispatches(paths: list[Path], entities: list[dict[str, Any]],
+                     slug_index: dict[str, str]) -> list[dict[str, Any]]:
+    """Published dispatches, newest first. Only `status: published` notes go out."""
+    out = []
+    for p in paths:
+        try:
+            post = frontmatter.loads(p.read_text(encoding="utf-8").lstrip("\ufeff"))
+        except Exception as e:
+            sys.stderr.write(f"[warn] dispatch parse failed: {p} ({e})\n")
+            continue
+        fm = dict(post.metadata or {})
+        if str(fm.get("status", "")).strip().lower() != "published":
+            continue
+        footnotes, body = extract_footnotes(post.content or "")
+        body = re.sub(r"\A\s*# [^\n]*\n", "", body)  # the title is rendered as the heading
+        cited: list[str] = []
+        for raw in fm.get("entities") or []:
+            m = WIKILINK.search(str(raw))
+            eid = slug_index.get(normalize_target(m.group(1) if m else str(raw)))
+            if eid and eid not in cited:
+                cited.append(eid)
+        title = str(fm.get("title") or re.sub(r"^\d{4}-\d{2}-\d{2}\s+", "", p.stem))
+        tags = fm.get("tags") or []
+        out.append({
+            "id": slugify(title), "title": title, "date": _date_str(fm.get("date")) or "",
+            "summary": _str_or_none(fm.get("summary")),
+            "tags": [str(t) for t in (tags if isinstance(tags, list) else [tags])],
+            "entities": cited, "body_md": body, "footnotes": footnotes,
+        })
+    render_html(entities, slug_index, items=out)
+    for d in out:
+        # Several dispatches share one page, so footnote anchors carry the dispatch id.
+        d.pop("body_md")
+        d["body_html"] = d["body_html"].replace(
+            'href="#fn-', f'href="#{d["id"]}-fn-').replace('id="fnref-', f'id="{d["id"]}-fnref-')
+        d.pop("toc", None)
+    out.sort(key=lambda d: d["date"], reverse=True)
+    return out
 
 
 # ---------- graph ----------
@@ -1267,12 +1311,16 @@ def main() -> int:
     args.out.mkdir(parents=True, exist_ok=True)  # the layout cache is written before the outputs
     t0 = time.time()
     md_files = []
+    dispatch_files = []
     for p in sorted(vault_root.rglob("*.md")):
         if should_skip(p.relative_to(vault_root), cfg["skipPathPatterns"]):
             continue
         # A symlink must not publish a file from outside the vault.
         if not p.resolve().is_relative_to(vault_root):
             sys.stderr.write(f"[warn] skipping link out of the vault: {p}\n")
+            continue
+        if cfg["dispatchDir"] and p.relative_to(vault_root).parts[0] == cfg["dispatchDir"]:
+            dispatch_files.append(p)
             continue
         md_files.append(p)
     print(f"[parse] {len(md_files)} markdown files in {vault_root}")
@@ -1305,6 +1353,7 @@ def main() -> int:
     edges.extend(implicit_edges)
 
     render_html(entities, slug_index)
+    dispatches = build_dispatches(dispatch_files, entities, slug_index)
     related, mention_count, page_density = compute_relationships(entities, edges)
     for e in entities:  # before build_adjacency, which reads mention_count
         e["mention_count"] = mention_count.get(e["id"], 0)
@@ -1394,6 +1443,7 @@ def main() -> int:
     focus = compute_focus(entities, edges, communities, git_edit_counts(vault_root),
                           read_focus_pins(focus_file, slug_index))
     write_outputs(args.out, entities, slug_index, edges, related, adjacency, communities, focus, stats)
+    write_json(args.out / "dispatches.json", dispatches)
 
     print(f"[focus] pages={[p['id'] for p in focus['pages']]} "
           f"cluster={focus['cluster'] and focus['cluster']['label']}")
