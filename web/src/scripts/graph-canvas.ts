@@ -27,6 +27,16 @@ export interface GraphNode {
   hop?: number;
   isLandmark?: boolean;
   isolated?: boolean;
+  /** Label priority; higher wins. Defaults to `count`. */
+  priority?: number;
+}
+
+/** A label pinned to a place in layout space, such as a cluster's name. */
+export interface Annotation {
+  x: number;
+  y: number;
+  r: number;
+  text: string;
 }
 
 export type Edge = [number, number];
@@ -45,13 +55,16 @@ export interface EngineOptions {
   showImplicit: boolean;
   /** Element that gets the .fullscreen class. Defaults to root. */
   fullscreenEl?: HTMLElement;
+  /** Extra lines for the selection panel when one node is selected. */
+  describe?: (i: number) => (Node | string)[][];
 }
 
 // The full graph has thousands of nodes: smaller dots, fainter edges, and
-// labels only for landmarks or nodes big enough on screen.
+// labels only for landmarks or nodes big enough on screen. The entity graph draws
+// the focal entry's own links at edgeAlpha and fades the rest to bgEdgeAlpha.
 const PROFILES = {
-  entity: { zoomMax: 20, fitPad: 30, minR: 3, maxR: 12, edgeAlpha: .4, labelAll: true, searchZoom: 1.1 },
-  full: { zoomMax: 50, fitPad: 40, minR: 1.7, maxR: 9, edgeAlpha: .25, labelAll: false, searchZoom: .8 },
+  entity: { zoomMax: 20, fitPad: 30, minR: 3, maxR: 12, edgeAlpha: .5, bgEdgeAlpha: .12, labelAll: true, searchZoom: 1.1 },
+  full: { zoomMax: 50, fitPad: 40, minR: 1.7, maxR: 9, edgeAlpha: .25, bgEdgeAlpha: .25, labelAll: false, searchZoom: .8 },
 };
 
 function readColors(scope: Element): Record<string, string> {
@@ -106,6 +119,10 @@ export class GraphEngine {
   edges: Edge[] = [];
   neighborSets: Set<number>[] = [];
   implicitEdgeIdx: Set<number> = new Set();
+  /** Edge index to the typed relation it carries, drawn solid and labelled. */
+  relationEdges = new Map<number, string>();
+  /** Set by a layout; cleared before each layout runs. */
+  annotations: Annotation[] = [];
   view = { tx: 0, ty: 0, scale: 1 };
   selectedNodes = new Set<number>();
   selectedEdges = new Set<number>();
@@ -125,6 +142,15 @@ export class GraphEngine {
   private layoutIdx = 0;
   private dpr = 1;
   private drawScheduled = false;
+  private fitScale = 1;
+  /** True while panning or zooming: the full graph skips labels until it settles. */
+  private interacting = false;
+  private settleTimer: ReturnType<typeof setTimeout> | undefined;
+  // Screen positions and radii, reused across frames.
+  private px = new Float64Array(0);
+  private py = new Float64Array(0);
+  private pr = new Float64Array(0);
+  private truncated = new Map<string, string>();
 
   constructor(root: HTMLElement, opts: EngineOptions) {
     this.root = root;
@@ -153,6 +179,10 @@ export class GraphEngine {
     this.nodes = nodes;
     this.edges = edges;
     this.implicitEdgeIdx = implicit;
+    this.relationEdges = new Map();
+    this.px = new Float64Array(nodes.length);
+    this.py = new Float64Array(nodes.length);
+    this.pr = new Float64Array(nodes.length);
     this.neighborSets = Array.from({ length: nodes.length }, () => new Set<number>());
     for (const [a, b] of edges) {
       this.neighborSets[a].add(b);
@@ -216,7 +246,7 @@ export class GraphEngine {
     const { W, H } = this.canvasSize();
     const pad = this.P.fitPad;
     const w = Math.max(1, maxX - minX), h = Math.max(1, maxY - minY);
-    this.view.scale = Math.min((W - 2 * pad) / w, (H - 2 * pad) / h);
+    this.view.scale = this.fitScale = Math.min((W - 2 * pad) / w, (H - 2 * pad) / h);
     this.view.tx = (W - w * this.view.scale) / 2 - minX * this.view.scale;
     this.view.ty = (H - h * this.view.scale) / 2 - minY * this.view.scale;
     this.requestDraw();
@@ -224,6 +254,7 @@ export class GraphEngine {
 
   /** Run the current layout, refit and redraw. */
   applyLayout(): void {
+    this.annotations = [];
     this.opts.layouts.find((l) => l.key === this.currentLayout)!.apply(this);
     this.fit();
   }
@@ -287,24 +318,46 @@ export class GraphEngine {
     return n.isFocal ? Math.max(9, Math.min(20, scaled)) : Math.max(this.P.minR, Math.min(this.P.maxR, scaled));
   }
 
+  /** Mark a pan or zoom step. The full graph draws labels again once input settles. */
+  private moved(): void {
+    this.interacting = true;
+    clearTimeout(this.settleTimer);
+    this.settleTimer = setTimeout(() => { this.interacting = false; this.requestDraw(); }, 140);
+    this.requestDraw();
+  }
+
+  /** `text` cut with an ellipsis to fit `max` px in the current font, cached. */
+  private fitText(text: string, max: number): string {
+    const key = `${this.ctx.font}|${max}|${text}`;
+    let out = this.truncated.get(key);
+    if (out === undefined) {
+      out = text;
+      while (this.ctx.measureText(out).width > max && out.length > 4) out = out.slice(0, -2);
+      if (out !== text) out = out.trimEnd() + '…';
+      this.truncated.set(key, out);
+    }
+    return out;
+  }
+
   private draw(): void {
-    const { nodes, edges, ctx, COLORS } = this;
+    const { nodes, edges, ctx, COLORS, px, py, pr } = this;
     const { W, H } = this.canvasSize();
     if (!W || !H) return;
     ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
     ctx.globalAlpha = 1;
-    ctx.fillStyle = COLORS.paper;
-    ctx.fillRect(0, 0, W, H);
-    // A quiet dot grid, independent of the topology.
-    ctx.fillStyle = hexToRgba(COLORS.line, .22);
-    for (let x = 24; x < W; x += 32) for (let y = 24; y < H; y += 32) ctx.fillRect(x, y, .8, .8);
+    // The paper and its dot grid are the shell's CSS background.
+    ctx.clearRect(0, 0, W, H);
     if (!nodes.length) return;
 
     const hasSelection = this.selectedNodes.size > 0 || this.selectedEdges.size > 0;
     const hoverFocus = !hasSelection && this.hoveredIdx >= 0
       ? new Set([this.hoveredIdx, ...this.neighborSets[this.hoveredIdx]]) : null;
     const focus = this.focusNodes || hoverFocus;
-    const points = nodes.map((n) => ({ x: this.sx(n.x), y: this.sy(n.y), r: this.radius(n) }));
+    for (let i = 0; i < nodes.length; i++) {
+      px[i] = this.sx(nodes[i].x);
+      py[i] = this.sy(nodes[i].y);
+      pr[i] = this.radius(nodes[i]);
+    }
     const isActive = (i: number) => this.selectedNodes.has(i) || i === this.hoveredIdx || !!nodes[i].isFocal;
     const edgeActive = (i: number) => {
       const [a, b] = edges[i];
@@ -312,95 +365,139 @@ export class GraphEngine {
         a === this.hoveredIdx || b === this.hoveredIdx || i === this.hoveredEdge;
     };
 
-    // One path per style (idle before active, linked before inferred), bucketed
-    // in a single pass: 34k edges filtered once per style was most of a frame.
+    // One path per style, bucketed in a single pass: 49k edges filtered once per
+    // style was most of a frame. Back to front: background, the focal entry's own
+    // links, active (each linked, then inferred), then typed relations idle and active.
     if (this.edgesVisible) {
       const anyActive = hasSelection || this.hoveredIdx >= 0 || this.hoveredEdge >= 0;
-      const buckets: number[][] = [[], [], [], []];
+      // On the cluster layout, links between islands are a grey wash until zoomed in.
+      const hideCross = this.annotations.length > 0 && this.view.scale < this.fitScale * 2.5;
+      // Mid-gesture, the full graph keeps only highlighted edges: rasterising tens of
+      // thousands of translucent lines was most of a frame on a phone.
+      const idleOff = this.interacting && this.opts.profile === 'full';
+      const buckets: number[][] = [[], [], [], [], [], [], [], []];
       for (let i = 0; i < edges.length; i++) {
         const [a, b] = edges[i];
         if (!nodes[a].visible || !nodes[b].visible) continue;
-        const p = points[a], q = points[b];
-        if ((p.x < 0 && q.x < 0) || (p.x > W && q.x > W) || (p.y < 0 && q.y < 0) || (p.y > H && q.y > H)) continue;
+        const ax = px[a], ay = py[a], bx = px[b], by = py[b];
+        if ((ax < 0 && bx < 0) || (ax > W && bx > W) || (ay < 0 && by < 0) || (ay > H && by > H)) continue;
+        const active = anyActive && edgeActive(i);
+        if (idleOff && !active) continue;
+        if (this.relationEdges.has(i)) { buckets[active ? 7 : 6].push(i); continue; }
         const inferred = this.implicitEdgeIdx.has(i);
         if (inferred && !this.showImplicit) continue;
-        buckets[(anyActive && edgeActive(i) ? 2 : 0) + (inferred ? 1 : 0)].push(i);
+        if (!active) {
+          // A sub-pixel edge only adds to the wash.
+          if ((bx - ax) ** 2 + (by - ay) ** 2 < 2.25) continue;
+          if (hideCross && nodes[a].community !== nodes[b].community) continue;
+        }
+        const tier = active ? 4 : nodes[a].isFocal || nodes[b].isFocal ? 2 : 0;
+        buckets[tier + (inferred ? 1 : 0)].push(i);
       }
+      const bg = { width: .65, color: hexToRgba(COLORS.line, focus ? .09 : this.P.bgEdgeAlpha) };
+      const own = { width: .9, color: hexToRgba(COLORS.line, focus ? .12 : this.P.edgeAlpha) };
+      const lit = { width: 1.3, color: hexToRgba(COLORS.accent, .72) };
+      const styles = [bg, bg, own, own, lit, lit,
+        { width: 1.8, color: hexToRgba(COLORS.ink, focus ? .3 : .75) }, { width: 2, color: COLORS.accent }];
       buckets.forEach((bucket, k) => {
         if (!bucket.length) return;
-        const active = k >= 2, inferred = k % 2 === 1;
         ctx.beginPath();
-        ctx.setLineDash(inferred ? [3, 5] : []);
-        ctx.lineWidth = active ? 1.3 : .65;
-        ctx.strokeStyle = active ? hexToRgba(COLORS.accent, .72) : hexToRgba(COLORS.line, focus ? .09 : this.P.edgeAlpha);
+        ctx.setLineDash(k < 6 && k % 2 === 1 ? [3, 5] : []);
+        ctx.lineWidth = styles[k].width;
+        ctx.strokeStyle = styles[k].color;
         for (const i of bucket) {
-          const p = points[edges[i][0]], q = points[edges[i][1]];
-          ctx.moveTo(p.x, p.y);
-          ctx.lineTo(q.x, q.y);
+          const [a, b] = edges[i];
+          ctx.moveTo(px[a], py[a]);
+          ctx.lineTo(px[b], py[b]);
         }
         ctx.stroke();
       });
       ctx.setLineDash([]);
     }
 
-    const ring = (p: { x: number; y: number }, r: number) => { ctx.beginPath(); ctx.arc(p.x, p.y, r, 0, Math.PI * 2); };
-    for (let i = 0; i < nodes.length; i++) {
-      const n = nodes[i], p = points[i];
-      if (!n.visible || p.x + p.r < 0 || p.x - p.r > W || p.y + p.r < 0 || p.y - p.r > H) continue;
-      const active = isActive(i);
-      const inFocus = !focus || focus.has(i);
-      // Second-hop nodes are drawn a little fainter than the first ring.
-      ctx.globalAlpha = active ? 1 : (inFocus ? .88 : .13 + .27 * (1 - this.highlightStrength)) *
-        this.opacityMult * (n.hop === 2 ? .62 : 1);
-      if (active) {
-        ctx.fillStyle = hexToRgba(COLORS.accent, .1);
-        ring(p, p.r + 7);
+    const ring = (x: number, y: number, r: number) => { ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); };
+    // Active nodes (the focal entry, the selection, the hovered node) go last, on top.
+    for (const top of [false, true]) {
+      for (let i = 0; i < nodes.length; i++) {
+        const n = nodes[i], x = px[i], y = py[i], r = pr[i];
+        const active = isActive(i);
+        if (active !== top || !n.visible || x + r < 0 || x - r > W || y + r < 0 || y - r > H) continue;
+        const inFocus = !focus || focus.has(i);
+        // Second-hop nodes are drawn a little fainter than the first ring.
+        ctx.globalAlpha = active ? 1 : (inFocus ? .88 : .13 + .27 * (1 - this.highlightStrength)) *
+          this.opacityMult * (n.hop === 2 ? .62 : 1);
+        if (active) {
+          ctx.fillStyle = hexToRgba(COLORS.accent, .1);
+          ring(x, y, r + 7);
+          ctx.fill();
+        }
+        ctx.fillStyle = n.isFocal ? COLORS.accent : n.color || COLORS.muted;
+        ring(x, y, r);
         ctx.fill();
+        if (r > 3) {
+          ctx.strokeStyle = COLORS.paper;
+          ctx.lineWidth = 1.3;
+          ctx.stroke();
+        }
+        if (n.bridgeRank && inFocus && r > 2) {
+          ctx.strokeStyle = COLORS.gold;
+          ctx.lineWidth = 1;
+          ring(x, y, r + 2);
+          ctx.stroke();
+        }
+        if (active) {
+          ctx.strokeStyle = COLORS.accent;
+          ctx.lineWidth = 1.5;
+          ring(x, y, r + 3);
+          ctx.stroke();
+        }
+        ctx.globalAlpha = 1;
       }
-      ctx.fillStyle = n.isFocal ? COLORS.accent : n.color || COLORS.muted;
-      ring(p, p.r);
-      ctx.fill();
-      if (p.r > 3) {
-        ctx.strokeStyle = COLORS.paper;
-        ctx.lineWidth = 1.3;
-        ctx.stroke();
-      }
-      if (n.bridgeRank && inFocus && p.r > 2) {
-        ctx.strokeStyle = COLORS.gold;
-        ctx.lineWidth = 1;
-        ring(p, p.r + 2);
-        ctx.stroke();
-      }
-      if (active) {
-        ctx.strokeStyle = COLORS.accent;
-        ctx.lineWidth = 1.5;
-        ring(p, p.r + 3);
-        ctx.stroke();
-      }
-      ctx.globalAlpha = 1;
     }
 
-    // Labels, most important first; each takes the first free spot around its node.
-    const candidates = nodes
-      .map((n, i) => ({ n, i, p: points[i], tier: isActive(i) ? 0 : focus?.has(i) ? 1 : n.isLandmark ? 2 : 3 }))
-      .filter((c) => c.n.visible && c.p.x >= 0 && c.p.x <= W && c.p.y >= 0 && c.p.y <= H &&
-        (!focus || focus.has(c.i) || c.tier === 0) &&
-        (c.tier < 3 || this.P.labelAll || c.p.r >= 3.3))
-      .sort((a, b) => a.tier - b.tier || b.n.count - a.n.count);
     const drawn: { x: number; y: number; w: number; h: number }[] = [];
-    const limit = focus ? 48 : Math.max(10, Math.min(38, Math.floor(W / 32)));
     ctx.textBaseline = 'top';
     ctx.textAlign = 'left';
+    // Annotations (cluster names) sit above their island and claim space before entry labels.
+    if (this.annotations.length) {
+      ctx.font = '700 12px "Archivo", sans-serif';
+      for (const a of this.annotations) {
+        const r = a.r * this.view.scale;
+        const text = this.fitText(a.text.toUpperCase(), Math.round(Math.max(140, Math.min(2 * r, 340)) / 20) * 20);
+        const w = ctx.measureText(text).width + 10, h = 20;
+        const x = this.sx(a.x) - w / 2, y = this.sy(a.y) - r - h - 2;
+        if (x + w < 0 || x > W || y + h < 0 || y > H) continue;
+        ctx.fillStyle = hexToRgba(COLORS.paper, .9);
+        ctx.fillRect(x, y, w, h);
+        ctx.fillStyle = COLORS.muted;
+        ctx.fillText(text, x + 5, y + 4);
+        drawn.push({ x, y, w, h });
+      }
+    }
+    if (this.interacting && this.opts.profile === 'full') return;
+
+    // Entry labels, most important first; each takes the first free spot around its node.
+    // Landmarks only orient a layout that has no annotations.
+    const landmarks = !this.annotations.length;
+    const prio = (n: GraphNode) => n.priority ?? n.count;
+    const candidates: { n: GraphNode; i: number; tier: number }[] = [];
+    for (let i = 0; i < nodes.length; i++) {
+      const n = nodes[i];
+      if (!n.visible || px[i] < 0 || px[i] > W || py[i] < 0 || py[i] > H) continue;
+      const tier = isActive(i) ? 0 : focus?.has(i) ? 1 : n.isLandmark && landmarks ? 2 : 3;
+      if (focus && tier > 1) continue;
+      if (tier === 3 && !this.P.labelAll && pr[i] < 3.3) continue;
+      candidates.push({ n, i, tier });
+    }
+    candidates.sort((a, b) => a.tier - b.tier || prio(b.n) - prio(a.n));
+    const limit = focus ? 48 : Math.max(10, Math.min(38, Math.floor(W / 32)));
     for (const c of candidates) {
       if (drawn.length >= limit && c.tier > 0) continue;
       const important = c.tier === 0, fontSize = important ? 14 : 12;
       ctx.font = `${important ? 700 : 500} ${fontSize}px "Archivo", sans-serif`;
-      const maxWidth = Math.min(W - 32, important ? 300 : 190);
-      let title = c.n.title;
-      while (ctx.measureText(title).width > maxWidth && title.length > 4) title = title.slice(0, -2);
-      if (title !== c.n.title) title = title.trimEnd() + '…';
+      const title = this.fitText(c.n.title, Math.min(W - 32, important ? 300 : 190));
       const w = ctx.measureText(title).width + 10, h = fontSize + 8;
-      const { x, y, r } = c.p;
+      const x = px[c.i], y = py[c.i], r = pr[c.i];
       const box = [
         { x: x + r + 7, y: y - h / 2 },
         { x: x - r - 7 - w, y: y - h / 2 },
@@ -437,7 +534,7 @@ export class GraphEngine {
     const { W, H } = this.canvasSize();
     let best = -1, bestD = 5;
     for (let k = 0; k < this.edges.length; k++) {
-      if (!this.showImplicit && this.implicitEdgeIdx.has(k)) continue;
+      if (!this.showImplicit && this.implicitEdgeIdx.has(k) && !this.relationEdges.has(k)) continue;
       const a = this.nodes[this.edges[k][0]], b = this.nodes[this.edges[k][1]];
       if (!a.visible || !b.visible) continue;
       const ax = this.sx(a.x), ay = this.sy(a.y), bx = this.sx(b.x), by = this.sy(b.y);
@@ -585,7 +682,7 @@ export class GraphEngine {
       if (isPanning && panStart) {
         this.view.tx = panStart.tx + (cx - panStart.x);
         this.view.ty = panStart.ty + (cy - panStart.y);
-        this.requestDraw();
+        this.moved();
         tooltip.hidden = true;
         return;
       }
@@ -599,7 +696,7 @@ export class GraphEngine {
       }
       canvas.style.cursor = hit >= 0 || edgeHit >= 0 ? 'pointer' : '';
       if (hit >= 0) this.showNodeTooltip(this.nodes[hit], p.x, p.y);
-      else if (edgeHit >= 0) this.showEdgeTooltip(this.edges[edgeHit], p.x, p.y);
+      else if (edgeHit >= 0) this.showEdgeTooltip(edgeHit, p.x, p.y);
       else tooltip.hidden = true;
     };
     const zoomTo = (scale: number) => Math.max(0.05, Math.min(this.P.zoomMax, scale));
@@ -609,7 +706,7 @@ export class GraphEngine {
       this.view.tx = px - (px - this.view.tx) * ratio;
       this.view.ty = py - (py - this.view.ty) * ratio;
       this.view.scale = newScale;
-      this.requestDraw();
+      this.moved();
       tooltip.hidden = true;
     };
 
@@ -662,7 +759,7 @@ export class GraphEngine {
         e.preventDefault();
         this.view.tx += pan[e.key][0];
         this.view.ty += pan[e.key][1];
-        this.requestDraw();
+        this.moved();
       }
     });
 
@@ -691,7 +788,7 @@ export class GraphEngine {
         this.view.scale = newScale;
         this.view.tx = pinchStart.midX - (pinchStart.midX - pinchStart.tx) * r;
         this.view.ty = pinchStart.midY - (pinchStart.midY - pinchStart.ty) * r;
-        this.requestDraw();
+        this.moved();
       } else if (e.touches.length === 1) {
         onMove(e.touches[0].clientX, e.touches[0].clientY);
       }
@@ -828,6 +925,8 @@ export class GraphEngine {
     summary.hidden = true;
     q('.gs-bridge')!.hidden = true;
     q('.gs-hub')!.hidden = true;
+    const context = q('.gs-context');
+    if (context) context.hidden = true;
 
     const nc = this.selectedNodes.size, ec = this.selectedEdges.size;
     panel.hidden = nc + ec === 0;
@@ -837,8 +936,9 @@ export class GraphEngine {
     count.textContent = '';
 
     if (nc === 0 && ec === 1) {
-      const [a, b] = edges[this.selectedEdges.values().next().value!].map((i) => nodes[i]);
-      eyebrow.textContent = 'Connection';
+      const k = this.selectedEdges.values().next().value!;
+      const [a, b] = edges[k].map((i) => nodes[i]);
+      eyebrow.textContent = this.relationEdges.get(k) ?? 'Connection';
       title.textContent = `${a.title} ↔ ${b.title}`;
       meta.classList.add('hidden-meta');
       go.href = hrefFor(a);
@@ -854,13 +954,19 @@ export class GraphEngine {
       return;
     }
     if (nc === 1 && ec === 0) {
-      const n = nodes[this.selectedNodes.values().next().value!];
+      const idx = this.selectedNodes.values().next().value!;
+      const n = nodes[idx];
       eyebrow.textContent = TYPE_LABELS[n.type] || '';
       eyebrow.classList.add(`type-${n.type}`);
       title.textContent = n.title;
       count.textContent = n.count.toLocaleString();
       if (n.bridgeRank) { q('.gs-bridge-rank')!.textContent = '#' + n.bridgeRank; q('.gs-bridge')!.hidden = false; }
       if (n.hubRank) { q('.gs-hub-rank')!.textContent = '#' + n.hubRank; q('.gs-hub')!.hidden = false; }
+      const lines = this.opts.describe?.(idx) ?? [];
+      if (context && lines.length) {
+        context.replaceChildren(...lines.map((line) => { const p = el('p'); p.append(...line); return p; }));
+        context.hidden = false;
+      }
       if (n.isFocal) go.hidden = true;
       else go.href = hrefFor(n);
       return;
@@ -922,9 +1028,11 @@ export class GraphEngine {
     }
     this.showTooltip([el('span', '', n.title)], meta.join(' · '), px, py);
   }
-  private showEdgeTooltip([a, b]: Edge, px: number, py: number): void {
+  private showEdgeTooltip(k: number, px: number, py: number): void {
+    const [a, b] = this.edges[k];
     const pair = [el('span', '', this.nodes[a].title), ' ', el('span', 'gt-link', '—'), ' ', el('span', '', this.nodes[b].title)];
-    this.showTooltip(pair, 'connection · click to pin', px, py);
+    const relation = this.relationEdges.get(k);
+    this.showTooltip(pair, `${relation ?? 'connection'} · click to pin`, px, py);
   }
 }
 

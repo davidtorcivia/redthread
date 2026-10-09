@@ -70,10 +70,14 @@ const total = entities().length;
       layouts: [
         { key: 'clusters', label: 'Clusters', apply: applyClusterLayout },
         { key: 'force', label: 'Force', apply: applyForceLayout },
-        { key: 'grid', label: 'Grid', apply: applyGridLayout },
-        { key: 'circle', label: 'Circle', apply: applyCircleLayout },
         { key: 'concentric', label: 'Concentric', apply: applyConcentricLayout },
       ],
+      describe: (i) => {
+        const n = engine.nodes[i];
+        const lines = [[`${engine.neighborSets[i].size.toLocaleString()} connections in this view`]];
+        if (n.community >= 0 && engine.communityLabels[n.community]) lines.unshift([`Cluster: ${engine.communityLabels[n.community]}`]);
+        return lines;
+      },
     });
 
     async function init() {
@@ -101,8 +105,11 @@ const total = entities().length;
         const isolated = data.adj[i].length === 0;
         return { ...nodeFromAdjacency(data, i, Math.min(8, size)), isolated, visible: !isolated };
       });
-      // The 20 most-mentioned are always labelled, so there's something to orient by.
-      [...nodes].sort((a, b) => b.count - a.count).slice(0, 20).forEach((n) => { n.isLandmark = true; });
+      // The most-mentioned entry of each cluster is always labelled, so the force and
+      // concentric layouts have something to orient by. (Clusters get their own names.)
+      const top = new Map();
+      for (const n of nodes) if (!n.isolated && n.count > (top.get(n.community)?.count ?? -1)) top.set(n.community, n);
+      for (const n of top.values()) n.isLandmark = true;
       const { edges, implicit } = adjacencyEdges(data, new Map(nodes.map((_, i) => [i, i])));
 
       engine.communityLabels = data.communityLabels;
@@ -156,6 +163,10 @@ const total = entities().length;
           }
         }
         placed.push({ x: best.x, y: best.y, radius });
+        const c = members[0].community;
+        if (members.length >= 8 && members.every((n) => n.community === c) && g.communityLabels[c]) {
+          g.annotations.push({ x: best.x, y: best.y, r: radius - 30, text: g.communityLabels[c] });
+        }
         members.sort((a, b) => b.count - a.count || a.title.localeCompare(b.title));
         // Sunflower spiral: the most-mentioned sit at the island's centre.
         members.forEach((n, i) => {
@@ -169,32 +180,6 @@ const total = entities().length;
     function applyForceLayout(g) {
       const scale = FORCE_BASELINE * g.forceMult;
       g.nodes.forEach((n, i) => { n.x = positions[i][0] * scale; n.y = positions[i][1] * scale; });
-    }
-    function applyGridLayout(g) {
-      const visible = g.nodes.filter((n) => n.visible).sort((a, b) => b.count - a.count);
-      const cols = Math.max(1, Math.ceil(Math.sqrt(visible.length)));
-      visible.forEach((n, k) => { n.x = (k % cols) * 90; n.y = Math.floor(k / cols) * 90; });
-    }
-    // Spread landmarks evenly around the ring so their labels don't collide.
-    function applyCircleLayout(g) {
-      const visible = g.nodes.filter((n) => n.visible);
-      const landmarks = visible.filter((n) => n.isLandmark);
-      const others = visible.filter((n) => !n.isLandmark);
-      const total = visible.length;
-      const interval = landmarks.length > 0 ? Math.floor(total / landmarks.length) : total;
-      const ordered = [];
-      let li = 0, oi = 0;
-      for (let k = 0; k < total; k++) {
-        if (li < landmarks.length && k % interval === 0) ordered.push(landmarks[li++]);
-        else if (oi < others.length) ordered.push(others[oi++]);
-        else ordered.push(landmarks[li++]);
-      }
-      const radius = Math.max(400, total * 6);
-      ordered.forEach((n, k) => {
-        const angle = (k / total) * 2 * Math.PI;
-        n.x = Math.cos(angle) * radius;
-        n.y = Math.sin(angle) * radius;
-      });
     }
     // Bridges in the middle by rank, then by mentions outward, eight rings.
     function applyConcentricLayout(g) {

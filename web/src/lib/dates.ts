@@ -15,3 +15,12 @@ export function formatDates(dates: { born?: string; died?: string; start?: strin
   if (start && end) return start === end ? start : `${start}–${end}`;
   return start || (end ? `Ended ${end}` : year(dates.date)) || '';
 }
+
+/** A relation's span as years: "1953–1961", "from 1953", "until 1961" or "". */
+export function relationYears(r: { start?: string | null; end?: string | null }): string {
+  const s = r.start?.slice(0, 4), en = r.end?.slice(0, 4);
+  if (s && en) return s === en ? s : `${s}–${en}`;
+  if (s) return `from ${s}`;
+  if (en) return `until ${en}`;
+  return '';
+}

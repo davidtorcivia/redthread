@@ -44,6 +44,8 @@ const canonical = absUrl(Astro.url.pathname);
 // Versioned so social caches refetch cards when the template changes.
 const ogImageUrl = absUrl(`${ogImage}?v=${CARD_TEMPLATE_HASH}`);
 // JSON.stringify leaves '<' alone, so a '</script>' inside an entry title would end the tag.
+// Graph and preview JSON live under a per-build path so they can be cached as immutable.
+const DATA = V === 'dev' ? '' : `/v/${V}`;
 const jsonForScript = (value: unknown) => JSON.stringify(value).replace(/</g, '\\u003c');
 
 const siteHome = absUrl('/');
@@ -173,13 +175,13 @@ const pgpGroups = CONTACT_PGP.match(/[0-9A-F]{4}/g) ?? [];
 
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
     {preloadAdjacency && (
-      <link rel="preload" as="fetch" href={`/adjacency.json?v=${V}`} crossorigin="anonymous" />
+      <link rel="preload" as="fetch" href={`${DATA}/adjacency.json`} crossorigin="anonymous" />
     )}
     {alternateMd && (
       <link rel="alternate" type="text/markdown" href={alternateMd} title="Source markdown" />
     )}
-    {/* Build version for the ?v= cache-buster on client fetches. */}
-    <script is:inline define:vars={{ V }}>window.__V = V;</script>
+    {/* The per-build path that client fetches read graph and preview JSON from. */}
+    <script is:inline define:vars={{ DATA }}>window.__DATA = DATA;</script>
 
     {ANALYTICS && <script is:inline defer src={ANALYTICS.src} {...{ [ANALYTICS.attr]: ANALYTICS.id }}></script>}
   </head>
@@ -271,6 +273,7 @@ const pgpGroups = CONTACT_PGP.match(/[0-9A-F]{4}/g) ?? [];
     {/* Bundled into one cached module shared by every page. Modules are deferred, so the DOM is ready. */}
     <script>
       import { initSearch } from '../scripts/search-palette';
+      import { fetchData } from '../scripts/adjacency';
       import { entityHref, TYPE_LABELS } from '../scripts/entity-types';
       import { escapeHtml as esc, renderInlineMd } from '../lib/inline-md';
 
@@ -282,7 +285,7 @@ const pgpGroups = CONTACT_PGP.match(/[0-9A-F]{4}/g) ?? [];
         let openTimer = null;
         let hideTimer = null;
         let currentLink = null;
-        const loadPreviews = () => previewsP ??= fetch('/previews.json?v=' + window.__V)
+        const loadPreviews = () => previewsP ??= fetchData('previews.json')
           .then((r) => (r.ok ? r.json() : null))
           .catch(() => null)
           .then((d) => (previews = d || {}));

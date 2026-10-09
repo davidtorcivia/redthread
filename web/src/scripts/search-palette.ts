@@ -1,6 +1,6 @@
 // The search dialog: entry names (adjacency.json), matches by meaning (/api/search, when the
 // site runs behind the Worker) and full text (Pagefind's JS API), as one keyboard-driven list.
-import { loadAdjacency } from './adjacency';
+import { fetchData, loadAdjacency } from './adjacency';
 import { entityHref, TYPE_LABELS } from './entity-types';
 import { mergeTop, nameRank, quietMarks, TOP_MAX, type Row } from './search-rank';
 
@@ -56,7 +56,6 @@ export function initSearch(opts: { semantic: boolean; onOpen(): void; fallbackFo
 
   rememberPage();
 
-  const v = (window as any).__V;
   let namesP: Promise<NameEntry[]> | null = null;
   const loadNames = () => namesP ??= loadAdjacency()
     .then((d) => d.ids.map((id, i) => ({
@@ -65,7 +64,7 @@ export function initSearch(opts: { semantic: boolean; onOpen(): void; fallbackFo
     })))
     .catch(() => []);
   let previewsP: Promise<Record<string, Preview>> | null = null;
-  const loadPreviews = () => previewsP ??= fetch('/previews.json?v=' + v).then((r) => r.json()).catch(() => ({}));
+  const loadPreviews = () => previewsP ??= fetchData('previews.json').then((r) => r.json()).catch(() => ({}));
   let pagefindP: Promise<Pagefind | null> | null = null;
   const loadPagefind = () => pagefindP ??= (async () => {
     try {

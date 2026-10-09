@@ -37,7 +37,7 @@ const page = await context.newPage();
 const errors = [];
 page.on('pageerror', error => errors.push(error.message));
 let adjacencyRequests = 0;
-page.on('request', request => { if (new URL(request.url()).pathname === '/adjacency.json') adjacencyRequests++; });
+page.on('request', request => { if (new URL(request.url()).pathname.endsWith('/adjacency.json')) adjacencyRequests++; });
 const visit = path => page.goto(url(path));
 
 try {

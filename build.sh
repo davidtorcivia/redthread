@@ -39,6 +39,10 @@ find "$public" -mindepth 2 -maxdepth 2 -name '*.md' -type f -delete
 # Content hash appended as ?v= to the JSON fetches, so browsers refetch only when the data changes.
 PUBLIC_BUILD_ID="$(cat "$public/adjacency.json" "$public/previews.json" | sha1sum | cut -c1-8)"
 export PUBLIC_BUILD_ID
+# The same files under a per-build path, served immutable; the bare names stay for agents.
+rm -rf "$public/v"
+mkdir -p "$public/v/$PUBLIC_BUILD_ID"
+cp -f "$public/adjacency.json" "$public/previews.json" "$public/v/$PUBLIC_BUILD_ID/"
 
 cd "$root/web"
 [[ -d node_modules ]] || npm ci --no-audit --no-fund

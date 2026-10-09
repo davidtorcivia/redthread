@@ -2,11 +2,19 @@
 import GraphTools from './GraphTools.astro';
 import GraphCaption from './GraphCaption.astro';
 import GraphOverlay from './GraphOverlay.astro';
+import { entity } from '../lib/data.ts';
+import { relationYears } from '../lib/dates.ts';
 interface Props {
   id: string;
   title: string;
 }
 const { id, title } = Astro.props;
+// This entry's typed relations, drawn as solid labelled edges. Only its own list
+// goes inline (a few hundred bytes), never the whole relation graph.
+const e = entity(id);
+const relations = [...(e?.relations ?? []), ...(e?.relations_in ?? [])]
+  .filter((r) => r.other_id)
+  .map((r) => ({ id: r.other_id, label: [r.label, relationYears(r)].filter(Boolean).join(', ') }));
 ---
 <section class="entity-network" data-focal-id={id} data-pagefind-ignore>
   <h2 class="section-heading">Local network</h2>
@@ -31,11 +39,15 @@ const { id, title } = Astro.props;
   </div>
 
   <GraphCaption />
+  {relations.length > 0 && (
+    <script type="application/json" class="net-relations" is:inline set:html={JSON.stringify(relations).replace(/</g, '\\u003c')} />
+  )}
 </section>
 
 <script>
   import { GraphEngine, nodeFromAdjacency, adjacencyEdges } from '../scripts/graph-canvas';
   import { loadAdjacency } from '../scripts/adjacency';
+  import { el, entityHref } from '../scripts/entity-types';
   // The focal entry plus its neighbours (two rings on demand). This file
   // builds the neighbourhood, the small-graph layouts and the 2-hop toggle.
 
@@ -43,9 +55,14 @@ const { id, title } = Astro.props;
   if (section) {
     const focalId = section.dataset.focalId;
     const status = section.querySelector('.net-status');
+    const relations = JSON.parse(section.querySelector('.net-relations')?.textContent || '[]');
     let data = null;
     let focalIdx = -1;
+    let focalSet = new Set();
     let twoHop = false;
+    /** Local node index to its relation labels with the focal entry. */
+    let relationsAt = new Map();
+    const spec = new Map();
 
     const engine = new GraphEngine(section, {
       profile: 'entity',
@@ -56,6 +73,7 @@ const { id, title } = Astro.props;
         { key: 'concentric', label: 'Concentric', apply: applyConcentricLayout },
         { key: 'circle', label: 'Circle', apply: applyCircleLayout },
       ],
+      describe,
     });
 
     const io = new IntersectionObserver((entries) => {
@@ -78,6 +96,7 @@ const { id, title } = Astro.props;
         status.textContent = 'This entity is not in the network.';
         return;
       }
+      focalSet = new Set(data.adj[focalIdx]);
       engine.communityLabels = data.communityLabels;
       buildNeighborhood();
       status.hidden = true;
@@ -96,9 +115,23 @@ const { id, title } = Astro.props;
       });
     }
 
+    // How specific an entry is to the focal one: the connections they share,
+    // discounted by its own degree, so Richard Bissell outranks the United States.
+    function specificity(w) {
+      let s = spec.get(w);
+      if (s === undefined) {
+        let shared = 0;
+        for (const x of data.adj[w]) if (focalSet.has(x)) shared++;
+        s = shared / Math.sqrt(data.adj[w].length || 1);
+        spec.set(w, s);
+      }
+      return s;
+    }
+
     // Capped BFS from the focal node. Uncapped, two rings averaged ~800 nodes
     // (the United States alone has 650 neighbours), so never expand through a
-    // hub, keep only the most-mentioned neighbours, and stop at MAX_NODES.
+    // hub, keep only the most specific neighbours, and stop at MAX_NODES.
+    // Entries with a typed relation to the focal one always make the cut.
     function buildNeighborhood() {
       const { adj, mentions } = data;
       const HUB_DEGREE = 60;
@@ -106,14 +139,21 @@ const { id, title } = Astro.props;
       const MAX_NODES = 250;
       const FIRST_RING = twoHop ? 120 : MAX_NODES; // leave room for the second ring
       const maxDepth = twoHop ? 2 : 1;
-      const byMentions = (a, b) => (mentions[b] || 0) - (mentions[a] || 0);
+      const bySpecificity = (a, b) => specificity(b) - specificity(a);
       const depth = new Map([[focalIdx, 0]]);
-      const queue = [focalIdx];
+      const related = new Map();
+      for (const r of relations) {
+        const g = data.ids.indexOf(r.id);
+        if (g < 0 || g === focalIdx) continue;
+        depth.set(g, 1);
+        related.set(g, [...(related.get(g) ?? []), r.label]);
+      }
+      const queue = [...depth.keys()];
       for (let head = 0; head < queue.length && depth.size < MAX_NODES; head++) {
         const v = queue[head];
         const d = depth.get(v);
         if (d >= maxDepth || (d > 0 && adj[v].length > HUB_DEGREE)) continue;
-        for (const w of adj[v].slice().sort(byMentions).slice(0, d === 0 ? FIRST_RING : PER_NODE_2HOP)) {
+        for (const w of adj[v].slice().sort(bySpecificity).slice(0, d === 0 ? FIRST_RING : PER_NODE_2HOP)) {
           if (depth.has(w)) continue;
           if (depth.size >= MAX_NODES) break;
           depth.set(w, d + 1);
@@ -127,10 +167,46 @@ const { id, title } = Astro.props;
         const isFocal = g === focalIdx;
         // Bigger floor than /network/: a small graph can afford visible dots.
         const size = isFocal ? 22 : Math.min(15, 5 + Math.log2(1 + (mentions[g] || 0)) * 1.1);
-        nodes.push({ ...nodeFromAdjacency(data, g, size), hop, isFocal });
+        nodes.push({ ...nodeFromAdjacency(data, g, size), hop, isFocal, g, priority: isFocal ? Infinity : specificity(g) });
       }
       const { edges, implicit } = adjacencyEdges(data, local);
+      // A typed relation is an edge even when neither page links the other.
+      const relationEdges = new Map();
+      relationsAt = new Map();
+      for (const [g, labels] of related) {
+        const b = local.get(g);
+        let k = edges.findIndex(([x, y]) => (x === 0 && y === b) || (x === b && y === 0));
+        if (k < 0) k = edges.push([0, b]) - 1;
+        relationEdges.set(k, labels.join('; '));
+        relationsAt.set(b, labels);
+      }
       engine.setGraph(nodes, edges, implicit);
+      engine.relationEdges = relationEdges;
+    }
+
+    // The selection panel: how the selected entry relates to the focal one.
+    function describe(i) {
+      const n = engine.nodes[i];
+      if (n.isFocal) return [];
+      const focal = data.titles[focalIdx];
+      const lines = [];
+      if (relationsAt.has(i)) lines.push([relationsAt.get(i).join('; ')]);
+      const pos = data.adj[focalIdx].indexOf(n.g);
+      const link = pos < 0 ? `Two steps from ${focal}`
+        : ['Named alongside ' + focal + ', without a link', `${focal} links here`, `Links to ${focal}`, `Linked both ways with ${focal}`][data.dir[focalIdx][pos]];
+      lines.push([link]);
+      const shared = data.adj[n.g].filter((x) => focalSet.has(x)).sort((a, b) => specificity(b) - specificity(a));
+      if (shared.length) {
+        const line = [`${shared.length} shared connection${shared.length === 1 ? '' : 's'}: `];
+        shared.slice(0, 3).forEach((x, k) => {
+          const a = el('a', '', data.titles[x]);
+          a.href = entityHref(data.types[x], data.ids[x]);
+          line.push(...(k ? [', '] : []), a);
+        });
+        if (shared.length > 3) line.push(', …');
+        lines.push(line);
+      }
+      return lines;
     }
 
     // --- Layouts (mutate g.nodes in place) ------------------------------
@@ -172,46 +248,50 @@ const { id, title } = Astro.props;
         });
       }
     }
-    // Small Fruchterman-Reingold pass with the focal node pinned at the origin.
+    // Small Fruchterman-Reingold pass with the focal node pinned at the origin,
+    // on typed arrays: per-iteration objects made it a long task on phones.
     function applyForceLayout(g) {
       const nodes = g.nodes, n = nodes.length;
-      const k = Math.sqrt((1100 * 700) / Math.max(1, n));
+      const k2 = (1100 * 700) / Math.max(1, n), k = Math.sqrt(k2);
+      const X = new Float64Array(n), Y = new Float64Array(n);
+      const DX = new Float64Array(n), DY = new Float64Array(n);
       nodes.forEach((node, i) => {
         // Seed nodes still at the origin on a sunflower spiral.
         if (Math.abs(node.x) < 1 && Math.abs(node.y) < 1) {
           node.x = Math.cos(i * 2.399963) * (30 + Math.sqrt(i) * 20);
           node.y = Math.sin(i * 2.399963) * (30 + Math.sqrt(i) * 20);
         }
+        X[i] = node.x / g.forceMult;
+        Y[i] = node.y / g.forceMult;
       });
       let temp = 50;
       for (let it = 0; it < 80; it++) {
-        const disp = nodes.map(() => ({ x: 0, y: 0 }));
+        DX.fill(0);
+        DY.fill(0);
         for (let i = 0; i < n; i++) {
           for (let j = i + 1; j < n; j++) {
-            const dx = nodes[i].x - nodes[j].x, dy = nodes[i].y - nodes[j].y;
-            const dist = Math.sqrt(dx * dx + dy * dy) || 0.01;
-            const f = (k * k) / dist;
-            disp[i].x += (dx / dist) * f; disp[i].y += (dy / dist) * f;
-            disp[j].x -= (dx / dist) * f; disp[j].y -= (dy / dist) * f;
+            const dx = X[i] - X[j], dy = Y[i] - Y[j];
+            const f = k2 / (dx * dx + dy * dy || 1e-4);
+            DX[i] += dx * f; DY[i] += dy * f;
+            DX[j] -= dx * f; DY[j] -= dy * f;
           }
         }
         for (const [a, b] of g.edges) {
-          const dx = nodes[a].x - nodes[b].x, dy = nodes[a].y - nodes[b].y;
-          const dist = Math.sqrt(dx * dx + dy * dy) || 0.01;
-          const f = (dist * dist) / k;
-          disp[a].x -= (dx / dist) * f; disp[a].y -= (dy / dist) * f;
-          disp[b].x += (dx / dist) * f; disp[b].y += (dy / dist) * f;
+          const dx = X[a] - X[b], dy = Y[a] - Y[b];
+          const f = (Math.sqrt(dx * dx + dy * dy) || 0.01) / k;
+          DX[a] -= dx * f; DY[a] -= dy * f;
+          DX[b] += dx * f; DY[b] += dy * f;
         }
         for (let i = 0; i < n; i++) {
-          if (nodes[i].isFocal) { nodes[i].x = 0; nodes[i].y = 0; continue; }
-          const d = Math.sqrt(disp[i].x * disp[i].x + disp[i].y * disp[i].y) || 0.01;
-          const lim = Math.min(d, temp);
-          nodes[i].x += (disp[i].x / d) * lim;
-          nodes[i].y += (disp[i].y / d) * lim;
+          if (nodes[i].isFocal) { X[i] = 0; Y[i] = 0; continue; }
+          const d = Math.sqrt(DX[i] * DX[i] + DY[i] * DY[i]) || 0.01;
+          const lim = Math.min(d, temp) / d;
+          X[i] += DX[i] * lim;
+          Y[i] += DY[i] * lim;
         }
         temp *= 0.95;
       }
-      for (const node of nodes) { node.x *= g.forceMult; node.y *= g.forceMult; }
+      nodes.forEach((node, i) => { node.x = X[i] * g.forceMult; node.y = Y[i] * g.forceMult; });
     }
   }
 </script>

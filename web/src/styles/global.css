@@ -1044,6 +1044,7 @@ footer.site .foot-nav a:hover { color: var(--accent); }
   flex: none;
 }
 .nl-line.dashed { border-top-style: dashed; }
+.nl-line.strong { border-top-color: var(--ink); }
 .nl-ring {
   width: 0.85rem;
   height: 0.85rem;

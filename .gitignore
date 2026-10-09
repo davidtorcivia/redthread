@@ -13,6 +13,7 @@ web/public/previews.json
 web/public/adjacency.json
 web/public/entries.json
 web/public/fulltext.json
+web/public/v/
 web/public/*/*.md
 
 # deploy/rebuild.sh state

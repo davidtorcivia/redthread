@@ -3,6 +3,7 @@
 // plus the inverse of every relation other pages declare about this one.
 import { entity as getEntity, hrefFor } from '../lib/data.ts';
 import type { Entity, Relation } from '../lib/types.ts';
+import { relationYears } from '../lib/dates.ts';
 interface Props { e: Entity }
 const { e } = Astro.props;
 const rows: Relation[] = [...(e.relations ?? []), ...(e.relations_in ?? [])];
@@ -14,13 +15,6 @@ for (const r of rows) {
 for (const g of groups.values()) {
   g.sort((a, b) => (a.start ?? '').localeCompare(b.start ?? '') || a.other_title.localeCompare(b.other_title));
 }
-const years = (r: Relation) => {
-  const s = r.start?.slice(0, 4), en = r.end?.slice(0, 4);
-  if (s && en) return s === en ? s : `${s}–${en}`;
-  if (s) return `from ${s}`;
-  if (en) return `until ${en}`;
-  return '';
-};
 const fnHref = (r: Relation) => {
   if (!r.fn) return null;
   if (r.fn_page === e.id) return `#fn-${r.fn}`;
@@ -37,7 +31,7 @@ const fnHref = (r: Relation) => {
         <ul class="rel-list">
           {rs.map((r) => {
             const o = r.other_id ? getEntity(r.other_id) : undefined;
-            const meta = [years(r), r.role].filter(Boolean).join(', ');
+            const meta = [relationYears(r), r.role].filter(Boolean).join(', ');
             const fh = fnHref(r);
             return (
               <li>

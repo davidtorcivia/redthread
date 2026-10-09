@@ -2,18 +2,18 @@
 /* Network views follow the site's flat, ruled editorial language. */
 .network-article,.entity-network {
   --graph-paper:#fafaf8;--t-person:#ad7436;--t-organization:#287e79;--t-program:#7962a8;
-  --t-event:#d84d2d;--t-concept:#597aaa;--t-place:#73833f;--accent:#e03d17
+  --t-event:#b8336a;--t-concept:#597aaa;--t-place:#73833f;--accent:#e03d17
 }
 :root[data-theme=dark] .network-article,:root[data-theme=dark] .entity-network {
   --graph-paper:#111112;--t-person:#d7a66b;--t-organization:#67b9b0;--t-program:#b69ade;
-  --t-event:#ff805f;--t-concept:#8aaee0;--t-place:#b5c778;--accent:#ff6b45
+  --t-event:#f07ba3;--t-concept:#8aaee0;--t-place:#b5c778;--accent:#ff6b45
 }
-.network-article {max-width:none;padding:58px var(--gutter) 32px}
-.network-header {margin-bottom:32px}
+.network-article {max-width:none;padding:36px var(--gutter) 32px}
+.network-header {margin-bottom:20px}
 .network-heading {display:flex;align-items:baseline;justify-content:space-between;gap:24px}
-.network-header .entity-title {font:800 clamp(42px,5.8vw,84px)/.95 var(--sans);font-variation-settings:"wdth" 88;letter-spacing:-.045em;max-width:16ch;margin:0}
+.network-header .entity-title {font:800 clamp(34px,4vw,56px)/.95 var(--sans);font-variation-settings:"wdth" 88;letter-spacing:-.04em;margin:0}
 .network-total {font:500 15px/1.5 var(--sans);color:var(--muted);white-space:nowrap}
-.network-header .entity-dek {font:400 21px/1.45 var(--serif);max-width:42em;margin:24px 0 0;color:var(--muted)}
+.network-header .entity-dek {font:400 18px/1.45 var(--serif);max-width:42em;margin:10px 0 0;color:var(--muted)}
 .graph-toolbar.net-controls {position:relative;top:auto;right:auto;display:flex;align-items:center;justify-content:space-between;gap:16px;padding:12px 0;border-top:2px solid var(--ink);border-bottom:1px solid var(--line);z-index:8;background:var(--paper)}
 .graph-search {position:relative;flex:1 1 240px;max-width:420px;min-width:140px;display:flex;align-items:center;gap:10px}
 .graph-search svg {width:18px;height:18px;fill:none;stroke:var(--ink);stroke-width:1.6;flex:none}
@@ -47,7 +47,11 @@
 .net-search-results button:hover,.net-search-results button[aria-selected=true] {background:var(--paper-2);color:var(--accent)}
 .net-search-results small {font-size:11px;color:var(--muted)}
 .net-search-results p {font:400 14px/1.4 var(--sans);padding:8px}
-.network-article .net-shell,.entity-network .net-shell {border:0;border-radius:0;background:var(--graph-paper);height:clamp(480px,66vh,820px);min-height:0}
+/* The dot grid lives here, not on the canvas, so panning never redraws it. */
+.network-article .net-shell,.entity-network .net-shell {border:0;border-radius:0;height:clamp(480px,66vh,820px);min-height:0;
+  background:radial-gradient(circle,color-mix(in srgb,var(--line-2) 30%,transparent) .7px,transparent 1px) 8px 8px/32px 32px,var(--graph-paper)}
+/* The full graph gets the viewport: a compact header, then the graph to the fold. */
+.network-article .net-shell {height:max(480px,calc(100svh - 150px))}
 .entity-network .net-shell {height:540px}
 .entity-article .entity-network .net-blurb {max-width:60em;font:400 17px/1.4 var(--serif);margin:0 0 20px}
 .graph-caption {display:flex;align-items:center;gap:20px;border-top:1px solid var(--line);padding:10px 0;font:400 12px/1.5 var(--sans);color:var(--muted)}
@@ -62,6 +66,9 @@
 .net-selection .gs-title {display:block;font:700 23px/1.1 var(--sans);font-variation-settings:"wdth" 88;letter-spacing:-.02em;margin-top:6px}
 .net-selection .gs-eyebrow {font-size:11px}
 .net-selection .gs-actions {border-top:1px solid var(--line);padding-top:10px;margin-top:12px;gap:12px;flex-wrap:wrap}
+.net-selection .gs-context {font:400 13px/1.45 var(--sans);color:var(--ink)}
+.net-selection .gs-context p {margin:0 0 .35em}
+.net-selection .gs-context a {color:inherit;text-decoration:underline;text-underline-offset:.15em}
 .net-selection .gs-go {font:600 14px/1.4 var(--sans);color:var(--accent)}
 .net-tooltip {background:var(--paper);color:var(--ink);border:1px solid var(--line);border-radius:0;max-width:280px;padding:10px 12px;box-shadow:0 4px 12px #0000000a}
 .net-tooltip .gt-pair {font:600 14px/1.25 var(--sans)}
