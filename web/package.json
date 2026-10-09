@@ -9,7 +9,8 @@
     "preview": "astro preview",
     "test": "node --experimental-strip-types --test tests/*.test.mjs",
     "test:ui": "node --experimental-strip-types tests/ui-smoke.mjs",
-    "test:theme": "node --experimental-strip-types tests/theme-flash.mjs"
+    "test:theme": "node --experimental-strip-types tests/theme-flash.mjs",
+    "test:graph": "node --experimental-strip-types tests/graph-bench.mjs"
   },
   "dependencies": {
     "@resvg/resvg-js": "2.6.2",
