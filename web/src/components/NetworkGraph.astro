@@ -46,6 +46,7 @@ const relations = [...(e?.relations ?? []), ...(e?.relations_in ?? [])]
 
 <script>
   import { GraphEngine, nodeFromAdjacency, adjacencyEdges } from '../scripts/graph-canvas';
+  import { closeness } from '../scripts/graph-rank';
   import { loadAdjacency } from '../scripts/adjacency';
   import { el, entityHref } from '../scripts/entity-types';
   // The focal entry plus its neighbours (two rings on demand). This file
@@ -115,14 +116,13 @@ const relations = [...(e?.relations ?? []), ...(e?.relations_in ?? [])]
       });
     }
 
-    // How specific an entry is to the focal one: the connections they share,
-    // discounted by its own degree, so Richard Bissell outranks the United States.
+    // How specific an entry is to the focal one, so Richard Bissell outranks the United States.
     function specificity(w) {
       let s = spec.get(w);
       if (s === undefined) {
         let shared = 0;
         for (const x of data.adj[w]) if (focalSet.has(x)) shared++;
-        s = shared / Math.sqrt(data.adj[w].length || 1);
+        s = closeness(shared, data.adj[w].length || 1, focalSet.size);
         spec.set(w, s);
       }
       return s;

@@ -1098,16 +1098,29 @@ def compute_layout_positions(adjacency: dict[str, Any], cache_path: Path) -> lis
     h = hashlib.sha256(LAYOUT_VERSION.encode())
     h.update(json.dumps(adjacency["ids"], separators=(",", ":")).encode())
     h.update(json.dumps(adjacency["adj"], separators=(",", ":")).encode())
-    key = h.hexdigest()
+    return _cached_positions(cache_path, h.hexdigest(), n, lambda: _spring_positions(adjacency, n))
+
+
+def _cached_positions(cache_path: Path, key: str, n: int, compute) -> list[list[float]]:
+    """compute(), or the positions cached under `key` when the input is unchanged."""
     try:
         cached = json.loads(cache_path.read_text(encoding="utf-8"))
         if cached.get("key") == key and isinstance(cached.get("positions"), list) \
                 and len(cached["positions"]) == n:
-            print("[layout] cache hit, graph unchanged")
+            print(f"[layout] cache hit for {cache_path.name}, graph unchanged")
             return cached["positions"]
     except (OSError, ValueError):
         pass
+    positions = compute()
+    try:
+        cache_path.write_text(json.dumps({"key": key, "positions": positions}, separators=(",", ":")),
+                              encoding="utf-8")
+    except OSError:
+        pass  # the cache is only an optimisation
+    return positions
 
+
+def _spring_positions(adjacency: dict[str, Any], n: int) -> list[list[float]]:
     g = nx.Graph()
     g.add_nodes_from(range(n))
     g.add_edges_from((i, j) for i, nb in enumerate(adjacency["adj"]) for j in nb if j > i)
@@ -1117,14 +1130,59 @@ def compute_layout_positions(adjacency: dict[str, Any], cache_path: Path) -> lis
     xmin, ymin = min(xs), min(ys)
     dx = max(xs) - xmin or 1.0
     dy = max(ys) - ymin or 1.0
-    positions = [[round((pos[i][0] - xmin) / dx * 1000, 2), round((pos[i][1] - ymin) / dy * 1000, 2)]
-                 for i in range(n)]
-    try:
-        cache_path.write_text(json.dumps({"key": key, "positions": positions}, separators=(",", ":")),
-                              encoding="utf-8")
-    except OSError:
-        pass  # the cache is only an optimisation
-    return positions
+    return [[round((pos[i][0] - xmin) / dx * 1000, 2), round((pos[i][1] - ymin) / dy * 1000, 2)]
+            for i in range(n)]
+
+
+def compute_cluster_positions(
+    entities: list[dict[str, Any]], edges: list[dict[str, Any]], ids: list[str],
+    community_of: dict[str, int], cache_path: Path,
+) -> list[list[float]]:
+    """Each entry's place inside its community's island on /network/, in the unit disc.
+
+    A spring layout per community over the links inside it, weighted by
+    log(1 + mentions), so entries that cite each other most sit together.
+    Scaled so the 90th-percentile radius is 0.9 and clamped to the disc.
+    Entries with no community get [0, 0].
+    """
+    version = "cluster-spring:log-weight,it=100,seed=42,v1"
+    type_of = {e["id"]: e["type"] for e in entities}
+    pair_w: Counter = Counter()
+    for s, t, _, w in resolved_edges(edges, type_of):
+        if s in community_of and community_of.get(t) == community_of[s]:
+            pair_w[(s, t) if s < t else (t, s)] += w
+    h = hashlib.sha256(version.encode())
+    h.update(json.dumps([ids, [community_of.get(i, -1) for i in ids], sorted(pair_w.items())],
+                        separators=(",", ":")).encode())
+
+    def compute() -> list[list[float]]:
+        idx_of = {eid: i for i, eid in enumerate(ids)}
+        members: dict[int, list[str]] = defaultdict(list)
+        for eid in ids:
+            if eid in community_of:
+                members[community_of[eid]].append(eid)
+        out = [[0.0, 0.0] for _ in ids]
+        for c, group in members.items():
+            if len(group) < 2:
+                continue
+            g = nx.Graph()
+            g.add_nodes_from(group)
+            g.add_weighted_edges_from((a, b, math.log1p(w)) for (a, b), w in pair_w.items()
+                                      if community_of[a] == c)
+            pos = nx.spring_layout(g, weight="weight", iterations=100, seed=42)
+            cx = sum(p[0] for p in pos.values()) / len(pos)
+            cy = sum(p[1] for p in pos.values()) / len(pos)
+            radii = sorted(math.hypot(p[0] - cx, p[1] - cy) for p in pos.values())
+            scale = 0.9 / (radii[int(len(radii) * 0.9)] or 1.0)
+            for eid, (x, y) in pos.items():
+                dx, dy = (x - cx) * scale, (y - cy) * scale
+                r = math.hypot(dx, dy)
+                if r > 1:
+                    dx, dy = dx / r, dy / r
+                out[idx_of[eid]] = [round(dx, 3), round(dy, 3)]
+        return out
+
+    return _cached_positions(cache_path, h.hexdigest(), len(ids), compute)
 
 
 # ---------- In focus (homepage) ----------
@@ -1388,6 +1446,8 @@ def main() -> int:
     print("[parse] pre-computing network layout positions...")
     t = time.time()
     adjacency["positions"] = compute_layout_positions(adjacency, args.out / ".layout_cache.json")
+    adjacency["clusterPositions"] = compute_cluster_positions(
+        entities, edges, adjacency["ids"], community_of, args.out / ".cluster_layout_cache.json")
     print(f"[parse] layout done in {time.time() - t:.1f}s")
 
     ids = adjacency["ids"]

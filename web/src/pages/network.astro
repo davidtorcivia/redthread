@@ -49,7 +49,9 @@ const total = entities().length;
 
   <script>
     import { GraphEngine, nodeFromAdjacency, adjacencyEdges } from '../scripts/graph-canvas';
+    import { closeness } from '../scripts/graph-rank';
     import { loadAdjacency } from '../scripts/adjacency';
+    import { el, entityHref } from '../scripts/entity-types';
     // The whole vault. This file loads every node, supplies the whole-graph
     // layouts and wires the type chips; scripts/graph-canvas does the rest.
 
@@ -61,6 +63,7 @@ const total = entities().length;
     // Chips only cover the main types; the rest always show.
     const activeTypes = new Set(['person', 'organization', 'program', 'event', 'concept', 'place', 'source', 'meta', 'misc', 'page']);
     let positions = null;
+    let clusterPositions = null;
     let initStarted = false;
 
     const engine = new GraphEngine(article, {
@@ -74,8 +77,25 @@ const total = entities().length;
       ],
       describe: (i) => {
         const n = engine.nodes[i];
-        const lines = [[`${engine.neighborSets[i].size.toLocaleString()} connections in this view`]];
+        const near = engine.neighborSets[i];
+        const lines = [[`${near.size.toLocaleString()} connections in this view`]];
         if (n.community >= 0 && engine.communityLabels[n.community]) lines.unshift([`Cluster: ${engine.communityLabels[n.community]}`]);
+        // Closest: specific ties first, not the hubs that link to everything.
+        const score = (j) => {
+          let shared = 0;
+          for (const x of engine.neighborSets[j]) if (near.has(x)) shared++;
+          return closeness(shared, engine.neighborSets[j].size || 1, near.size);
+        };
+        const closest = [...near].map((j) => [j, score(j)]).sort((a, b) => b[1] - a[1]).slice(0, 5);
+        if (closest.length) {
+          const line = ['Closest: '];
+          closest.forEach(([j], k) => {
+            const a = el('a', '', engine.nodes[j].title);
+            a.href = entityHref(engine.nodes[j].type, engine.nodes[j].id);
+            line.push(...(k ? [', '] : []), a);
+          });
+          lines.push(line);
+        }
         return lines;
       },
     });
@@ -98,12 +118,13 @@ const total = entities().length;
         return;
       }
       positions = data.positions;
+      clusterPositions = data.clusterPositions ?? null;
       const nodes = data.ids.map((_, i) => {
         // Small dots: a constellation at fit zoom, not boulders.
         const size = 2 + Math.log2(1 + (data.mentions[i] || 0)) * 0.9 + (data.bridges[i] ? 1 : 0);
         // Entries with no connections add nothing to a graph view.
         const isolated = data.adj[i].length === 0;
-        return { ...nodeFromAdjacency(data, i, Math.min(8, size)), isolated, visible: !isolated };
+        return { ...nodeFromAdjacency(data, i, Math.min(8, size)), g: i, isolated, visible: !isolated };
       });
       // The most-mentioned entry of each cluster is always labelled, so the force and
       // concentric layouts have something to orient by. (Clusters get their own names.)
@@ -164,9 +185,21 @@ const total = entities().length;
         }
         placed.push({ x: best.x, y: best.y, radius });
         const c = members[0].community;
-        if (members.length >= 8 && members.every((n) => n.community === c) && g.communityLabels[c]) {
-          g.annotations.push({ x: best.x, y: best.y, r: radius - 30, text: g.communityLabels[c] });
+        const named = members.length >= 8 && members.every((n) => n.community === c) && g.communityLabels[c];
+        // Inside an island, the parser's weighted layout puts entries that cite each
+        // other most side by side. The mixed bag of small fragments gets a spiral.
+        if (clusterPositions && members.every((n) => n.community === c)) {
+          let extent = 0;
+          for (const n of members) {
+            n.x = best.x + clusterPositions[n.g][0] * (radius - 45);
+            n.y = best.y + clusterPositions[n.g][1] * (radius - 45);
+            extent = Math.max(extent, Math.hypot(n.x - best.x, n.y - best.y));
+          }
+          // The name hugs the dots, not the island's nominal radius.
+          if (named) g.annotations.push({ x: best.x, y: best.y, r: extent + 6, text: g.communityLabels[c] });
+          continue;
         }
+        if (named) g.annotations.push({ x: best.x, y: best.y, r: radius - 40, text: g.communityLabels[c] });
         members.sort((a, b) => b.count - a.count || a.title.localeCompare(b.title));
         // Sunflower spiral: the most-mentioned sit at the island's centre.
         members.forEach((n, i) => {

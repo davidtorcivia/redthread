@@ -336,6 +336,23 @@ class TestRankings(unittest.TestCase):
         self.assertNotIn("named", bridges)  # NER mentions are not citations
 
 
+    def test_cluster_positions_pull_strong_links_together(self):
+        # a-b-c cite each other heavily; d and e hang off weak single links.
+        ents = self.ents("a", "b", "c", "d", "e", "loner")
+        edges = [edge(s, t, count=8) for s, t in (("a", "b"), ("b", "c"), ("a", "c"))]
+        edges += [edge("c", "d"), edge("d", "e")]
+        community_of = {eid: 0 for eid in "abcde"}
+        ids = ["a", "b", "c", "d", "e", "loner"]
+        with tempfile.TemporaryDirectory() as tmp:
+            pos = pv.compute_cluster_positions(ents, edges, ids, community_of, Path(tmp) / "cache.json")
+            again = pv.compute_cluster_positions(ents, edges, ids, community_of, Path(tmp) / "cache.json")
+        at = dict(zip(ids, pos))
+        dist = lambda u, v: ((at[u][0] - at[v][0]) ** 2 + (at[u][1] - at[v][1]) ** 2) ** 0.5
+        self.assertLess(dist("a", "b"), dist("a", "e"))
+        self.assertTrue(all(x * x + y * y <= 1.0001 for x, y in pos))
+        self.assertEqual(at["loner"], [0.0, 0.0])  # no community
+        self.assertEqual(pos, again)  # the cached copy matches
+
 class TestBuildAdjacency(unittest.TestCase):
     def test_dir_bits_follow_link_direction(self):
         ents = [make_entity("a", "A"), make_entity("b", "B"), make_entity("c", "C")]

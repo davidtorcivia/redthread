@@ -12,6 +12,8 @@ export interface Adjacency {
   hubs: Record<string, { rank: number; score: number }>;
   implicitPairs: [number, number][];
   positions: [number, number][];
+  /** Each node's place in its community's island, in the unit disc (parser's weighted spring layout). */
+  clusterPositions?: [number, number][];
   communities: number[];
   communityLabels: string[];
 }

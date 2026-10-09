@@ -41,6 +41,18 @@ export interface Annotation {
 
 export type Edge = [number, number];
 
+/** Edges drawn offscreen for one view, reused until something they show changes. */
+interface Layer {
+  canvas: HTMLCanvasElement;
+  ctx: CanvasRenderingContext2D;
+  view: { tx: number; ty: number; scale: number } | null;
+  key: string;
+}
+function newLayer(): Layer {
+  const canvas = document.createElement('canvas');
+  return { canvas, ctx: canvas.getContext('2d') as CanvasRenderingContext2D, view: null, key: '' };
+}
+
 export interface Layout {
   key: string;
   label: string;
@@ -60,11 +72,11 @@ export interface EngineOptions {
 }
 
 // The full graph has thousands of nodes: smaller dots, fainter edges, and
-// labels only for landmarks or nodes big enough on screen. The entity graph draws
-// the focal entry's own links at edgeAlpha and fades the rest to bgEdgeAlpha.
+// labels only for landmarks or nodes big enough on screen. Edges between other
+// nodes use edgeInk/edgeAlpha; the entity graph's spokes to its focal entry are fainter.
 const PROFILES = {
-  entity: { zoomMax: 20, fitPad: 30, minR: 3, maxR: 12, edgeAlpha: .5, bgEdgeAlpha: .12, labelAll: true, searchZoom: 1.1 },
-  full: { zoomMax: 50, fitPad: 40, minR: 1.7, maxR: 9, edgeAlpha: .25, bgEdgeAlpha: .25, labelAll: false, searchZoom: .8 },
+  entity: { zoomMax: 20, fitPad: 30, minR: 3, maxR: 12, edgeAlpha: .3, edgeInk: 'muted', edgeWidth: .8, focalEdgeAlpha: .3, labelAll: true, searchZoom: 1.1 },
+  full: { zoomMax: 50, fitPad: 40, minR: 1.7, maxR: 9, edgeAlpha: .25, edgeInk: 'line', edgeWidth: .65, focalEdgeAlpha: .25, labelAll: false, searchZoom: .8 },
 };
 
 function readColors(scope: Element): Record<string, string> {
@@ -142,7 +154,6 @@ export class GraphEngine {
   private layoutIdx = 0;
   private dpr = 1;
   private drawScheduled = false;
-  private fitScale = 1;
   /** True while panning or zooming: the full graph skips labels until it settles. */
   private interacting = false;
   private settleTimer: ReturnType<typeof setTimeout> | undefined;
@@ -151,6 +162,13 @@ export class GraphEngine {
   private py = new Float64Array(0);
   private pr = new Float64Array(0);
   private truncated = new Map<string, string>();
+  /** Edge indices touching each node. */
+  incident: number[][] = [];
+  // Idle edges, and the selection's edges, each cached for the view they were drawn in.
+  // Bumping `version` (positions, visibility, colours or selection changed) redraws both.
+  private idleLayer = newLayer();
+  private selectionLayer = newLayer();
+  private version = 0;
 
   constructor(root: HTMLElement, opts: EngineOptions) {
     this.root = root;
@@ -166,6 +184,7 @@ export class GraphEngine {
     this.currentLayout = opts.layouts[0].key;
     window.addEventListener('themechange', () => {
       this.COLORS = readColors(root);
+      this.version++;
       this.recolor();
       this.requestDraw();
     });
@@ -184,10 +203,14 @@ export class GraphEngine {
     this.py = new Float64Array(nodes.length);
     this.pr = new Float64Array(nodes.length);
     this.neighborSets = Array.from({ length: nodes.length }, () => new Set<number>());
-    for (const [a, b] of edges) {
+    this.incident = Array.from({ length: nodes.length }, () => [] as number[]);
+    this.version++;
+    edges.forEach(([a, b], k) => {
+      this.incident[a].push(k);
+      this.incident[b].push(k);
       this.neighborSets[a].add(b);
       this.neighborSets[b].add(a);
-    }
+    });
     // Indices mean nothing across graphs. Callers that keep a selection
     // snapshot selectedIds() first and restoreSelection() after.
     this.selectedNodes.clear();
@@ -246,7 +269,7 @@ export class GraphEngine {
     const { W, H } = this.canvasSize();
     const pad = this.P.fitPad;
     const w = Math.max(1, maxX - minX), h = Math.max(1, maxY - minY);
-    this.view.scale = this.fitScale = Math.min((W - 2 * pad) / w, (H - 2 * pad) / h);
+    this.view.scale = Math.min((W - 2 * pad) / w, (H - 2 * pad) / h);
     this.view.tx = (W - w * this.view.scale) / 2 - minX * this.view.scale;
     this.view.ty = (H - h * this.view.scale) / 2 - minY * this.view.scale;
     this.requestDraw();
@@ -255,6 +278,7 @@ export class GraphEngine {
   /** Run the current layout, refit and redraw. */
   applyLayout(): void {
     this.annotations = [];
+    this.version++;
     this.opts.layouts.find((l) => l.key === this.currentLayout)!.apply(this);
     this.fit();
   }
@@ -263,6 +287,7 @@ export class GraphEngine {
   private scaleLayout(ratio: number): void {
     const { W, H } = this.canvasSize();
     for (const n of this.nodes) { n.x *= ratio; n.y *= ratio; }
+    this.version++;
     this.view.tx = (W / 2) * (1 - ratio) + this.view.tx * ratio;
     this.view.ty = (H / 2) * (1 - ratio) + this.view.ty * ratio;
     this.requestDraw();
@@ -284,6 +309,7 @@ export class GraphEngine {
   }
   /** Call after any change to the selection sets or node visibility. */
   selectionChanged(): void {
+    this.version++; // positions, visibility or selection
     for (const idx of this.selectedNodes) {
       if (!this.nodes[idx].visible) this.selectedNodes.delete(idx);
     }
@@ -339,8 +365,96 @@ export class GraphEngine {
     return out;
   }
 
+  /** Stroke edges as straight segments, a few hundred per path: one path of
+   *  thousands of crossing segments rasterises far slower. */
+  private strokeEdges(c: CanvasRenderingContext2D, list: number[], width: number, color: string, dashed: boolean): void {
+    if (!list.length) return;
+    const { edges, px, py } = this;
+    c.setLineDash(dashed ? [3, 5] : []);
+    c.lineWidth = width;
+    c.strokeStyle = color;
+    c.beginPath();
+    for (let j = 0; j < list.length; j++) {
+      const [a, b] = edges[list[j]];
+      c.moveTo(px[a], py[a]);
+      c.lineTo(px[b], py[b]);
+      if (j % 256 === 255) { c.stroke(); c.beginPath(); }
+    }
+    c.stroke();
+    c.setLineDash([]);
+  }
+
+  /** Bring `layer` up to date for the current view, except mid-gesture, when the
+   *  old copy is shifted and scaled instead; then composite it onto the canvas. */
+  private paintLayer(layer: Layer, key: string, W: number, H: number, alpha: number, render: (c: CanvasRenderingContext2D) => void): void {
+    const v = this.view;
+    let at = layer.view;
+    if (!at || layer.key !== key || (!this.interacting && (at.tx !== v.tx || at.ty !== v.ty || at.scale !== v.scale))) {
+      if (layer.canvas.width !== this.canvas.width || layer.canvas.height !== this.canvas.height) {
+        layer.canvas.width = this.canvas.width;
+        layer.canvas.height = this.canvas.height;
+      }
+      layer.ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
+      layer.ctx.clearRect(0, 0, W, H);
+      render(layer.ctx);
+      at = layer.view = { ...v };
+      layer.key = key;
+    }
+    const s = v.scale / at.scale;
+    this.ctx.globalAlpha = alpha;
+    this.ctx.drawImage(layer.canvas, v.tx - at.tx * s, v.ty - at.ty * s, W * s, H * s);
+    this.ctx.globalAlpha = 1;
+  }
+
+  /** Whether edge k is visible and could cross the screen. */
+  private edgeShown(k: number, W: number, H: number): boolean {
+    const [a, b] = this.edges[k], { px, py } = this;
+    if (!this.nodes[a].visible || !this.nodes[b].visible) return false;
+    return !((px[a] < 0 && px[b] < 0) || (px[a] > W && px[b] > W) || (py[a] < 0 && py[b] < 0) || (py[a] > H && py[b] > H));
+  }
+
+  /** Every idle edge. On the entity graph, links between neighbours are the story
+   *  (every neighbour links to the focal entry), so they draw stronger than its own. */
+  private drawIdleEdges(c: CanvasRenderingContext2D, W: number, H: number): void {
+    const { nodes, edges, px, py, COLORS, P } = this;
+    const lists: number[][] = [[], [], [], []]; // between neighbours, focal; each linked, inferred
+    for (let i = 0; i < edges.length; i++) {
+      if (this.relationEdges.has(i) || !this.edgeShown(i, W, H)) continue;
+      const [a, b] = edges[i];
+      // A sub-pixel edge only adds to the wash.
+      if ((px[b] - px[a]) ** 2 + (py[b] - py[a]) ** 2 < 2.25) continue;
+      const inferred = this.implicitEdgeIdx.has(i);
+      if (inferred && !this.showImplicit) continue;
+      lists[(nodes[a].isFocal || nodes[b].isFocal ? 2 : 0) + (inferred ? 1 : 0)].push(i);
+    }
+    const between = hexToRgba(COLORS[P.edgeInk], P.edgeAlpha);
+    const focal = hexToRgba(COLORS.line, P.focalEdgeAlpha);
+    this.strokeEdges(c, lists[2], .7, focal, false);
+    this.strokeEdges(c, lists[3], .7, focal, true);
+    this.strokeEdges(c, lists[0], P.edgeWidth, between, false);
+    this.strokeEdges(c, lists[1], P.edgeWidth, between, true);
+  }
+
+  /** Highlighted edges: linked, inferred (dashed), then typed relations. */
+  private drawLitEdges(c: CanvasRenderingContext2D, lit: Iterable<number>, W: number, H: number): void {
+    const linked: number[] = [], inferred: number[] = [], relations: number[] = [];
+    for (const k of lit) {
+      if (!this.edgeShown(k, W, H)) continue;
+      if (this.relationEdges.has(k)) relations.push(k);
+      else if (!this.implicitEdgeIdx.has(k)) linked.push(k);
+      else if (this.showImplicit) inferred.push(k);
+    }
+    // A hub lights a thousand lines; fade them as they multiply so the nodes stay legible.
+    const n = linked.length + inferred.length;
+    const color = hexToRgba(this.COLORS.accent, Math.max(.2, Math.min(.72, 6 / Math.sqrt(n || 1))));
+    const width = n > 150 ? 1 : 1.3;
+    this.strokeEdges(c, linked, width, color, false);
+    this.strokeEdges(c, inferred, width, color, true);
+    this.strokeEdges(c, relations, 2, this.COLORS.accent, false);
+  }
+
   private draw(): void {
-    const { nodes, edges, ctx, COLORS, px, py, pr } = this;
+    const { nodes, ctx, COLORS, px, py, pr } = this;
     const { W, H } = this.canvasSize();
     if (!W || !H) return;
     ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
@@ -359,60 +473,23 @@ export class GraphEngine {
       pr[i] = this.radius(nodes[i]);
     }
     const isActive = (i: number) => this.selectedNodes.has(i) || i === this.hoveredIdx || !!nodes[i].isFocal;
-    const edgeActive = (i: number) => {
-      const [a, b] = edges[i];
-      return this.selectedEdges.has(i) || this.selectedNodes.has(a) || this.selectedNodes.has(b) ||
-        a === this.hoveredIdx || b === this.hoveredIdx || i === this.hoveredEdge;
-    };
 
-    // One path per style, bucketed in a single pass: 49k edges filtered once per
-    // style was most of a frame. Back to front: background, the focal entry's own
-    // links, active (each linked, then inferred), then typed relations idle and active.
+    // Idle edges and the selection's edges are cached layers, so hovering reuses
+    // them and a pan or zoom shifts them until input settles. Long highlighted
+    // lines were most of a frame. Only hover edges and typed relations draw live.
     if (this.edgesVisible) {
-      const anyActive = hasSelection || this.hoveredIdx >= 0 || this.hoveredEdge >= 0;
-      // On the cluster layout, links between islands are a grey wash until zoomed in.
-      const hideCross = this.annotations.length > 0 && this.view.scale < this.fitScale * 2.5;
-      // Mid-gesture, the full graph keeps only highlighted edges: rasterising tens of
-      // thousands of translucent lines was most of a frame on a phone.
-      const idleOff = this.interacting && this.opts.profile === 'full';
-      const buckets: number[][] = [[], [], [], [], [], [], [], []];
-      for (let i = 0; i < edges.length; i++) {
-        const [a, b] = edges[i];
-        if (!nodes[a].visible || !nodes[b].visible) continue;
-        const ax = px[a], ay = py[a], bx = px[b], by = py[b];
-        if ((ax < 0 && bx < 0) || (ax > W && bx > W) || (ay < 0 && by < 0) || (ay > H && by > H)) continue;
-        const active = anyActive && edgeActive(i);
-        if (idleOff && !active) continue;
-        if (this.relationEdges.has(i)) { buckets[active ? 7 : 6].push(i); continue; }
-        const inferred = this.implicitEdgeIdx.has(i);
-        if (inferred && !this.showImplicit) continue;
-        if (!active) {
-          // A sub-pixel edge only adds to the wash.
-          if ((bx - ax) ** 2 + (by - ay) ** 2 < 2.25) continue;
-          if (hideCross && nodes[a].community !== nodes[b].community) continue;
-        }
-        const tier = active ? 4 : nodes[a].isFocal || nodes[b].isFocal ? 2 : 0;
-        buckets[tier + (inferred ? 1 : 0)].push(i);
-      }
-      const bg = { width: .65, color: hexToRgba(COLORS.line, focus ? .09 : this.P.bgEdgeAlpha) };
-      const own = { width: .9, color: hexToRgba(COLORS.line, focus ? .12 : this.P.edgeAlpha) };
-      const lit = { width: 1.3, color: hexToRgba(COLORS.accent, .72) };
-      const styles = [bg, bg, own, own, lit, lit,
-        { width: 1.8, color: hexToRgba(COLORS.ink, focus ? .3 : .75) }, { width: 2, color: COLORS.accent }];
-      buckets.forEach((bucket, k) => {
-        if (!bucket.length) return;
-        ctx.beginPath();
-        ctx.setLineDash(k < 6 && k % 2 === 1 ? [3, 5] : []);
-        ctx.lineWidth = styles[k].width;
-        ctx.strokeStyle = styles[k].color;
-        for (const i of bucket) {
-          const [a, b] = edges[i];
-          ctx.moveTo(px[a], py[a]);
-          ctx.lineTo(px[b], py[b]);
-        }
-        ctx.stroke();
-      });
-      ctx.setLineDash([]);
+      const key = `${W}|${H}|${this.dpr}|${this.showImplicit}|${this.version}`;
+      // A selection or hover fades the idle edges rather than redrawing them.
+      this.paintLayer(this.idleLayer, key, W, H, focus ? .36 : 1, (c) => this.drawIdleEdges(c, W, H));
+      const selected = new Set(this.selectedEdges);
+      for (const i of this.selectedNodes) for (const k of this.incident[i]) selected.add(k);
+      if (selected.size) this.paintLayer(this.selectionLayer, key, W, H, 1, (c) => this.drawLitEdges(c, selected, W, H));
+      const hovered = new Set<number>();
+      if (this.hoveredIdx >= 0) for (const k of this.incident[this.hoveredIdx]) if (!selected.has(k)) hovered.add(k);
+      if (this.hoveredEdge >= 0 && !selected.has(this.hoveredEdge)) hovered.add(this.hoveredEdge);
+      this.drawLitEdges(ctx, hovered, W, H);
+      const relations = [...this.relationEdges.keys()].filter((k) => !selected.has(k) && !hovered.has(k) && this.edgeShown(k, W, H));
+      this.strokeEdges(ctx, relations, 1.8, hexToRgba(COLORS.ink, focus ? .3 : .75), false);
     }
 
     const ring = (x: number, y: number, r: number) => { ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); };
@@ -458,21 +535,34 @@ export class GraphEngine {
     const drawn: { x: number; y: number; w: number; h: number }[] = [];
     ctx.textBaseline = 'top';
     ctx.textAlign = 'left';
-    // Annotations (cluster names) sit above their island and claim space before entry labels.
-    if (this.annotations.length) {
+    // Annotations (cluster names): the lead name in full, the rest on a second line.
+    // Each sits above its island, else below, right or left, wherever no name is yet.
+    const overlaps = (b: { x: number; y: number; w: number; h: number }) =>
+      drawn.some((d) => b.x < d.x + d.w + 6 && b.x + b.w + 6 > d.x && b.y < d.y + d.h + 4 && b.y + b.h + 4 > d.y);
+    for (const a of this.annotations) {
+      const [lead, ...rest] = a.text.split(' · ');
       ctx.font = '700 12px "Archivo", sans-serif';
-      for (const a of this.annotations) {
-        const r = a.r * this.view.scale;
-        const text = this.fitText(a.text.toUpperCase(), Math.round(Math.max(140, Math.min(2 * r, 340)) / 20) * 20);
-        const w = ctx.measureText(text).width + 10, h = 20;
-        const x = this.sx(a.x) - w / 2, y = this.sy(a.y) - r - h - 2;
-        if (x + w < 0 || x > W || y + h < 0 || y > H) continue;
-        ctx.fillStyle = hexToRgba(COLORS.paper, .9);
-        ctx.fillRect(x, y, w, h);
+      const head = lead.toUpperCase();
+      const headW = Math.min(ctx.measureText(head).width, W - 26);
+      ctx.font = '500 11px "Archivo", sans-serif';
+      const tail = rest.length ? this.fitText(rest.join(' · '), Math.round(Math.max(headW, 160) / 20) * 20) : '';
+      const w = Math.max(headW, tail ? ctx.measureText(tail).width : 0) + 10, h = tail ? 34 : 20;
+      const r = a.r * this.view.scale, x = this.sx(a.x), y = this.sy(a.y);
+      const box = [[x - w / 2, y - r - h - 2], [x - w / 2, y + r + 4], [x + r + 6, y - h / 2], [x - r - 6 - w, y - h / 2]]
+        .map(([bx, by]) => ({ x: bx, y: by, w, h }))
+        .find((b) => b.x + b.w > 0 && b.x < W && b.y + b.h > 0 && b.y < H && !overlaps(b));
+      if (!box) continue;
+      ctx.fillStyle = hexToRgba(COLORS.paper, .9);
+      ctx.fillRect(box.x, box.y, box.w, box.h);
+      ctx.font = '700 12px "Archivo", sans-serif';
+      ctx.fillStyle = COLORS.ink;
+      ctx.fillText(this.fitText(head, W - 26), box.x + 5, box.y + 4);
+      if (tail) {
+        ctx.font = '500 11px "Archivo", sans-serif';
         ctx.fillStyle = COLORS.muted;
-        ctx.fillText(text, x + 5, y + 4);
-        drawn.push({ x, y, w, h });
+        ctx.fillText(tail, box.x + 5, box.y + 19);
       }
+      drawn.push(box);
     }
     if (this.interacting && this.opts.profile === 'full') return;
 
