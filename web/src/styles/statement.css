@@ -94,6 +94,14 @@ dl.band-facts > div {display:contents}
 .item-dek {grid-column:2;font-size:17px;line-height:1.45;max-width:60ch;margin:.2em 0 .6em;text-wrap:pretty}
 /* The facts span both rows, so a long facts column no longer pushes the dek away from its title. */
 @media (min-width:1101px) {.statement-item > .item-facts {grid-row:span 2}}
+/* Homepage dispatches: two abreast on desktop, each item stacks facts over title. */
+@media (min-width:901px) {
+  .dispatch-pair {display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0 3rem}
+  .dispatch-pair > .section-heading {grid-column:1/-1}
+  .dispatch-pair .statement-item {grid-template-columns:minmax(0,1fr);align-content:start}
+  .dispatch-pair .item-facts {grid-row:auto;padding-top:0}
+  .dispatch-pair .item-dek {grid-column:1}
+}
 .statement-cols {display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:0 3rem}
 .statement-cols h3 {margin:0;padding:1em 0 .3em;font:700 15px/1.5 var(--sans);font-variation-settings:"wdth" 88;text-transform:uppercase}
 .statement-cols h3 a {font-weight:500;color:var(--muted);text-transform:none;padding-left:.6em}

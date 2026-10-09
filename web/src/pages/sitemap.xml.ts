@@ -15,6 +15,7 @@ export const GET: APIRoute = () => {
     { loc: '/clusters/', changefreq: 'weekly',  priority: '0.6' },
     { loc: '/tags/',     changefreq: 'weekly',  priority: '0.7' },
     { loc: '/timeline/', changefreq: 'weekly',  priority: '0.7' },
+    { loc: '/dispatches/', changefreq: 'weekly', priority: '0.7' },
     { loc: '/changelog/',changefreq: 'daily',   priority: '0.5' },
     ...[...BROWSE_TYPES.map((t) => `/${TYPE_DIRS[t]}/`), '/sources/']
       .map((loc) => ({ loc, changefreq: 'weekly', priority: '0.6' })),

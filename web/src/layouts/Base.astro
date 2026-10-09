@@ -45,7 +45,6 @@ const canonical = absUrl(Astro.url.pathname);
 const ogImageUrl = absUrl(`${ogImage}?v=${CARD_TEMPLATE_HASH}`);
 // JSON.stringify leaves '<' alone, so a '</script>' inside an entry title would end the tag.
 const jsonForScript = (value: unknown) => JSON.stringify(value).replace(/</g, '\\u003c');
-const favicon = 'data:image/svg+xml,' + encodeURIComponent(`<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' fill='#ff4a1c'/><text y='.85em' x='8' font-family='Georgia,serif' font-size='86' font-weight='600' fill='#0d0d0d'>${SITE_TITLE.charAt(0).replace(/[<&]/g, '')}</text></svg>`);
 
 const siteHome = absUrl('/');
 const siteSchema = {
@@ -146,6 +145,7 @@ const pgpGroups = CONTACT_PGP.match(/[0-9A-F]{4}/g) ?? [];
       </script>
     )}
 
+    {!noindex && <meta name="robots" content="max-image-preview:large" />}
     <meta property="og:site_name" content={SITE_TITLE} />
     <meta property="og:title" content={title} />
     {description && <meta property="og:description" content={description} />}
@@ -171,7 +171,7 @@ const pgpGroups = CONTACT_PGP.match(/[0-9A-F]{4}/g) ?? [];
       <script type="application/ld+json" set:html={jsonForScript(breadcrumbSchema)} is:inline />
     )}
 
-    <link rel="icon" href={favicon} />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
     {preloadAdjacency && (
       <link rel="preload" as="fetch" href={`/adjacency.json?v=${V}`} crossorigin="anonymous" />
     )}
@@ -197,6 +197,7 @@ const pgpGroups = CONTACT_PGP.match(/[0-9A-F]{4}/g) ?? [];
           <a href="/concepts/">Concepts</a>
           <a href="/places/">Places</a>
           <a href="/network/">Network</a>
+          <a href="/dispatches/">Dispatches</a>
           <button class="search-trigger" id="search-open" type="button" aria-label="Open search" disabled>Search</button>
           <button class="theme-toggle" data-theme-toggle type="button" aria-label="Switch theme" title="Switch theme">
             <svg class="theme-icon theme-icon-moon" xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20.9 13.1A9 9 0 0 1 10.9 3.1a9 9 0 1 0 10 10Z" /></svg>

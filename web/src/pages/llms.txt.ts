@@ -72,6 +72,7 @@ export const GET: APIRoute = () => {
     ...(CONTACT_EMAIL ? ['## Contact', '', `- Tips, documents, corrections and press: ${CONTACT_EMAIL}${CONTACT_PGP ? ` (OpenPGP fingerprint ${CONTACT_PGP})` : ''}`, ''] : []),
     '## Optional',
     '',
+    `- [Dispatches](${absUrl('/dispatches/')}): dated findings that connect records across entries (Atom feed at ${absUrl('/dispatches.xml')})`,
     `- [Changelog](${absUrl('/changelog/')}): recent vault updates`,
     '',
   );

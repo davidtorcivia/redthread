@@ -1,7 +1,7 @@
 ---
 import Base from '../layouts/Base.astro';
 import { SITE_DESCRIPTION, SITE_TITLE } from '../lib/site.ts';
-import { activity, BROWSE_TYPES, communities, entities, entity, focus, CLUSTER_MIN_SIZE, hrefFor, renderInlineMd, topHubs, TYPE_DIRS, TYPE_LABELS, TYPE_PLURALS } from '../lib/data.ts';
+import { activity, BROWSE_TYPES, communities, dispatches, entities, entity, focus, CLUSTER_MIN_SIZE, hrefFor, renderInlineMd, topHubs, TYPE_DIRS, TYPE_LABELS, TYPE_PLURALS } from '../lib/data.ts';
 
 const total = entities().length;
 const inFocus = focus();
@@ -13,6 +13,7 @@ const focusCluster = inFocus.cluster;
 const clusters = communities().filter(c => c.size >= CLUSTER_MIN_SIZE);
 const featuredClusters = [...clusters].sort((a, b) => b.size - a.size).slice(0, 4);
 const recent = activity().slice(0, 6);
+const latestDispatches = dispatches().slice(0, 2);
 const shortDate = (iso: string) => {
   const date = new Date(iso);
   return Number.isNaN(date.getTime()) ? '' : date.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', timeZone: 'UTC' });
@@ -26,11 +27,19 @@ const shortDate = (iso: string) => {
       <div class="band-facts">
         <div>{total.toLocaleString()} entries · <a href="/clusters/">{clusters.length} clusters</a></div>
         <div><a href="/network/">Network</a> · <a href="/path/">Path</a> · <a href="/bridges/">Bridges</a> · <a href="/clusters/">Clusters</a> · <a href="/tags/">Tags</a> · <a href="/sources/">Sources</a> · <a href="/timeline/">Timeline</a></div>
-        <div><a href="/random/">Random</a> · <a href="/changelog/">Changelog</a></div>
+        <div><a href="/dispatches/">Dispatches</a> · <a href="/random/">Random</a> · <a href="/changelog/">Changelog</a></div>
       </div>
     </div>
   </section>
   <div class="statement-wrap">
+    {latestDispatches.length > 0 && <section class="statement-list dispatch-pair">
+      <h2 class="section-heading">Dispatches <span><a href="/dispatches/">all dispatches</a></span></h2>
+      {latestDispatches.map(d => <article class="statement-item">
+        <div class="item-facts"><b>{new Date(d.date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' })}</b></div>
+        <a class="item-title" href={`/dispatches/#${d.id}`}>{d.title}</a>
+        {d.summary && <p class="item-dek" set:html={renderInlineMd(d.summary)} />}
+      </article>)}
+    </section>}
     {featured.length > 0 && <section class="statement-list">
       <h2 class="section-heading">In focus <span>most worked on, last {inFocus.days} days</span></h2>
       {featured.map(({ e, reason }) => <article class="statement-item">

@@ -11,27 +11,36 @@ function dayLabel(iso: string): string {
 }
 ---
 <Base
-  bodyClass="utility"
+  bodyClass="entity type-page"
   title="Dispatches"
-  description="Dated, sourced narratives of findings that tie entries in the vault together."
+  description="Findings that connect records across the vault, newest first."
 >
-  <article class="changelog-article dispatches">
-    <h1 class="entity-title">Dispatches</h1>
-    <p class="cl-summary">Findings that connect records across the vault, newest first. Every claim is footnoted and every name links to its entry. <a href="/dispatches.xml">Feed</a>.</p>
+  <article class="entity-article dispatches">
+    <header class="statement-band entry-band">
+      <h1 class="entity-title">Dispatches</h1>
+      <div class="band-row">
+        <p class="band-lede">Findings that connect records across the vault, newest first.</p>
+      </div>
+    </header>
 
-    {items.length === 0 && <p class="changelog-empty">No dispatches yet.</p>}
+    {items.length === 0 && (
+      <div class="statement-wrap"><div class="statement-read"><div class="prose"><p>No dispatches yet.</p></div></div></div>
+    )}
 
     {items.map((d) => (
       <section class="dispatch" id={d.id}>
-        <div class="cl-head">
-          <span class="cl-day"><time datetime={d.date}>{dayLabel(d.date)}</time></span>
-        </div>
-        <h2 class="section-heading"><a href={`#${d.id}`}>{d.title}</a></h2>
-        {d.summary && <p class="cl-summary" set:html={renderInlineMd(d.summary)} />}
-        <div class="prose" set:html={d.body_html} />
+        <div class="statement-wrap">
+          <div class="statement-read">
+            <div class="prose">
+              <h2><a href={`#${d.id}`}>{d.title}</a></h2>
+              <p><time datetime={d.date}>{dayLabel(d.date)}</time></p>
+              <Fragment set:html={d.body_html} />
+            </div>
+          </div>
+
         {d.footnotes.length > 0 && (
           <section class="footnotes-block">
-            <h3 class="section-label">Sources</h3>
+            <h2 class="section-label">Sources</h2>
             <ol>
               {d.footnotes.map((f) => (
                 <li id={`${d.id}-fn-${f.id}`}>
@@ -42,18 +51,23 @@ function dayLabel(iso: string): string {
             </ol>
           </section>
         )}
+
         {d.entities.length > 0 && (
-          <ul class="hc-list" aria-label="Entries this dispatch draws on">
-            {d.entities.map((id) => entity(id)).filter(Boolean).map((e) => (
-              <li class={`hc-item type-${e!.type}`}>
-                <a href={hrefFor(e!)} data-preview>
-                  <span class="hc-eyebrow">{TYPE_LABELS[e!.type]}</span>
-                  <span class="hc-title">{e!.title}</span>
-                </a>
-              </li>
-            ))}
-          </ul>
+          <section class="backlinks hc-list-section" data-pagefind-ignore>
+            <h2 class="section-heading">Entries <span class="hc-count-badge">{d.entities.length}</span></h2>
+            <ul class="hc-list">
+              {d.entities.map((id) => entity(id)).filter(Boolean).map((e) => (
+                <li class={`hc-item type-${e!.type}`}>
+                  <a href={hrefFor(e!)} data-preview>
+                    <span class="hc-eyebrow">{TYPE_LABELS[e!.type]}</span>
+                    <span class="hc-title">{e!.title}</span>
+                  </a>
+                </li>
+              ))}
+            </ul>
+          </section>
         )}
+        </div>
       </section>
     ))}
   </article>
