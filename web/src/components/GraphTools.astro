@@ -11,7 +11,7 @@ const { full = false, id } = Astro.props;
   </div>
   <div class="graph-actions">
     <button class="graph-btn net-fit" type="button">Fit</button>
-    <button class="graph-btn net-layout" type="button">{full ? 'Layout: Clusters' : 'Layout: Force'}</button>
+    <button class="graph-btn net-layout" type="button">Layout: Clusters</button>
     <button class="graph-btn net-color" type="button" aria-pressed={full ? 'true' : 'false'}>{full ? 'Colour: Cluster' : 'Colour: Type'}</button>
     <details class="graph-options">
       <summary>Options <span aria-hidden="true">+</span></summary>

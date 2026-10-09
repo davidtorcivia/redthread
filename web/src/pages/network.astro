@@ -50,6 +50,7 @@ const total = entities().length;
   <script>
     import { GraphEngine, nodeFromAdjacency, adjacencyEdges } from '../scripts/graph-canvas';
     import { closeness } from '../scripts/graph-rank';
+    import { layoutIslands } from '../scripts/islands';
     import { loadAdjacency } from '../scripts/adjacency';
     import { el, entityHref } from '../scripts/entity-types';
     // The whole vault. This file loads every node, supplies the whole-graph
@@ -154,8 +155,8 @@ const total = entities().length;
     }
 
     // --- Layouts (mutate g.nodes in place) ------------------------------
-    // Pack each link community into its own island, biggest first, as close to
-    // the centre as the canvas aspect allows. Force keeps the raw topology.
+    // Each link community in its own island, biggest first, packed as close to the
+    // centre as the canvas aspect allows. Force keeps the raw topology.
     function applyClusterLayout(g) {
       const communities = new Map();
       for (const n of g.nodes) {
@@ -163,52 +164,13 @@ const total = entities().length;
         if (!communities.has(n.community)) communities.set(n.community, []);
         communities.get(n.community).push(n);
       }
-      const groups = [...communities.values()].filter((members) => members.length >= 8);
-      const fragments = [...communities.values()].filter((members) => members.length < 8).flat();
-      if (fragments.length) groups.push(fragments);
-      groups.sort((a, b) => b.length - a.length);
-      const placed = [];
-      const { W, H } = g.canvasSize();
-      const aspect = Math.max(.7, Math.min(2.1, W / H));
-      for (const members of groups) {
-        const radius = Math.sqrt(members.length) * 21 + 50;
-        let best = { x: 0, y: 0, score: placed.length ? Infinity : 0 };
-        for (const other of placed) {
-          for (let step = 0; step < 96; step++) {
-            const angle = step / 96 * Math.PI * 2;
-            const x = other.x + Math.cos(angle) * (radius + other.radius + 65);
-            const y = other.y + Math.sin(angle) * (radius + other.radius + 65);
-            if (placed.some((p) => Math.hypot(p.x - x, p.y - y) < p.radius + radius + 60)) continue;
-            const score = (x * x) / (aspect * aspect) + y * y;
-            if (score < best.score) best = { x, y, score };
-          }
-        }
-        placed.push({ x: best.x, y: best.y, radius });
-        const c = members[0].community;
-        const named = members.length >= 8 && members.every((n) => n.community === c) && g.communityLabels[c];
-        // Inside an island, the parser's weighted layout puts entries that cite each
-        // other most side by side. The mixed bag of small fragments gets a spiral.
-        if (clusterPositions && members.every((n) => n.community === c)) {
-          let extent = 0;
-          for (const n of members) {
-            n.x = best.x + clusterPositions[n.g][0] * (radius - 45);
-            n.y = best.y + clusterPositions[n.g][1] * (radius - 45);
-            extent = Math.max(extent, Math.hypot(n.x - best.x, n.y - best.y));
-          }
-          // The name hugs the dots, not the island's nominal radius.
-          if (named) g.annotations.push({ x: best.x, y: best.y, r: extent + 6, text: g.communityLabels[c] });
-          continue;
-        }
-        if (named) g.annotations.push({ x: best.x, y: best.y, r: radius - 40, text: g.communityLabels[c] });
-        members.sort((a, b) => b.count - a.count || a.title.localeCompare(b.title));
-        // Sunflower spiral: the most-mentioned sit at the island's centre.
-        members.forEach((n, i) => {
-          const angle = i * 2.399963229728653;
-          const distance = Math.sqrt(i / Math.max(1, members.length - 1)) * (radius - 45);
-          n.x = best.x + Math.cos(angle) * distance;
-          n.y = best.y + Math.sin(angle) * distance;
-        });
-      }
+      const big = (m) => m.length >= 8 && m[0].community >= 0;
+      const islands = [...communities.values()].filter(big)
+        .map((members) => ({ members, label: g.communityLabels[members[0].community] }));
+      const fragments = [...communities.values()].filter((m) => !big(m)).flat();
+      if (fragments.length) islands.push({ members: fragments, label: 'Small clusters' });
+      islands.sort((a, b) => b.members.length - a.members.length);
+      layoutIslands(g, islands, { per: 21, base: 50, inset: 45, gap: 65 }, clusterPositions);
     }
     function applyForceLayout(g) {
       const scale = FORCE_BASELINE * g.forceMult;

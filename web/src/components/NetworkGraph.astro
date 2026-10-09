@@ -47,6 +47,7 @@ const relations = [...(e?.relations ?? []), ...(e?.relations_in ?? [])]
 <script>
   import { GraphEngine, nodeFromAdjacency, adjacencyEdges } from '../scripts/graph-canvas';
   import { closeness } from '../scripts/graph-rank';
+  import { layoutIslands } from '../scripts/islands';
   import { loadAdjacency } from '../scripts/adjacency';
   import { el, entityHref } from '../scripts/entity-types';
   // The focal entry plus its neighbours (two rings on demand). This file
@@ -69,6 +70,7 @@ const relations = [...(e?.relations ?? []), ...(e?.relations_in ?? [])]
       profile: 'entity',
       showImplicit: true,
       layouts: [
+        { key: 'clusters', label: 'Clusters', apply: applyClusterLayout },
         { key: 'force', label: 'Force', apply: applyForceLayout },
         { key: 'hierarchy', label: 'Hierarchy', apply: applyHierarchyLayout },
         { key: 'concentric', label: 'Concentric', apply: applyConcentricLayout },
@@ -191,6 +193,7 @@ const relations = [...(e?.relations ?? []), ...(e?.relations_in ?? [])]
       const focal = data.titles[focalIdx];
       const lines = [];
       if (relationsAt.has(i)) lines.push([relationsAt.get(i).join('; ')]);
+      if (n.community >= 0 && data.communityLabels[n.community]) lines.push([`Cluster: ${data.communityLabels[n.community]}`]);
       const pos = data.adj[focalIdx].indexOf(n.g);
       const link = pos < 0 ? `Two steps from ${focal}`
         : ['Named alongside ' + focal + ', without a link', `${focal} links here`, `Links to ${focal}`, `Linked both ways with ${focal}`][data.dir[focalIdx][pos]];
@@ -210,6 +213,24 @@ const relations = [...(e?.relations ?? []), ...(e?.relations_in ?? [])]
     }
 
     // --- Layouts (mutate g.nodes in place) ------------------------------
+    // The entry at the centre, its neighbours in islands by site-wide community
+    // (the same islands /network/ draws), and an island for the scattered rest.
+    function applyClusterLayout(g) {
+      const groups = new Map();
+      for (const n of g.nodes) {
+        if (n.isFocal) continue;
+        if (!groups.has(n.community)) groups.set(n.community, []);
+        groups.get(n.community).push(n);
+      }
+      const big = (m) => m.length >= 3 && m[0].community >= 0;
+      const islands = [...groups.values()].filter(big)
+        .map((members) => ({ members, label: g.communityLabels[members[0].community] }))
+        .sort((a, b) => b.members.length - a.members.length);
+      const rest = [...groups.values()].filter((m) => !big(m)).flat();
+      if (rest.length) islands.push({ members: rest, label: 'Other connections' });
+      layoutIslands(g, [{ members: g.nodes.filter((n) => n.isFocal) }, ...islands],
+        { per: 30, base: 30, inset: 20, gap: 50 }, data.clusterPositions);
+    }
     function byHop(nodes) {
       const rows = new Map();
       for (const n of nodes) {

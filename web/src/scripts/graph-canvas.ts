@@ -27,6 +27,8 @@ export interface GraphNode {
   hop?: number;
   isLandmark?: boolean;
   isolated?: boolean;
+  /** Index into adjacency.json, when the graph is built from it. */
+  g?: number;
   /** Label priority; higher wins. Defaults to `count`. */
   priority?: number;
 }
@@ -73,10 +75,11 @@ export interface EngineOptions {
 
 // The full graph has thousands of nodes: smaller dots, fainter edges, and
 // labels only for landmarks or nodes big enough on screen. Edges between other
-// nodes use edgeInk/edgeAlpha; the entity graph's spokes to its focal entry are fainter.
+// nodes use edgeInk/edgeAlpha; the entity graph's spokes to its focal entry are fainter,
+// and on its Clusters layout so are links between islands (crossEdgeAlpha).
 const PROFILES = {
-  entity: { zoomMax: 20, fitPad: 30, minR: 3, maxR: 12, edgeAlpha: .3, edgeInk: 'muted', edgeWidth: .8, focalEdgeAlpha: .3, labelAll: true, searchZoom: 1.1 },
-  full: { zoomMax: 50, fitPad: 40, minR: 1.7, maxR: 9, edgeAlpha: .25, edgeInk: 'line', edgeWidth: .65, focalEdgeAlpha: .25, labelAll: false, searchZoom: .8 },
+  entity: { zoomMax: 20, fitPad: 30, minR: 3, maxR: 12, edgeAlpha: .3, edgeInk: 'muted', edgeWidth: .8, focalEdgeAlpha: .3, crossEdgeAlpha: .1, labelAll: true, searchZoom: 1.1 },
+  full: { zoomMax: 50, fitPad: 40, minR: 1.7, maxR: 9, edgeAlpha: .25, edgeInk: 'line', edgeWidth: .65, focalEdgeAlpha: .25, crossEdgeAlpha: .25, labelAll: false, searchZoom: .8 },
 };
 
 function readColors(scope: Element): Record<string, string> {
@@ -267,7 +270,8 @@ export class GraphEngine {
     }
     if (minX === Infinity) return;
     const { W, H } = this.canvasSize();
-    const pad = this.P.fitPad;
+    // Island names sit outside the dots, so leave room for them.
+    const pad = this.P.fitPad + (this.annotations.length ? 40 : 0);
     const w = Math.max(1, maxX - minX), h = Math.max(1, maxY - minY);
     this.view.scale = Math.min((W - 2 * pad) / w, (H - 2 * pad) / h);
     this.view.tx = (W - w * this.view.scale) / 2 - minX * this.view.scale;
@@ -417,7 +421,9 @@ export class GraphEngine {
    *  (every neighbour links to the focal entry), so they draw stronger than its own. */
   private drawIdleEdges(c: CanvasRenderingContext2D, W: number, H: number): void {
     const { nodes, edges, px, py, COLORS, P } = this;
-    const lists: number[][] = [[], [], [], []]; // between neighbours, focal; each linked, inferred
+    // Between neighbours, the focal entry's own, between islands; each linked, then inferred.
+    const lists: number[][] = [[], [], [], [], [], []];
+    const islands = this.annotations.length > 0;
     for (let i = 0; i < edges.length; i++) {
       if (this.relationEdges.has(i) || !this.edgeShown(i, W, H)) continue;
       const [a, b] = edges[i];
@@ -425,8 +431,12 @@ export class GraphEngine {
       if ((px[b] - px[a]) ** 2 + (py[b] - py[a]) ** 2 < 2.25) continue;
       const inferred = this.implicitEdgeIdx.has(i);
       if (inferred && !this.showImplicit) continue;
-      lists[(nodes[a].isFocal || nodes[b].isFocal ? 2 : 0) + (inferred ? 1 : 0)].push(i);
+      const kind = nodes[a].isFocal || nodes[b].isFocal ? 2 : islands && nodes[a].community !== nodes[b].community ? 4 : 0;
+      lists[kind + (inferred ? 1 : 0)].push(i);
     }
+    const cross = hexToRgba(COLORS.line, P.crossEdgeAlpha);
+    this.strokeEdges(c, lists[4], .65, cross, false);
+    this.strokeEdges(c, lists[5], .65, cross, true);
     const between = hexToRgba(COLORS[P.edgeInk], P.edgeAlpha);
     const focal = hexToRgba(COLORS.line, P.focalEdgeAlpha);
     this.strokeEdges(c, lists[2], .7, focal, false);
@@ -489,7 +499,7 @@ export class GraphEngine {
       if (this.hoveredEdge >= 0 && !selected.has(this.hoveredEdge)) hovered.add(this.hoveredEdge);
       this.drawLitEdges(ctx, hovered, W, H);
       const relations = [...this.relationEdges.keys()].filter((k) => !selected.has(k) && !hovered.has(k) && this.edgeShown(k, W, H));
-      this.strokeEdges(ctx, relations, 1.8, hexToRgba(COLORS.ink, focus ? .3 : .75), false);
+      this.strokeEdges(ctx, relations, 1.2, hexToRgba(COLORS.ink, focus ? .15 : .3), false);
     }
 
     const ring = (x: number, y: number, r: number) => { ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); };
@@ -550,7 +560,7 @@ export class GraphEngine {
       const r = a.r * this.view.scale, x = this.sx(a.x), y = this.sy(a.y);
       const box = [[x - w / 2, y - r - h - 2], [x - w / 2, y + r + 4], [x + r + 6, y - h / 2], [x - r - 6 - w, y - h / 2]]
         .map(([bx, by]) => ({ x: bx, y: by, w, h }))
-        .find((b) => b.x + b.w > 0 && b.x < W && b.y + b.h > 0 && b.y < H && !overlaps(b));
+        .find((b) => b.x >= 0 && b.x + b.w <= W && b.y >= 0 && b.y + b.h <= H && !overlaps(b));
       if (!box) continue;
       ctx.fillStyle = hexToRgba(COLORS.paper, .9);
       ctx.fillRect(box.x, box.y, box.w, box.h);
