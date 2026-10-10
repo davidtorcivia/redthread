@@ -293,6 +293,14 @@ export class GraphEngine {
     this.fit();
   }
 
+  /** After the canvas changes size: the Clusters layout packs to the canvas shape,
+   *  so it runs again; other layouts just refit. */
+  private refitAfterResize(): void {
+    this.resize();
+    if (this.annotations.length) this.applyLayout();
+    else this.fit();
+  }
+
   /** Stretch the layout around the screen centre, so pan and zoom survive. */
   private scaleLayout(ratio: number): void {
     const { W, H } = this.canvasSize();
@@ -954,13 +962,26 @@ export class GraphEngine {
     });
     const fsEl = this.opts.fullscreenEl ?? root;
     const fsBtn = btn('.net-fullscreen');
+    // On a phone, Expand also asks for real fullscreen so the browser's bars go too.
+    // iPhone Safari has no element fullscreen; the fixed overlay stands in there.
+    const phone = () => matchMedia('(max-width: 900px), (pointer: coarse)').matches;
     const setFullscreen = (on: boolean) => {
       fsEl.classList.toggle('fullscreen', on);
       toggle(fsBtn, on, on ? 'Close' : 'Expand');
       document.body.classList.toggle('net-fullscreen-active', on);
-      requestAnimationFrame(() => { this.resize(); this.fit(); });
+      if (on && phone() && fsEl.requestFullscreen && !document.fullscreenElement) {
+        fsEl.requestFullscreen({ navigationUI: 'hide' }).catch(() => {});
+      } else if (!on && document.fullscreenElement === fsEl) {
+        document.exitFullscreen().catch(() => {});
+      }
+      requestAnimationFrame(() => this.refitAfterResize());
     };
     fsBtn?.addEventListener('click', () => setFullscreen(!fsEl.classList.contains('fullscreen')));
+    // Leaving fullscreen by back gesture or Esc closes the overlay too; entering refits.
+    document.addEventListener('fullscreenchange', () => {
+      if (!document.fullscreenElement && fsEl.classList.contains('fullscreen')) setFullscreen(false);
+      else requestAnimationFrame(() => this.refitAfterResize());
+    });
     const options = () => root.querySelectorAll<HTMLDetailsElement>('.graph-options[open]');
     document.addEventListener('click', (e) => {
       options().forEach((d) => { if (!d.contains(e.target as Node)) d.open = false; });

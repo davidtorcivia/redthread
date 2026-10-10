@@ -95,7 +95,9 @@
   .network-article .net-shell,.entity-network .net-shell {height:490px}
   .graph-caption {flex-wrap:wrap;gap:6px;font-size:11px}
   .graph-caption>span:nth-child(2) {display:none}
-  .network-article.fullscreen,.entity-network.fullscreen {padding:12px}
+  .network-article.fullscreen,.entity-network.fullscreen {padding:8px 12px}
+  /* Expanded on a phone, the graph and its tools get the whole screen. */
+  .network-article.fullscreen .network-header,.entity-network.fullscreen>.section-heading {display:none}
   .network-article .net-selection,.entity-network .net-selection {padding:12px;left:12px;bottom:12px;max-width:calc(100% - 24px)}
 }
 /* Shown when the wheel scrolls past the embedded graph instead of zooming it. */

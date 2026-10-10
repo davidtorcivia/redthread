@@ -28,7 +28,8 @@ export function layoutIslands(
 ): void {
   const placed: { x: number; y: number; radius: number }[] = [];
   const { W, H } = g.canvasSize();
-  const aspect = Math.max(.7, Math.min(2.1, W / H));
+  // Down to a portrait phone's shape, so islands stack upward instead of bunching.
+  const aspect = Math.max(.5, Math.min(2.1, W / H));
   for (const { members, label } of islands) {
     const radius = Math.sqrt(members.length) * spacing.per + spacing.base;
     let best = { x: 0, y: 0, score: placed.length ? Infinity : 0 };
