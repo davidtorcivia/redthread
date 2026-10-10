@@ -290,6 +290,8 @@ export interface Community {
   size: number;
   types: Record<string, number>;
   top: Pick<Entity, 'id' | 'title' | 'type' | 'mention_count'>[];
+  /** Sub-communities of a big community, biggest first (ids index Entity.subcommunity_id). */
+  subs?: { id: number; label: string; size: number }[];
 }
 
 /** Smaller clusters are fragments: grouped together on /clusters/ and not shown on entry pages. */

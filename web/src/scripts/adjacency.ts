@@ -14,6 +14,9 @@ export interface Adjacency {
   positions: [number, number][];
   /** Each node's place in its community's island, in the unit disc (parser's weighted spring layout). */
   clusterPositions?: [number, number][];
+  /** Sub-community id inside a big community, or -1; indexes subcommunityLabels. */
+  subcommunities?: number[];
+  subcommunityLabels?: string[];
   communities: number[];
   communityLabels: string[];
 }

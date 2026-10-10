@@ -1,19 +1,21 @@
 ---
 import Base from '../layouts/Base.astro';
 import { communities, entities, CLUSTER_MIN_SIZE as MIN_SIZE, hrefFor, TYPE_LABELS, TYPE_PLURALS } from '../lib/data.ts';
-import type { EntityType } from '../lib/types.ts';
+import type { Entity, EntityType } from '../lib/types.ts';
 
 const all = communities();
 const big = all.filter((c) => c.size >= MIN_SIZE).sort((a, b) => b.size - a.size);
 const small = all.filter((c) => c.size < MIN_SIZE).sort((a, b) => b.size - a.size);
 const smallMembers = small.reduce((n, c) => n + c.size, 0);
+const byMentions = (a: Entity, b: Entity) => b.mention_count - a.mention_count || a.title.localeCompare(b.title);
 const members = Map.groupBy(entities().filter((e) => e.community_id != null), (e) => e.community_id!);
+const bySub = Map.groupBy(entities().filter((e) => e.subcommunity_id != null), (e) => e.subcommunity_id!);
 const overflow = new Map(big.map((c) => {
   const visible = new Set(c.top.map((m) => m.id));
-  return [c.id, (members.get(c.id) ?? [])
-    .filter((m) => !visible.has(m.id))
-    .sort((a, b) => b.mention_count - a.mention_count || a.title.localeCompare(b.title))];
+  return [c.id, (members.get(c.id) ?? []).filter((m) => !visible.has(m.id)).sort(byMentions)];
 }));
+// A split cluster lists every member under its sub-group instead of one long overflow.
+const unsplit = new Map(big.map((c) => [c.id, (members.get(c.id) ?? []).filter((m) => m.subcommunity_id == null).sort(byMentions)]));
 ---
 <Base
   bodyClass="utility"
@@ -47,7 +49,28 @@ const overflow = new Map(big.map((c) => {
             </li>
           ))}
         </ul>
-        {(overflow.get(c.id)?.length ?? 0) > 0 && (
+        {c.subs?.length ? (
+          <div class="cluster-subs">
+            <h3 class="cluster-subs-label">{c.subs.length} sub-groups</h3>
+            {[...c.subs.map((s) => ({ id: `s-${s.id}`, label: s.label, list: (bySub.get(s.id) ?? []).sort(byMentions) })),
+              ...((unsplit.get(c.id)?.length ?? 0) > 0 ? [{ id: undefined, label: 'Other entries', list: unsplit.get(c.id)! }] : [])].map((g) => (
+              <details class="cluster-overflow cluster-sub" id={g.id}>
+                <summary><span class="cluster-sub-name">{g.label}</span> <span class="cluster-sub-size">{g.list.length}</span></summary>
+                <ul class="hc-list cluster-members">
+                  {g.list.map((m) => (
+                    <li class={'hc-item type-' + m.type}>
+                      <a href={hrefFor(m)} data-preview>
+                        <span class="hc-eyebrow">{TYPE_LABELS[m.type]}</span>
+                        <span class="hc-title">{m.title}</span>
+                        <span class="hc-mult">{m.mention_count}</span>
+                      </a>
+                    </li>
+                  ))}
+                </ul>
+              </details>
+            ))}
+          </div>
+        ) : (overflow.get(c.id)?.length ?? 0) > 0 && (
           <details class="cluster-overflow">
             <summary>
               <span class="cluster-expand">Show {overflow.get(c.id)!.length.toLocaleString()} more pages</span>
@@ -97,7 +120,22 @@ const overflow = new Map(big.map((c) => {
   </article>
 </Base>
 
+<script>
+  // Graph panels link to #s-<id>; open that sub-group's section.
+  const openTarget = () => {
+    const t = location.hash && document.getElementById(decodeURIComponent(location.hash.slice(1)));
+    if (t instanceof HTMLDetailsElement) { t.open = true; t.scrollIntoView(); }
+  };
+  openTarget();
+  addEventListener('hashchange', openTarget);
+</script>
+
 <style>
+  .cluster-subs {margin-top:18px;border-top:1px solid var(--line)}
+  .cluster-subs-label {font:600 12px/1.4 var(--sans);text-transform:uppercase;letter-spacing:.05em;color:var(--muted);margin:12px 0 2px}
+  .cluster-sub {border-bottom:1px solid var(--line)}
+  .cluster-sub summary {display:flex;justify-content:space-between;gap:16px;width:auto}
+  .cluster-sub-size {color:var(--muted);font-variant-numeric:tabular-nums}
   .cluster-method {font:400 14px/1.45 var(--sans);color:var(--muted);margin:18px 0 42px;max-width:65ch}
   .cluster-method summary {cursor:pointer;text-decoration:underline;text-underline-offset:3px}
   .cluster-method p {margin:10px 0}

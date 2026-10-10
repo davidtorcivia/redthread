@@ -186,6 +186,15 @@ const relations = [...(e?.relations ?? []), ...(e?.relations_in ?? [])]
       engine.relationEdges = relationEdges;
     }
 
+    // "Cluster" and "Within it" lines, linked to the group's section on /clusters/.
+    function clusterLines(n) {
+      const link = (text, href) => { const a = el('a', '', text); a.href = href; return a; };
+      const out = [];
+      if (n.community >= 0 && data.communityLabels[n.community]) out.push(['Cluster: ', link(data.communityLabels[n.community], `/clusters/#c-${n.community}`)]);
+      if (n.sub >= 0 && data.subcommunityLabels?.[n.sub]) out.push(['Within it: ', link(data.subcommunityLabels[n.sub], `/clusters/#s-${n.sub}`)]);
+      return out;
+    }
+
     // The selection panel: how the selected entry relates to the focal one.
     function describe(i) {
       const n = engine.nodes[i];
@@ -193,7 +202,7 @@ const relations = [...(e?.relations ?? []), ...(e?.relations_in ?? [])]
       const focal = data.titles[focalIdx];
       const lines = [];
       if (relationsAt.has(i)) lines.push([relationsAt.get(i).join('; ')]);
-      if (n.community >= 0 && data.communityLabels[n.community]) lines.push([`Cluster: ${data.communityLabels[n.community]}`]);
+      lines.push(...clusterLines(n));
       const pos = data.adj[focalIdx].indexOf(n.g);
       const link = pos < 0 ? `Two steps from ${focal}`
         : ['Named alongside ' + focal + ', without a link', `${focal} links here`, `Links to ${focal}`, `Linked both ways with ${focal}`][data.dir[focalIdx][pos]];
@@ -215,18 +224,35 @@ const relations = [...(e?.relations ?? []), ...(e?.relations_in ?? [])]
     // --- Layouts (mutate g.nodes in place) ------------------------------
     // The entry at the centre, its neighbours in islands by site-wide community
     // (the same islands /network/ draws), and an island for the scattered rest.
+    // A community holding SPLIT or more neighbours breaks into its sub-communities,
+    // so an entry whose world is mostly one cluster still shows its structure.
     function applyClusterLayout(g) {
-      const groups = new Map();
-      for (const n of g.nodes) {
-        if (n.isFocal) continue;
-        if (!groups.has(n.community)) groups.set(n.community, []);
-        groups.get(n.community).push(n);
+      const SPLIT = 20;
+      const byKey = (nodes, key) => {
+        const out = new Map();
+        for (const n of nodes) {
+          if (!out.has(key(n))) out.set(key(n), []);
+          out.get(key(n)).push(n);
+        }
+        return [...out.values()];
+      };
+      const islands = [];
+      const rest = [];
+      for (const members of byKey(g.nodes.filter((n) => !n.isFocal), (n) => n.community)) {
+        const c = members[0].community;
+        if (members.length < 3 || c < 0) { rest.push(...members); continue; }
+        const label = g.communityLabels[c];
+        if (members.length < SPLIT || !data.subcommunityLabels) { islands.push({ members, label }); continue; }
+        const leftover = [];
+        for (const group of byKey(members, (n) => n.sub)) {
+          const s = group[0].sub;
+          if (s >= 0 && group.length >= 3) islands.push({ members: group, label: data.subcommunityLabels[s] });
+          else leftover.push(...group);
+        }
+        if (leftover.length >= 3) islands.push({ members: leftover, label });
+        else rest.push(...leftover);
       }
-      const big = (m) => m.length >= 3 && m[0].community >= 0;
-      const islands = [...groups.values()].filter(big)
-        .map((members) => ({ members, label: g.communityLabels[members[0].community] }))
-        .sort((a, b) => b.members.length - a.members.length);
-      const rest = [...groups.values()].filter((m) => !big(m)).flat();
+      islands.sort((a, b) => b.members.length - a.members.length);
       if (rest.length) islands.push({ members: rest, label: 'Other connections' });
       layoutIslands(g, [{ members: g.nodes.filter((n) => n.isFocal) }, ...islands],
         { per: 30, base: 30, inset: 20, gap: 50 }, data.clusterPositions);

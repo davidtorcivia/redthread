@@ -18,6 +18,8 @@ export interface GraphNode {
   bridgeRank: number;
   hubRank: number;
   community: number;
+  /** Sub-community inside `community`, or -1. */
+  sub: number;
   x: number;
   y: number;
   size: number;
@@ -39,6 +41,8 @@ export interface Annotation {
   y: number;
   r: number;
   text: string;
+  /** Shown only when zoomed in at least this far past the fitted view. */
+  minZoom?: number;
 }
 
 export type Edge = [number, number];
@@ -156,6 +160,7 @@ export class GraphEngine {
   currentLayout: string;
   private layoutIdx = 0;
   private dpr = 1;
+  private fitScale = 1;
   private drawScheduled = false;
   /** True while panning or zooming: the full graph skips labels until it settles. */
   private interacting = false;
@@ -271,9 +276,9 @@ export class GraphEngine {
     if (minX === Infinity) return;
     const { W, H } = this.canvasSize();
     // Island names sit outside the dots, so leave room for them.
-    const pad = this.P.fitPad + (this.annotations.length ? 40 : 0);
+    const pad = this.P.fitPad + (this.annotations.some((a) => !a.minZoom) ? 40 : 0);
     const w = Math.max(1, maxX - minX), h = Math.max(1, maxY - minY);
-    this.view.scale = Math.min((W - 2 * pad) / w, (H - 2 * pad) / h);
+    this.view.scale = this.fitScale = Math.min((W - 2 * pad) / w, (H - 2 * pad) / h);
     this.view.tx = (W - w * this.view.scale) / 2 - minX * this.view.scale;
     this.view.ty = (H - h * this.view.scale) / 2 - minY * this.view.scale;
     this.requestDraw();
@@ -550,6 +555,7 @@ export class GraphEngine {
     const overlaps = (b: { x: number; y: number; w: number; h: number }) =>
       drawn.some((d) => b.x < d.x + d.w + 6 && b.x + b.w + 6 > d.x && b.y < d.y + d.h + 4 && b.y + b.h + 4 > d.y);
     for (const a of this.annotations) {
+      if (a.minZoom && this.view.scale < this.fitScale * a.minZoom) continue;
       const [lead, ...rest] = a.text.split(' · ');
       ctx.font = '700 12px "Archivo", sans-serif';
       const head = lead.toUpperCase();
@@ -1146,6 +1152,7 @@ export function nodeFromAdjacency(data: Adjacency, i: number, size: number): Gra
     bridgeRank: data.bridges[i]?.rank ?? 0,
     hubRank: data.hubs[i]?.rank ?? 0,
     community: data.communities[i] ?? -1,
+    sub: data.subcommunities?.[i] ?? -1,
     x: 0, y: 0, size, visible: true,
   };
 }

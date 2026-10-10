@@ -353,6 +353,18 @@ class TestRankings(unittest.TestCase):
         self.assertEqual(at["loner"], [0.0, 0.0])  # no community
         self.assertEqual(pos, again)  # the cached copy matches
 
+    def test_subcommunities_split_a_big_community_along_its_dense_parts(self):
+        # One community holding two tight groups that share a single link.
+        ents = self.ents(*[f"a{i}" for i in range(5)], *[f"b{i}" for i in range(5)], "small")
+        edges = [edge(f"{g}{i}", f"{g}{j}", count=3) for g in "ab" for i in range(5) for j in range(i + 1, 5)]
+        edges += [edge("a0", "b0")]
+        community_of = {e["id"]: 0 for e in ents if e["id"] != "small"} | {"small": 1}
+        sub = pv.compute_subcommunities(ents, edges, community_of, resolution=1.0, exclude_types=set(), min_size=5)
+        self.assertEqual(len({sub[f"a{i}"] for i in range(5)}), 1)
+        self.assertEqual(len({sub[f"b{i}"] for i in range(5)}), 1)
+        self.assertNotEqual(sub["a0"], sub["b0"])
+        self.assertNotIn("small", sub)  # under min_size, not split
+
 class TestBuildAdjacency(unittest.TestCase):
     def test_dir_bits_follow_link_direction(self):
         ents = [make_entity("a", "A"), make_entity("b", "B"), make_entity("c", "C")]

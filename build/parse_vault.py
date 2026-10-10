@@ -983,6 +983,75 @@ def compute_hub_scores(
             for rank, (eid, score) in enumerate(ranked[:top_n], start=1)}
 
 
+def _weighted_pairs(entities: list[dict[str, Any]], edges: list[dict[str, Any]]):
+    """(type_of, {(a, b): weight} with a < b, {node: Counter of neighbour weights})."""
+    type_of = {e["id"]: e["type"] for e in entities}
+    pair_w: Counter = Counter()
+    for s, t, _, w in resolved_edges(edges, type_of):
+        pair_w[(s, t) if s < t else (t, s)] += w
+    neighbours: dict[str, Counter] = defaultdict(Counter)
+    for (a, b), w in pair_w.items():
+        neighbours[a][b] = neighbours[b][a] = w
+    return type_of, pair_w, neighbours
+
+
+def _detect_communities(
+    order: list[str], type_of: dict[str, str], pair_w: Counter, neighbours: dict[str, Counter],
+    resolution: float, exclude_types: set[str],
+) -> dict[str, int]:
+    """Weighted Louvain over the nodes in `order` and the links among them.
+
+    Places and index notes would glue every story into one community, so
+    detect without them, then hang each on its neighbours' main community.
+    """
+    keep = {n for n in order if type_of[n] not in exclude_types}
+    # Built in `order`: Louvain depends on iteration order, and a
+    # g.subgraph() view iterates a set.
+    g = nx.Graph()
+    g.add_nodes_from(n for n in order if n in keep)
+    g.add_weighted_edges_from((a, b, w) for (a, b), w in pair_w.items() if a in keep and b in keep)
+    communities = nx.community.louvain_communities(g, weight="weight", resolution=resolution, seed=42)
+    cid_of = {n: cid for cid, members in enumerate(communities) for n in members}
+    community_of = {n: cid_of[n] for n in order if n in cid_of}
+    for node in order:  # in order: earlier attachments vote for later ones
+        if node in keep:
+            continue
+        votes: Counter = Counter()
+        for nb, w in neighbours[node].items():
+            if nb in community_of:
+                votes[community_of[nb]] += w
+        if votes:
+            community_of[node] = votes.most_common(1)[0][0]
+    return community_of
+
+
+def compute_subcommunities(
+    entities: list[dict[str, Any]], edges: list[dict[str, Any]], community_of: dict[str, int],
+    resolution: float, exclude_types: set[str], min_size: int = 40,
+) -> dict[str, int]:
+    """Split each community of at least `min_size` one level further, by the same
+    weighted Louvain over the links inside it. Sub-community ids run 0.. across all
+    communities; a community that does not split, or is too small, gets none."""
+    type_of, pair_w, neighbours = _weighted_pairs(entities, edges)
+    by_community: dict[int, list[str]] = defaultdict(list)
+    for n in type_of:
+        if n in community_of:
+            by_community[community_of[n]].append(n)
+    sub_of: dict[str, int] = {}
+    for c in sorted(by_community):
+        members = by_community[c]
+        if len(members) < min_size:
+            continue
+        local = _detect_communities(members, type_of, pair_w, neighbours, resolution, exclude_types)
+        if len(set(local.values())) < 2:
+            continue
+        base = max(sub_of.values(), default=-1) + 1
+        for n in members:
+            if n in local:
+                sub_of[n] = base + local[n]
+    return sub_of
+
+
 def compute_bridge_scores(
     entities: list[dict[str, Any]], edges: list[dict[str, Any]],
     resolution: float, exclude_types: set[str], top_n: int = 50,
@@ -997,34 +1066,8 @@ def compute_bridge_scores(
     """
     if len(entities) < 3:
         return {}, {}
-    type_of = {e["id"]: e["type"] for e in entities}
-    pair_w: Counter = Counter()
-    for s, t, _, w in resolved_edges(edges, type_of):
-        pair_w[(s, t) if s < t else (t, s)] += w
-    neighbours: dict[str, Counter] = defaultdict(Counter)
-    for (a, b), w in pair_w.items():
-        neighbours[a][b] = neighbours[b][a] = w
-
-    # Places and index notes would glue every story into one community, so
-    # detect without them, then hang each on its neighbours' main community.
-    keep = {n for n, t in type_of.items() if t not in exclude_types}
-    # Built in entity order: Louvain depends on iteration order, and a
-    # g.subgraph() view iterates a set.
-    g = nx.Graph()
-    g.add_nodes_from(n for n in type_of if n in keep)
-    g.add_weighted_edges_from((a, b, w) for (a, b), w in pair_w.items() if a in keep and b in keep)
-    communities = nx.community.louvain_communities(g, weight="weight", resolution=resolution, seed=42)
-    cid_of = {n: cid for cid, members in enumerate(communities) for n in members}
-    community_of = {n: cid_of[n] for n in type_of if n in cid_of}
-    for node in type_of:  # in order: earlier attachments vote for later ones
-        if node in keep:
-            continue
-        votes: Counter = Counter()
-        for nb, w in neighbours[node].items():
-            if nb in community_of:
-                votes[community_of[nb]] += w
-        if votes:
-            community_of[node] = votes.most_common(1)[0][0]
+    type_of, pair_w, neighbours = _weighted_pairs(entities, edges)
+    community_of = _detect_communities(list(type_of), type_of, pair_w, neighbours, resolution, exclude_types)
 
     # Below this many citing pages, entropy is noise (3 pages from 3 clusters).
     min_inbound = 4
@@ -1467,6 +1510,24 @@ def main() -> int:
     adjacency["communities"] = [community_of.get(eid, -1) for eid in ids]
     communities = summarize_communities(entities, community_of)
     adjacency["communityLabels"] = [c["label"] for c in communities]
+    # One level down inside big communities, for the islands on entity graphs and
+    # the names /network/ shows when zoomed into an island.
+    sub_of = compute_subcommunities(entities, edges, community_of,
+                                    resolution=float(cfg["clusterResolution"]),
+                                    exclude_types=set(cfg["clusterExcludeTypes"]))
+    adjacency["subcommunities"] = [sub_of.get(eid, -1) for eid in ids]
+    subs = summarize_communities(entities, sub_of)
+    adjacency["subcommunityLabels"] = [s["label"] for s in subs]
+    # /clusters/ lists each community's sub-communities, biggest first.
+    for c in communities:
+        c["subs"] = []
+    for s in sorted(subs, key=lambda s: -s["size"]):
+        if s["top"]:
+            communities[community_of[s["top"][0]["id"]]]["subs"].append(
+                {"id": s["id"], "label": s["label"], "size": s["size"]})
+    for e in entities:
+        if e["id"] in sub_of:
+            e["subcommunity_id"] = sub_of[e["id"]]
     adjacency["hubs"] = {str(i): {"rank": hubs[eid]["rank"], "score": hubs[eid]["score"]}
                          for i, eid in enumerate(ids) if eid in hubs}
 

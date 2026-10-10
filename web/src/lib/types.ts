@@ -77,6 +77,8 @@ export interface Entity {
   hub_score?: number;
   /** Louvain community; ids can shift between builds as the graph changes. */
   community_id?: number;
+  /** Sub-community inside community_id, for big communities. */
+  subcommunity_id?: number;
   /** Frontmatter dates, normalized to "YYYY" or "YYYY-MM-DD". */
   dates: {
     born?: string;

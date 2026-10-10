@@ -50,7 +50,7 @@ const total = entities().length;
   <script>
     import { GraphEngine, nodeFromAdjacency, adjacencyEdges } from '../scripts/graph-canvas';
     import { closeness } from '../scripts/graph-rank';
-    import { layoutIslands } from '../scripts/islands';
+    import { annotateSubcommunities, layoutIslands } from '../scripts/islands';
     import { loadAdjacency } from '../scripts/adjacency';
     import { el, entityHref } from '../scripts/entity-types';
     // The whole vault. This file loads every node, supplies the whole-graph
@@ -65,6 +65,7 @@ const total = entities().length;
     const activeTypes = new Set(['person', 'organization', 'program', 'event', 'concept', 'place', 'source', 'meta', 'misc', 'page']);
     let positions = null;
     let clusterPositions = null;
+    let subcommunityLabels = undefined;
     let initStarted = false;
 
     const engine = new GraphEngine(article, {
@@ -80,7 +81,9 @@ const total = entities().length;
         const n = engine.nodes[i];
         const near = engine.neighborSets[i];
         const lines = [[`${near.size.toLocaleString()} connections in this view`]];
-        if (n.community >= 0 && engine.communityLabels[n.community]) lines.unshift([`Cluster: ${engine.communityLabels[n.community]}`]);
+        const link = (text, href) => { const a = el('a', '', text); a.href = href; return a; };
+        if (n.sub >= 0 && subcommunityLabels?.[n.sub]) lines.unshift(['Within it: ', link(subcommunityLabels[n.sub], `/clusters/#s-${n.sub}`)]);
+        if (n.community >= 0 && engine.communityLabels[n.community]) lines.unshift(['Cluster: ', link(engine.communityLabels[n.community], `/clusters/#c-${n.community}`)]);
         // Closest: specific ties first, not the hubs that link to everything.
         const score = (j) => {
           let shared = 0;
@@ -120,6 +123,7 @@ const total = entities().length;
       }
       positions = data.positions;
       clusterPositions = data.clusterPositions ?? null;
+      subcommunityLabels = data.subcommunityLabels;
       const nodes = data.ids.map((_, i) => {
         // Small dots: a constellation at fit zoom, not boulders.
         const size = 2 + Math.log2(1 + (data.mentions[i] || 0)) * 0.9 + (data.bridges[i] ? 1 : 0);
@@ -171,6 +175,8 @@ const total = entities().length;
       if (fragments.length) islands.push({ members: fragments, label: 'Small clusters' });
       islands.sort((a, b) => b.members.length - a.members.length);
       layoutIslands(g, islands, { per: 21, base: 50, inset: 45, gap: 65 }, clusterPositions);
+      // Zoomed in, each island names its sub-communities.
+      annotateSubcommunities(g, subcommunityLabels, 6, 2.2);
     }
     function applyForceLayout(g) {
       const scale = FORCE_BASELINE * g.forceMult;

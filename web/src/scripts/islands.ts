@@ -70,3 +70,21 @@ export function layoutIslands(
     if (label) g.annotations.push({ x: best.x, y: best.y, r: extent + 8, text: label });
   }
 }
+
+/** Names for the sub-communities inside each island, at the centre of their members,
+ *  shown once the reader zooms in. Call after layoutIslands. */
+export function annotateSubcommunities(g: GraphEngine, labels: string[] | undefined, minMembers: number, minZoom: number): void {
+  if (!labels) return;
+  const groups = new Map<number, GraphNode[]>();
+  for (const n of g.nodes) {
+    if (!n.visible || n.sub < 0) continue;
+    if (!groups.has(n.sub)) groups.set(n.sub, []);
+    groups.get(n.sub)!.push(n);
+  }
+  for (const [s, members] of groups) {
+    if (members.length < minMembers || !labels[s]) continue;
+    const x = members.reduce((t, n) => t + n.x, 0) / members.length;
+    const y = members.reduce((t, n) => t + n.y, 0) / members.length;
+    g.annotations.push({ x, y, r: 0, text: labels[s], minZoom });
+  }
+}
