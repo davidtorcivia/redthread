@@ -15,6 +15,7 @@ const overflow = new Map(big.map((c) => {
   return [c.id, (members.get(c.id) ?? []).filter((m) => !visible.has(m.id)).sort(byMentions)];
 }));
 // A split cluster lists every member under its sub-group instead of one long overflow.
+const SUB_SHOWN = 12;
 const unsplit = new Map(big.map((c) => [c.id, (members.get(c.id) ?? []).filter((m) => m.subcommunity_id == null).sort(byMentions)]));
 ---
 <Base
@@ -54,19 +55,23 @@ const unsplit = new Map(big.map((c) => [c.id, (members.get(c.id) ?? []).filter((
             <h3 class="cluster-subs-label">{c.subs.length} sub-groups</h3>
             {[...c.subs.map((s) => ({ id: `s-${s.id}`, label: s.label, list: (bySub.get(s.id) ?? []).sort(byMentions) })),
               ...((unsplit.get(c.id)?.length ?? 0) > 0 ? [{ id: undefined, label: 'Other entries', list: unsplit.get(c.id)! }] : [])].map((g) => (
-              <details class="cluster-overflow cluster-sub" id={g.id}>
+              <details class="cluster-sub" id={g.id}>
                 <summary><span class="cluster-sub-name">{g.label}</span> <span class="cluster-sub-size">{g.list.length}</span></summary>
-                <ul class="hc-list cluster-members">
-                  {g.list.map((m) => (
-                    <li class={'hc-item type-' + m.type}>
-                      <a href={hrefFor(m)} data-preview>
-                        <span class="hc-eyebrow">{TYPE_LABELS[m.type]}</span>
-                        <span class="hc-title">{m.title}</span>
-                        <span class="hc-mult">{m.mention_count}</span>
-                      </a>
-                    </li>
+                <ul class="cluster-sub-list">
+                  {g.list.slice(0, SUB_SHOWN).map((m) => (
+                    <li><a href={hrefFor(m)} data-preview class={`type-${m.type}`}>{m.title}</a> <span>{m.mention_count}</span></li>
                   ))}
                 </ul>
+                {g.list.length > SUB_SHOWN && (
+                  <details class="cluster-sub-more">
+                    <summary>+{g.list.length - SUB_SHOWN} more</summary>
+                    <ul class="cluster-sub-list">
+                      {g.list.slice(SUB_SHOWN).map((m) => (
+                        <li><a href={hrefFor(m)} data-preview class={`type-${m.type}`}>{m.title}</a> <span>{m.mention_count}</span></li>
+                      ))}
+                    </ul>
+                  </details>
+                )}
               </details>
             ))}
           </div>
@@ -131,11 +136,31 @@ const unsplit = new Map(big.map((c) => [c.id, (members.get(c.id) ?? []).filter((
 </script>
 
 <style>
+  /* Sub-groups: cards in columns on desktop, each showing its members; collapsed
+     rows to tap open on a phone. Desktop shows a closed card's contents through
+     ::details-content, so nothing reflows after load; without it, cards just
+     stay collapsible. */
   .cluster-subs {margin-top:18px;border-top:1px solid var(--line)}
-  .cluster-subs-label {font:600 12px/1.4 var(--sans);text-transform:uppercase;letter-spacing:.05em;color:var(--muted);margin:12px 0 2px}
+  .cluster-subs-label {font:600 12px/1.4 var(--sans);text-transform:uppercase;letter-spacing:.05em;color:var(--muted);margin:12px 0 6px}
   .cluster-sub {border-bottom:1px solid var(--line)}
-  .cluster-sub summary {display:flex;justify-content:space-between;gap:16px;width:auto}
-  .cluster-sub-size {color:var(--muted);font-variant-numeric:tabular-nums}
+  .cluster-sub > summary {display:flex;justify-content:space-between;align-items:baseline;gap:16px;padding:10px 0;cursor:pointer;font:600 14px/1.35 var(--sans);color:var(--ink)}
+  .cluster-sub > summary:hover {color:var(--accent)}
+  .cluster-sub-size,.cluster-sub-list span {color:var(--muted);font-weight:400;font-variant-numeric:tabular-nums}
+  .cluster-sub-list {list-style:none;margin:0 0 10px;padding:0;font:400 14px/1.35 var(--sans)}
+  .cluster-sub-list li {display:flex;justify-content:space-between;gap:12px;padding:3px 0}
+  .cluster-sub-list a {color:var(--ink);text-decoration:none}
+  .cluster-sub-list a:hover {color:var(--accent);text-decoration:underline}
+  .cluster-sub-more > summary {cursor:pointer;font:500 13px/1.4 var(--sans);color:var(--muted);padding:2px 0 10px;width:fit-content}
+  .cluster-sub-more > summary:hover {color:var(--accent)}
+  @media (min-width:901px) {
+    .cluster-subs {columns:3 16rem;column-gap:40px}
+    .cluster-subs-label {column-span:all}
+    .cluster-sub {break-inside:avoid;border:0;border-top:2px solid var(--ink);margin:0 0 22px;padding-top:2px}
+    .cluster-sub::details-content {content-visibility:visible;display:block}
+    .cluster-sub > summary {cursor:default;list-style:none}
+    .cluster-sub > summary::-webkit-details-marker {display:none}
+    .cluster-sub > summary:hover {color:var(--ink)}
+  }
   .cluster-method {font:400 14px/1.45 var(--sans);color:var(--muted);margin:18px 0 42px;max-width:65ch}
   .cluster-method summary {cursor:pointer;text-decoration:underline;text-underline-offset:3px}
   .cluster-method p {margin:10px 0}
