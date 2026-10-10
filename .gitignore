@@ -6,6 +6,7 @@ config.json
 data/
 web/dist/
 web/.dist-build/
+web/.dist-rollback/
 web/.astro/
 web/.og-cache/
 web/.cf-assets/

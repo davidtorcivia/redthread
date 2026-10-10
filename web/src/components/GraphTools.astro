@@ -27,7 +27,7 @@ const { full = false, id } = Astro.props;
           {[['person','People'],['organization','Organizations'],['program','Programs'],['event','Events'],['concept','Concepts'],['place','Places']].map(([type,label]) => <button class={`net-chip active type-${type}`} data-type={type} aria-pressed="true">{label}</button>)}
         </div>}
         <div class="net-sliders">
-          {[['opacity','Visibility',0,100],['highlight','Focus',0,100],['force','Spacing',50,400]].map(([key,label,min,max]) => <label class="net-slider" data-force-only={key === 'force' ? '' : undefined}>
+          {[['opacity','Visibility',0,100],['highlight','Fade others',0,100],['force','Spacing',50,400]].map(([key,label,min,max]) => <label class="net-slider" data-force-only={key === 'force' ? '' : undefined}>
             <span class="net-slider-label">{label}</span>
             <input type="range" class="net-slider-input" data-slider={key} min={min} max={max} value="100" />
             <span class="net-slider-val" data-slider-val={key}>100%</span>

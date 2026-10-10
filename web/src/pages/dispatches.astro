@@ -1,5 +1,6 @@
 ---
 import Base from '../layouts/Base.astro';
+import Headline from '../components/Headline.astro';
 import { dispatches, entity, hrefFor, renderInlineMd, TYPE_LABELS } from '../lib/data.ts';
 
 const items = dispatches();
@@ -17,7 +18,7 @@ function dayLabel(iso: string): string {
 >
   <article class="entity-article dispatches">
     <header class="statement-band entry-band">
-      <h1 class="entity-title">Dispatches</h1>
+      <Headline class="entity-title" title="Dispatches" />
       <div class="band-row">
         <p class="band-lede">Findings that connect records across the vault, newest first.</p>
       </div>

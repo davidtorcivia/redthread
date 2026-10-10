@@ -136,16 +136,19 @@ const unsplit = new Map(big.map((c) => [c.id, (members.get(c.id) ?? []).filter((
 </script>
 
 <style>
-  /* Sub-groups: cards in columns on desktop, each showing its members; collapsed
-     rows to tap open on a phone. Desktop shows a closed card's contents through
-     ::details-content, so nothing reflows after load; without it, cards just
-     stay collapsible. */
+  /* Sub-groups: names only until opened, in columns on desktop and a single
+     list on a phone. */
   .cluster-subs {margin-top:18px;border-top:1px solid var(--line)}
   .cluster-subs-label {font:600 12px/1.4 var(--sans);text-transform:uppercase;letter-spacing:.05em;color:var(--muted);margin:12px 0 6px}
   .cluster-sub {border-bottom:1px solid var(--line)}
   .cluster-sub > summary {display:flex;justify-content:space-between;align-items:baseline;gap:16px;padding:10px 0;cursor:pointer;font:600 14px/1.35 var(--sans);color:var(--ink)}
   .cluster-sub > summary:hover {color:var(--accent)}
   .cluster-sub-size,.cluster-sub-list span {color:var(--muted);font-weight:400;font-variant-numeric:tabular-nums}
+  .cluster-sub > summary {list-style:none}
+  .cluster-sub-size {flex:none;white-space:nowrap}
+  .cluster-sub > summary::-webkit-details-marker {display:none}
+  .cluster-sub-size::after {content:'+';display:inline-block;width:1em;margin-left:10px;text-align:center;color:var(--ink)}
+  .cluster-sub[open] .cluster-sub-size::after {content:'−'}
   .cluster-sub-list {list-style:none;margin:0 0 10px;padding:0;font:400 14px/1.35 var(--sans)}
   .cluster-sub-list li {display:flex;justify-content:space-between;gap:12px;padding:3px 0}
   .cluster-sub-list a {color:var(--ink);text-decoration:none}
@@ -155,11 +158,7 @@ const unsplit = new Map(big.map((c) => [c.id, (members.get(c.id) ?? []).filter((
   @media (min-width:901px) {
     .cluster-subs {columns:3 16rem;column-gap:40px}
     .cluster-subs-label {column-span:all}
-    .cluster-sub {break-inside:avoid;border:0;border-top:2px solid var(--ink);margin:0 0 22px;padding-top:2px}
-    .cluster-sub::details-content {content-visibility:visible;display:block}
-    .cluster-sub > summary {cursor:default;list-style:none}
-    .cluster-sub > summary::-webkit-details-marker {display:none}
-    .cluster-sub > summary:hover {color:var(--ink)}
+    .cluster-sub {break-inside:avoid}
   }
   .cluster-method {font:400 14px/1.45 var(--sans);color:var(--muted);margin:18px 0 42px;max-width:65ch}
   .cluster-method summary {cursor:pointer;text-decoration:underline;text-underline-offset:3px}

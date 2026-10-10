@@ -155,6 +155,7 @@ export class GraphEngine {
   /** Indexed by community id. */
   communityLabels: string[] = [];
   opacityMult = 1;
+  /** How far a selection or hover fades everything else, 0 (not at all) to 1. */
   highlightStrength = 1;
   forceMult = 1;
   currentLayout: string;
@@ -495,7 +496,7 @@ export class GraphEngine {
     if (this.edgesVisible) {
       const key = `${W}|${H}|${this.dpr}|${this.showImplicit}|${this.version}`;
       // A selection or hover fades the idle edges rather than redrawing them.
-      this.paintLayer(this.idleLayer, key, W, H, focus ? .36 : 1, (c) => this.drawIdleEdges(c, W, H));
+      this.paintLayer(this.idleLayer, key, W, H, focus ? 1 - .64 * this.highlightStrength : 1, (c) => this.drawIdleEdges(c, W, H));
       const selected = new Set(this.selectedEdges);
       for (const i of this.selectedNodes) for (const k of this.incident[i]) selected.add(k);
       if (selected.size) this.paintLayer(this.selectionLayer, key, W, H, 1, (c) => this.drawLitEdges(c, selected, W, H));
@@ -516,7 +517,7 @@ export class GraphEngine {
         if (active !== top || !n.visible || x + r < 0 || x - r > W || y + r < 0 || y - r > H) continue;
         const inFocus = !focus || focus.has(i);
         // Second-hop nodes are drawn a little fainter than the first ring.
-        ctx.globalAlpha = active ? 1 : (inFocus ? .88 : .13 + .27 * (1 - this.highlightStrength)) *
+        ctx.globalAlpha = active ? 1 : (inFocus ? .88 : .88 - .75 * this.highlightStrength) *
           this.opacityMult * (n.hop === 2 ? .62 : 1);
         if (active) {
           ctx.fillStyle = hexToRgba(COLORS.accent, .1);
@@ -817,7 +818,8 @@ export class GraphEngine {
     };
 
     canvas.addEventListener('mousedown', (e) => onDown(e.clientX, e.clientY));
-    window.addEventListener('mouseup', (e) => onUp(e.clientX, e.clientY, false, e.shiftKey));
+    // Shift, Ctrl or Cmd adds to the selection (Cmd because Ctrl-click opens the menu on a Mac).
+    window.addEventListener('mouseup', (e) => onUp(e.clientX, e.clientY, false, e.shiftKey || e.ctrlKey || e.metaKey));
     canvas.addEventListener('mousemove', (e) => onMove(e.clientX, e.clientY));
     // The entity graph sits in a scrolling page: the wheel scrolls past it unless the reader
     // asks to zoom, with Ctrl/Cmd (a trackpad pinch sets ctrlKey too) or by clicking the graph.
