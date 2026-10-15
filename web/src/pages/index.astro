@@ -1,7 +1,7 @@
 ---
 import Base from '../layouts/Base.astro';
 import { SITE_DESCRIPTION, SITE_TITLE } from '../lib/site.ts';
-import { activity, BROWSE_TYPES, communities, dispatches, entities, entity, focus, CLUSTER_MIN_SIZE, hrefFor, renderInlineMd, topHubs, TYPE_DIRS, TYPE_LABELS, TYPE_PLURALS } from '../lib/data.ts';
+import { activity, BROWSE_TYPES, communities, dispatches, dispatchHref, entities, entity, focus, CLUSTER_MIN_SIZE, hrefFor, renderInlineMd, topHubs, TYPE_DIRS, TYPE_LABELS, TYPE_PLURALS } from '../lib/data.ts';
 
 const total = entities().length;
 const inFocus = focus();
@@ -36,18 +36,18 @@ const shortDate = (iso: string) => {
       <h2 class="section-heading">Dispatches <span><a href="/dispatches/">all dispatches</a></span></h2>
       {latestDispatches.map(d => <article class="statement-item">
         <div class="item-facts"><b>{new Date(d.date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' })}</b></div>
-        <a class="item-title" href={`/dispatches/#${d.id}`}>{d.title}</a>
+        <a class="item-title" href={dispatchHref(d.id)}>{d.title}</a>
         {d.summary && <p class="item-dek" set:html={renderInlineMd(d.summary)} />}
       </article>)}
     </section>}
-    {featured.length > 0 && <section class="statement-list">
+    {featured.length > 0 && <section class="statement-list dispatch-pair">
       <h2 class="section-heading">In focus <span>most worked on, last {inFocus.days} days</span></h2>
       {featured.map(({ e, reason }) => <article class="statement-item">
         <div class="item-facts"><b>{e.mention_count} pages</b> · {TYPE_LABELS[e.type]}{e.category && <i>{e.category}</i>}{reason && <i>{reason}</i>}</div>
         <a class="item-title" href={hrefFor(e)}>{e.title}</a>
         {e.summary && <p class="item-dek" set:html={renderInlineMd(e.summary)} />}
       </article>)}
-      {focusCluster && <article class="statement-item">
+      {focusCluster && <article class="statement-item focus-cluster">
         <div class="item-facts"><b>{focusCluster.size} entries</b> · Cluster<i>{focusCluster.edited} pages edited in the last {focusCluster.days} days</i></div>
         <a class="item-title" href={`/clusters/#c-${focusCluster.id}`}>{focusCluster.label}</a>
       </article>}

@@ -61,8 +61,8 @@ function bridgeEvidence(item: Entity) {
 
       <section class="bridge-panel" id="bridge-panel" role="tabpanel" aria-labelledby="bridge-tab" data-panel="bridges">
         <div class="bridge-explain">
-          <p>Bridges are named by pages from several different clusters. The examples below show where an entry crosses between subjects.</p>
-          <details><summary>How are bridges ranked?</summary><p>The score favors mentions spread across clusters and gives less weight to names that appear everywhere. An entry needs mentions from at least four pages in two clusters. Places are excluded. A shared mention is a route for investigation, not proof of a direct relationship.</p></details>
+          <p>Bridges are named by pages from clusters that otherwise rarely meet. The examples below show where an entry crosses between subjects.</p>
+          <details><summary>How are bridges ranked?</summary><p>The score favors entries named from clusters that otherwise rarely link to each other, so a name that joins two subjects already tied together counts for less than one that joins subjects with no other route between them. Names that appear everywhere get less weight. An entry needs links from at least four pages in two clusters. Places, news outlets, archives, universities and political parties are excluded, since they are cited from every subject. A shared mention is a route for investigation, not proof of a direct relationship.</p></details>
         </div>
         <ol class="bridge-list">
           {bridges.map((item) => {

@@ -48,6 +48,7 @@ Redthread reads two files in the repo root. Both are gitignored.
 | `focusFile` | Optional note whose `[[links]]` are pinned to the homepage's "In focus" list. Other slots go to the most active entries of the last 30 days. |
 | `clusterResolution` | Cluster granularity. Higher values give more, smaller clusters. |
 | `clusterExcludeTypes` | Types that join a neighbor's cluster instead of forming their own. Defaults to place, meta, source, misc, and page. |
+| `bridgeExcludeTags` | Tags that keep an entry off the bridges ranking, such as outlets, archives and parties that are cited from every subject. Matched ignoring case, spaces, hyphens and underscores. Defaults to none. |
 
 Every key is optional. With no `config.json` at all (outside Docker), Redthread maps folders named `People`, `Organizations`, `Programs`, `Events`, `Concepts`, `Places`, `Sources`, `Meta`, and `Misc`.
 

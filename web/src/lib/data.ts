@@ -326,6 +326,12 @@ export interface Dispatch {
 
 /** Published dispatches, newest first (see dispatchDir in config.json). */
 export const dispatches = memo(() => loadOptional<Dispatch[]>('dispatches.json', []));
+export const DISPATCHES_PER_PAGE = 5;
+/** A dispatch's anchor on its page of /dispatches/ (page 1 has no number). */
+export function dispatchHref(id: string): string {
+  const page = Math.floor(Math.max(0, dispatches().findIndex((d) => d.id === id)) / DISPATCHES_PER_PAGE);
+  return `/dispatches/${page ? `${page + 1}/` : ''}#${id}`;
+}
 export function dispatchesCiting(id: string): Dispatch[] {
   return dispatches().filter((d) => d.entities.includes(id));
 }

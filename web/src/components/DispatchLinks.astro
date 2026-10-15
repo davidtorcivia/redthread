@@ -1,5 +1,5 @@
 ---
-import { dispatchesCiting } from '../lib/data.ts';
+import { dispatchesCiting, dispatchHref } from '../lib/data.ts';
 interface Props { id: string }
 const items = dispatchesCiting(Astro.props.id);
 ---
@@ -12,7 +12,7 @@ const items = dispatchesCiting(Astro.props.id);
     <ul class="hc-list">
       {items.map((d) => (
         <li class="hc-item">
-          <a href={`/dispatches/#${d.id}`}>
+          <a href={dispatchHref(d.id)}>
             <span class="hc-eyebrow">{d.date}</span>
             <span class="hc-title">{d.title}</span>
           </a>

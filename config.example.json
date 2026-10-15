@@ -11,5 +11,6 @@
   },
   "skipPathPatterns": ["Templates/**", "*.excalidraw.md"],
   "focusFile": "00 - Meta/In Focus.md",
-  "clusterResolution": 1.5
+  "clusterResolution": 1.5,
+  "bridgeExcludeTags": ["Media", "Newspaper", "Magazine", "Publisher", "Archive", "University", "Political Party"]
 }

@@ -1,6 +1,6 @@
 // Atom feed of dispatches, full text, the same data as /dispatches/.
 import type { APIRoute } from 'astro';
-import { dispatches } from '../lib/data.ts';
+import { dispatches, dispatchHref } from '../lib/data.ts';
 import { escapeHtml as esc, plainText } from '../lib/inline-md.ts';
 import { absUrl, SITE_TITLE } from '../lib/site.ts';
 
@@ -14,9 +14,12 @@ function rfc3339(date: string): string {
 export const GET: APIRoute = () => {
   const items = dispatches().slice(0, 50);
   const entries = items.map((d) => {
-    const url = esc(absUrl(`/dispatches/#${d.id}`));
-    // Relative links and anchors resolve against the dispatches page in feed readers.
-    const body = d.body_html.replaceAll('href="/', `href="${absUrl('/')}`).replaceAll('href="#', `href="${absUrl('/dispatches/')}#`);
+    // The id predates pagination and must never change; the link follows the dispatch's page.
+    const id = esc(absUrl(`/dispatches/#${d.id}`));
+    const page = absUrl(dispatchHref(d.id).split('#')[0]);
+    const url = esc(`${page}#${d.id}`);
+    // Relative links and anchors resolve against the dispatch's page in feed readers.
+    const body = d.body_html.replaceAll('href="/', `href="${absUrl('/')}`).replaceAll('href="#', `href="${page}#`);
     const notes = d.footnotes.length
       ? '<h3>Sources</h3><ol>' + d.footnotes.map((f) => `<li>${f.html ?? esc(f.text)}</li>`).join('') + '</ol>'
       : '';
@@ -24,7 +27,7 @@ export const GET: APIRoute = () => {
       '  <entry>',
       `    <title>${esc(d.title)}</title>`,
       `    <link href="${url}"/>`,
-      `    <id>${url}</id>`,
+      `    <id>${id}</id>`,
       `    <updated>${rfc3339(d.date)}</updated>`,
       d.summary ? `    <summary>${esc(plainText(d.summary))}</summary>` : '',
       `    <content type="html">${esc(body + notes)}</content>`,

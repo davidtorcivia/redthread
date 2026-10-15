@@ -106,7 +106,7 @@ const jsonLd = entityJsonLd(entity);
 
     {entity.footnotes.length > 0 && (
       <section class="footnotes-block" id="sources" data-fold="narrow">
-        <h2 class="section-label">Sources</h2>
+        <h2 class="section-label">Sources <button type="button" class="sources-toggle" aria-controls="sources-list" aria-expanded="true" hidden data-pagefind-ignore>Hide</button></h2>
         <ol id="sources-list">
           {entity.footnotes.map((f) => (
             <li id={`fn-${f.id}`}>
@@ -167,6 +167,18 @@ const jsonLd = entityJsonLd(entity);
             addEventListener('hashchange', () => { if (location.hash.startsWith('#fn-')) open(); });
           }
         }
+      })();
+
+      // Sources collapse behind the heading button. Open by default; a jump to a footnote reopens it.
+      (() => {
+        const block = document.getElementById('sources');
+        const button = block && block.querySelector('.sources-toggle');
+        if (!button) return;
+        const set = (open) => { block.classList.toggle('is-collapsed', !open); button.setAttribute('aria-expanded', String(open)); button.textContent = open ? 'Hide' : 'Show'; };
+        button.hidden = false;
+        button.addEventListener('click', () => set(block.classList.contains('is-collapsed')));
+        document.addEventListener('click', (e) => { if (e.target.closest && e.target.closest('a[href^="#fn-"]')) set(true); }, true);
+        addEventListener('hashchange', () => { if (location.hash.startsWith('#fn-')) set(true); });
       })();
 
       // Each h3 folds the content up to the next h1-h3. Open by default; find-in-page

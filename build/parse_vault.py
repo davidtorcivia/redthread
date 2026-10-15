@@ -31,6 +31,9 @@ DEFAULT_CONFIG = {
     # and the types attached to a neighbour's cluster instead of seeding one.
     "clusterResolution": 1.5,
     "clusterExcludeTypes": ["place", "meta", "source", "misc", "page"],
+    # Entries with any of these tags never rank as bridges: outlets, archives and parties are
+    # cited from every subject without connecting them. Matched ignoring case, spaces and _.
+    "bridgeExcludeTags": [],
     "skipPathPatterns": [".obsidian/**", ".obsidian-*/**", ".trash/**", ".git/**"],
     # Top-level vault folder -> entity type. Unmapped folders become "page".
     "typeMap": {
@@ -1052,15 +1055,25 @@ def compute_subcommunities(
     return sub_of
 
 
+def _tag_key(tag: str) -> str:
+    return re.sub(r"[\s_-]", "", str(tag)).lower()
+
+
 def compute_bridge_scores(
     entities: list[dict[str, Any]], edges: list[dict[str, Any]],
     resolution: float, exclude_types: set[str], top_n: int = 50,
+    exclude_tags: set[str] = frozenset(),
 ) -> tuple[dict[str, dict[str, Any]], dict[str, int]]:
-    """Louvain communities, and the entities cited from the most communities.
+    """Louvain communities, and the entities cited across the most unrelated communities.
 
-    For an entity cited by m pages spread over k communities with entropy H,
-    score = H * log(1 + k) / sqrt(m). Only inbound citations count, so a stub
-    that links out widely does not qualify; sqrt(m) keeps mega-hubs off the top.
+    For an entity cited by m pages spread over k communities with shares p_a,
+    score = Q * log(1 + k) / sqrt(m + 4), where Q = sum over a != b of
+    p_a * p_b * d(a, b) is Rao's quadratic entropy. d(a, b) = 1 / (1 + obs/exp)
+    compares the links between communities a and b with what their sizes predict,
+    so joining two subjects that already link heavily (a war, a president) counts
+    for little and joining two that never meet counts for most. Only inbound
+    citations count, so a stub that links out widely does not qualify; sqrt(m + 4)
+    keeps mega-hubs off the top without letting four citations win on luck.
 
     Returns ({id: {score, rank, community_id, community_span}}, {id: community}).
     """
@@ -1069,10 +1082,31 @@ def compute_bridge_scores(
     type_of, pair_w, neighbours = _weighted_pairs(entities, edges)
     community_of = _detect_communities(list(type_of), type_of, pair_w, neighbours, resolution, exclude_types)
 
-    # Below this many citing pages, entropy is noise (3 pages from 3 clusters).
+    # Link weight between communities, and each community's total, for d(a, b).
+    between: Counter = Counter()
+    volume: Counter = Counter()
+    for (a, b), w in pair_w.items():
+        ca, cb = community_of.get(a), community_of.get(b)
+        if ca is None or cb is None:
+            continue
+        volume[ca] += w
+        volume[cb] += w
+        if ca != cb:
+            between[(ca, cb) if ca < cb else (cb, ca)] += w
+    total = sum(volume.values()) or 1
+
+    def distance(a: int, b: int) -> float:
+        if a < 0 or b < 0:  # an uncommunitied citer says nothing about distance
+            return 0.0
+        expected = volume[a] * volume[b] / total
+        return 1 / (1 + between[(a, b) if a < b else (b, a)] / expected) if expected else 1.0
+
+    # Below this many citing pages, spread is noise (3 pages from 3 clusters).
     min_inbound = 4
     bridge_types = RANKABLE_TYPES - {"place"}  # places span every cluster by nature
-    # A dict as an ordered set, so the entropy below sums in a fixed order.
+    excluded = {_tag_key(t) for t in exclude_tags}
+    skip = {e["id"] for e in entities if excluded & {_tag_key(t) for t in e.get("tags") or []}}
+    # A dict as an ordered set, so the sums below run in a fixed order.
     inbound: dict[str, dict[str, None]] = defaultdict(dict)
     # Wikilinks only: a stray NER match ("Bond" in "James Bond") lands in an
     # unrelated cluster, which is exactly what this score rewards.
@@ -1083,16 +1117,17 @@ def compute_bridge_scores(
     scores = {}
     for node, sources in inbound.items():
         m = len(sources)
-        if m < min_inbound or type_of[node] not in bridge_types:
+        if m < min_inbound or type_of[node] not in bridge_types or node in skip:
             continue
         bucket = Counter(community_of.get(src, -1) for src in sources)
         if len(bucket) < 2:
             continue
-        h = 0.0
-        for n in bucket.values():
-            h -= n / m * math.log(n / m)
+        share = sorted((c, n / m) for c, n in bucket.items())
+        q = sum(pa * pb * distance(a, b) for a, pa in share for b, pb in share if a != b)
+        if q <= 0:
+            continue
         scores[node] = {
-            "score": h * math.log(1 + len(bucket)) / math.sqrt(m),
+            "score": q * math.log(1 + len(bucket)) / math.sqrt(m + 4),
             "community_id": community_of.get(node, -1),
             "community_span": len(bucket),
         }
@@ -1264,7 +1299,7 @@ def read_focus_pins(path: Path | None, slug_index: dict[str, str]) -> list[str]:
 def compute_focus(
     entities: list[dict[str, Any]], edges: list[dict[str, Any]],
     communities: list[dict[str, Any]], edits: Counter,
-    pins: list[str], slots: int = 3, days: int = 30,
+    pins: list[str], slots: int = 4, days: int = 30,
 ) -> dict[str, Any]:
     """Pages with momentum, for the homepage.
 
@@ -1470,7 +1505,8 @@ def main() -> int:
     t = time.time()
     bridges, community_of = compute_bridge_scores(
         entities, edges, resolution=float(cfg["clusterResolution"]),
-        exclude_types=set(cfg["clusterExcludeTypes"]))
+        exclude_types=set(cfg["clusterExcludeTypes"]),
+        exclude_tags=set(cfg["bridgeExcludeTags"]))
     print(f"[parse] bridges done in {time.time() - t:.2f}s "
           f"({len(set(community_of.values()))} communities)")
 

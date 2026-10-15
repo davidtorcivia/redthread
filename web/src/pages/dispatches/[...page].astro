@@ -1,9 +1,15 @@
 ---
-import Base from '../layouts/Base.astro';
-import Headline from '../components/Headline.astro';
-import { dispatches, entity, hrefFor, renderInlineMd, TYPE_LABELS } from '../lib/data.ts';
+import type { GetStaticPaths } from 'astro';
+import Base from '../../layouts/Base.astro';
+import Headline from '../../components/Headline.astro';
+import { dispatches, dispatchHref, DISPATCHES_PER_PAGE, entity, hrefFor, renderInlineMd, TYPE_LABELS } from '../../lib/data.ts';
 
-const items = dispatches();
+export const getStaticPaths = (({ paginate }) => paginate(dispatches(), { pageSize: DISPATCHES_PER_PAGE })) satisfies GetStaticPaths;
+
+const { page } = Astro.props;
+const items = page.data;
+// Pages shift as dispatches are added, so an old /dispatches/#id link may now live on another page.
+const homes = Object.fromEntries(dispatches().map((d) => [d.id, dispatchHref(d.id)]));
 
 function dayLabel(iso: string): string {
   const d = new Date(iso);
@@ -13,7 +19,7 @@ function dayLabel(iso: string): string {
 ---
 <Base
   bodyClass="entity type-page"
-  title="Dispatches"
+  title={page.currentPage > 1 ? `Dispatches, page ${page.currentPage}` : 'Dispatches'}
   description="Findings that connect records across the vault, newest first."
 >
   <article class="entity-article dispatches">
@@ -21,6 +27,7 @@ function dayLabel(iso: string): string {
       <Headline class="entity-title" title="Dispatches" />
       <div class="band-row">
         <p class="band-lede">Findings that connect records across the vault, newest first.</p>
+        {page.lastPage > 1 && <div class="band-facts"><div>Page {page.currentPage} of {page.lastPage} · {page.total} dispatches</div></div>}
       </div>
     </header>
 
@@ -71,5 +78,21 @@ function dayLabel(iso: string): string {
         </div>
       </section>
     ))}
+
+    {page.lastPage > 1 && (
+      <div class="statement-wrap">
+        <nav class="entry-pagination" aria-label="Dispatch pages">
+          <span>{page.url.prev && <a href={page.url.prev}>← Newer</a>}</span>
+          <span class="dispatch-pages">{Array.from({ length: page.lastPage }, (_, i) => i + 1).map((n) => n === page.currentPage
+            ? <b aria-current="page">{n}</b>
+            : <a href={n === 1 ? '/dispatches/' : `/dispatches/${n}/`}>{n}</a>)}</span>
+          <span>{page.url.next && <a href={page.url.next}>Older →</a>}</span>
+        </nav>
+      </div>
+    )}
   </article>
+  <script is:inline define:vars={{ homes }}>
+    const id = decodeURIComponent(location.hash.slice(1));
+    if (id && !document.getElementById(id) && homes[id]) location.replace(homes[id]);
+  </script>
 </Base>

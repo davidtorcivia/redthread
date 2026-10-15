@@ -334,6 +334,12 @@ class TestRankings(unittest.TestCase):
         self.assertNotIn("local", bridges)  # cited from one community only
         self.assertNotIn("town", bridges)   # places are never bridges
         self.assertNotIn("named", bridges)  # NER mentions are not citations
+        for e in ents:
+            if e["id"] == "link":
+                e["tags"] = ["News_Agency"]
+        bridges, _ = pv.compute_bridge_scores(ents, edges, resolution=1.0, exclude_types=set(),
+                                              exclude_tags={"news agency"})
+        self.assertNotIn("link", bridges)  # excluded tag, matched loosely
 
 
     def test_cluster_positions_pull_strong_links_together(self):

@@ -824,6 +824,29 @@ export class GraphEngine {
       this.moved();
       tooltip.hidden = true;
     };
+    // Wheel notches and the zoom buttons ease toward an accumulated target instead of
+    // jumping, anchored at the latest pointer. Any direct manipulation cancels the glide.
+    const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)');
+    // `at` is the view the glide last set: a search jump or refit since then ends the glide.
+    let glide: { scale: number; px: number; py: number; at: string } | null = null;
+    const viewKey = () => `${this.view.scale},${this.view.tx},${this.view.ty}`;
+    let glideFrame = 0;
+    const stopGlide = () => { glide = null; cancelAnimationFrame(glideFrame); glideFrame = 0; };
+    const glideStep = () => {
+      glideFrame = 0;
+      if (!glide || glide.at !== viewKey()) { glide = null; return; }
+      const left = Math.log(glide.scale / this.view.scale);
+      const done = Math.abs(left) < .003;
+      zoomAt(glide.px, glide.py, Math.exp(done ? left : left * .25));
+      glide.at = viewKey();
+      if (done) glide = null;
+      else glideFrame = requestAnimationFrame(glideStep);
+    };
+    const smoothZoomAt = (px: number, py: number, factor: number) => {
+      if (reduceMotion.matches) { zoomAt(px, py, factor); return; }
+      glide = { scale: zoomTo((glide?.scale ?? this.view.scale) * factor), px, py, at: viewKey() };
+      if (!glideFrame) glideFrame = requestAnimationFrame(glideStep);
+    };
 
     canvas.addEventListener('mousedown', (e) => onDown(e.clientX, e.clientY));
     // Shift, Ctrl or Cmd adds to the selection (Cmd because Ctrl-click opens the menu on a Mac).
@@ -844,7 +867,7 @@ export class GraphEngine {
       clearTimeout(hintTimer);
       hintTimer = setTimeout(() => { hint.hidden = true; }, 1400);
     };
-    canvas.addEventListener('pointerdown', () => { engaged = true; hint.hidden = true; });
+    canvas.addEventListener('pointerdown', () => { engaged = true; hint.hidden = true; stopGlide(); });
     canvas.addEventListener('mouseleave', () => {
       if (this.opts.profile !== 'full') engaged = false;
       if (this.hoveredIdx !== -1 || this.hoveredEdge !== -1) {
@@ -859,7 +882,9 @@ export class GraphEngine {
       if (!engaged && !e.ctrlKey && !e.metaKey) { showHint(); return; }
       e.preventDefault();
       const p = local(e.clientX, e.clientY);
-      zoomAt(p.x, p.y, Math.exp(-Math.max(-100, Math.min(100, e.deltaY)) * .002));
+      // Firefox reports lines (deltaMode 1) or pages (2) instead of pixels.
+      const dy = e.deltaY * (e.deltaMode === 1 ? 33 : e.deltaMode === 2 ? this.canvasSize().H : 1);
+      smoothZoomAt(p.x, p.y, Math.exp(-Math.max(-100, Math.min(100, dy)) * .002));
     }, { passive: false });
     canvas.addEventListener('dblclick', (e) => {
       const p = local(e.clientX, e.clientY);
@@ -870,7 +895,7 @@ export class GraphEngine {
       const pan: Record<string, [number, number]> = { ArrowLeft: [40, 0], ArrowRight: [-40, 0], ArrowUp: [0, 40], ArrowDown: [0, -40] };
       if (e.key === 'Escape') this.clearSelection();
       else if (e.key === '/') { e.preventDefault(); root.querySelector<HTMLInputElement>('.net-search')?.focus(); }
-      else if (e.key === '0') { e.preventDefault(); this.fit(); }
+      else if (e.key === '0') { e.preventDefault(); stopGlide(); this.fit(); }
       else if (pan[e.key]) {
         e.preventDefault();
         this.view.tx += pan[e.key][0];
@@ -933,9 +958,9 @@ export class GraphEngine {
       this.applyLayout();
       this.updateForceSliderVisibility();
     });
-    btn('.net-zoom-in')?.addEventListener('click', () => { const { W, H } = this.canvasSize(); zoomAt(W / 2, H / 2, 1.35); });
-    btn('.net-zoom-out')?.addEventListener('click', () => { const { W, H } = this.canvasSize(); zoomAt(W / 2, H / 2, 1 / 1.35); });
-    btn('.net-fit')?.addEventListener('click', () => this.fit());
+    btn('.net-zoom-in')?.addEventListener('click', () => { const { W, H } = this.canvasSize(); smoothZoomAt(W / 2, H / 2, 1.35); });
+    btn('.net-zoom-out')?.addEventListener('click', () => { const { W, H } = this.canvasSize(); smoothZoomAt(W / 2, H / 2, 1 / 1.35); });
+    btn('.net-fit')?.addEventListener('click', () => { stopGlide(); this.fit(); });
     const edgesBtn = btn('.net-edges');
     edgesBtn?.addEventListener('click', () => {
       this.edgesVisible = !this.edgesVisible;

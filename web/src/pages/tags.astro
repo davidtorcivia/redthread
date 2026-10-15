@@ -1,7 +1,7 @@
 ---
 import Base from '../layouts/Base.astro';
 import { TYPE_DIRS } from '../lib/data.ts';
-import { tagDirectoryRows } from '../lib/tag-directory.ts';
+import { tagDirectoryRows, tagSubjects } from '../lib/tag-directory.ts';
 
 const rows = tagDirectoryRows();
 const initial = rows.slice(0, 50);
@@ -9,6 +9,7 @@ const initial = rows.slice(0, 50);
 const typeWords = new Set([...Object.keys(TYPE_DIRS), ...Object.values(TYPE_DIRS)]);
 const startingPoints = rows.filter((row) => !typeWords.has(row.key)).slice(0, 8);
 const letters = new Set(rows.map((row) => row.letter));
+const subjects = tagSubjects(rows, typeWords);
 ---
 <Base
   title="Tags"
@@ -18,13 +19,25 @@ const letters = new Set(rows.map((row) => row.letter));
     <header class="browse-header tag-header"><h1>Tags</h1></header>
     <div class="tag-inner">
       <section class="tag-start" aria-labelledby="tag-start-title">
-        <h2 id="tag-start-title">Start with a subject</h2>
+        <h2 id="tag-start-title">Most used</h2>
         <div class="tag-start-grid">
           {startingPoints.map((row) => <a href={`/tag/${row.primary.slug}/`}>
             <span>{row.primary.tag}</span><small>{row.count.toLocaleString()} entries ↗</small>
           </a>)}
         </div>
       </section>
+
+      {subjects.length > 0 && <section class="tag-subjects" aria-labelledby="tag-subjects-title">
+        <h2 id="tag-subjects-title">By subject</h2>
+        <p class="tag-subjects-lede">Each tag sits under the cluster that holds most of its entries.</p>
+        <div class="tag-subjects-grid">
+          {subjects.map(({ cluster, tags, total }) => <section>
+            <h3><a href={`/clusters/#c-${cluster.id}`}>{cluster.label}</a><span>{cluster.size} entries</span></h3>
+            <ul>{tags.map((row) => <li><a href={`/tag/${row.primary.slug}/`}>{row.primary.tag}<span>{row.count}</span></a></li>)}</ul>
+            {total > tags.length && <p class="tag-subjects-more">{total - tags.length} more in the index below</p>}
+          </section>)}
+        </div>
+      </section>}
 
       <section class="tag-index" aria-labelledby="tag-index-title">
         <div class="tag-index-head">
@@ -162,6 +175,18 @@ const letters = new Set(rows.map((row) => row.letter));
   .tag-start-grid a {display:flex;flex-direction:column;justify-content:space-between;min-height:125px;padding:18px;background:var(--paper);font:650 clamp(19px,2vw,26px)/1.1 var(--sans);letter-spacing:-.02em;overflow-wrap:anywhere}
   .tag-start-grid a:hover {background:var(--paper-2);color:var(--accent)}
   .tag-start-grid small {font:400 13px/1.3 var(--sans);letter-spacing:0;color:var(--muted);margin-top:20px}
+  .tag-subjects {margin-top:80px;border-top:2px solid var(--ink);padding-top:18px}
+  .tag-subjects h2 {margin-bottom:6px}
+  .tag-subjects-lede {margin:0 0 26px;color:var(--muted);font:400 14px/1.4 var(--sans)}
+  .tag-subjects-grid {display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:34px 45px}
+  .tag-subjects-grid h3 {display:flex;flex-direction:column;gap:3px;margin:0 0 10px;padding-top:10px;border-top:1px solid var(--ink);font:650 18px/1.2 var(--sans);letter-spacing:-.01em}
+  .tag-subjects-grid h3 a:hover {color:var(--accent)}
+  .tag-subjects-grid h3 span {font:400 13px/1.3 var(--sans);color:var(--muted)}
+  .tag-subjects-grid ul {list-style:none;margin:0;padding:0;display:flex;flex-wrap:wrap;gap:6px 14px;font:400 15px/1.35 var(--sans)}
+  .tag-subjects-grid li a {border-bottom:1px solid var(--line-2)}
+  .tag-subjects-grid li a:hover {color:var(--accent);border-color:currentColor}
+  .tag-subjects-grid li span {color:var(--muted);font-size:12px;padding-left:.3em}
+  .tag-subjects-more {margin:9px 0 0;color:var(--muted);font:400 12px/1.3 var(--sans)}
   .tag-index {margin-top:80px;border-top:2px solid var(--ink);padding-top:18px}
   .tag-index-head {display:flex;justify-content:space-between;align-items:end;gap:25px}
   .tag-index-head h2 {margin-bottom:4px}
@@ -191,6 +216,6 @@ const letters = new Set(rows.map((row) => row.letter));
   .tag-more {display:block;border:1px solid var(--ink);background:var(--paper);color:var(--ink);padding:13px 20px;margin:26px auto 0;font:600 14px/1.2 var(--sans);cursor:pointer}
   .tag-more[hidden] {display:none}
   .tag-more:hover {background:var(--ink);color:var(--paper)}
-  @media(max-width:900px) {.tag-start-grid {grid-template-columns:repeat(2,minmax(0,1fr))}}
-  @media(max-width:650px) {.tag-inner {padding-top:30px}.tag-start-grid a {min-height:105px;padding:14px;font-size:16px}.tag-index {margin-top:60px}.tag-index-head {display:block}.tag-search {display:block;width:100%;margin-top:18px}.tag-rows {grid-template-columns:1fr}.tag-letters {gap:3px}.tag-letters button,.tag-letters span {min-width:22px}}
+  @media(max-width:900px) {.tag-start-grid,.tag-subjects-grid {grid-template-columns:repeat(2,minmax(0,1fr))}}
+  @media(max-width:650px) {.tag-inner {padding-top:30px}.tag-start-grid a {min-height:105px;padding:14px;font-size:16px}.tag-index {margin-top:60px}.tag-index-head {display:block}.tag-search {display:block;width:100%;margin-top:18px}.tag-rows,.tag-subjects-grid {grid-template-columns:1fr}.tag-subjects {margin-top:60px}.tag-letters {gap:3px}.tag-letters button,.tag-letters span {min-width:22px}}
 </style>
