@@ -915,30 +915,38 @@ export class GraphEngine {
     // Each sits above its island, else below, right or left, wherever no name is yet.
     const overlaps = (b: { x: number; y: number; w: number; h: number }) =>
       drawn.some((d) => b.x < d.x + d.w + 6 && b.x + b.w + 6 > d.x && b.y < d.y + d.h + 4 && b.y + b.h + 4 > d.y);
-    for (const a of this.annotations) {
+    // On a phone the names would bury the links: smaller, see-through, the lead name only,
+    // fading out between 1.6x and 2.5x the fitted zoom and gone while something is selected.
+    const narrow = W < 600;
+    const zoomed = this.view.scale / (this.fitScale || 1);
+    const annoAlpha = !narrow ? 1 : this.focusNodes ? 0 : Math.max(0, Math.min(1, (2.5 - zoomed) / .9));
+    const headFont = narrow ? '700 10px "Archivo", sans-serif' : '700 12px "Archivo", sans-serif';
+    for (const a of annoAlpha > .05 ? this.annotations : []) {
       if (a.minZoom && this.view.scale < this.fitScale * a.minZoom) continue;
       const [lead, ...rest] = a.text.split(' · ');
-      ctx.font = '700 12px "Archivo", sans-serif';
+      ctx.font = headFont;
       const head = lead.toUpperCase();
       const headW = Math.min(this.textWidth(head), W - 26);
       ctx.font = '500 11px "Archivo", sans-serif';
-      const tail = rest.length ? this.fitText(rest.join(' · '), Math.round(Math.max(headW, 160) / 20) * 20) : '';
-      const w = Math.max(headW, tail ? this.textWidth(tail) : 0) + 10, h = tail ? 34 : 20;
+      const tail = rest.length && !narrow ? this.fitText(rest.join(' · '), Math.round(Math.max(headW, 160) / 20) * 20) : '';
+      const w = Math.max(headW, tail ? this.textWidth(tail) : 0) + (narrow ? 6 : 10), h = tail ? 34 : narrow ? 15 : 20;
       const r = a.r * this.view.scale, [x, y] = this.project(a.x, a.y);
       const box = [[x - w / 2, y - r - h - 2], [x - w / 2, y + r + 4], [x + r + 6, y - h / 2], [x - r - 6 - w, y - h / 2]]
         .map(([bx, by]) => ({ x: bx, y: by, w, h }))
         .find((b) => b.x >= 0 && b.x + b.w <= W && b.y >= 0 && b.y + b.h <= H && !overlaps(b));
       if (!box) continue;
-      ctx.fillStyle = hexToRgba(COLORS.paper, .9);
+      ctx.globalAlpha = annoAlpha;
+      ctx.fillStyle = hexToRgba(COLORS.paper, narrow ? .6 : .9);
       ctx.fillRect(box.x, box.y, box.w, box.h);
-      ctx.font = '700 12px "Archivo", sans-serif';
+      ctx.font = headFont;
       ctx.fillStyle = COLORS.ink;
-      ctx.fillText(this.fitText(head, W - 26), box.x + 5, box.y + 4);
+      ctx.fillText(this.fitText(head, W - 26), box.x + (narrow ? 3 : 5), box.y + (narrow ? 3 : 4));
       if (tail) {
         ctx.font = '500 11px "Archivo", sans-serif';
         ctx.fillStyle = COLORS.muted;
         ctx.fillText(tail, box.x + 5, box.y + 19);
       }
+      ctx.globalAlpha = 1;
       drawn.push(box);
     }
     if (this.interacting && this.opts.profile === 'full') return;
@@ -996,7 +1004,8 @@ export class GraphEngine {
     }
     return best;
   }
-  private edgeHitTest(px: number, py: number): number {
+  /** The nearest edge within 5px, among those `only` accepts when given. */
+  private edgeHitTest(px: number, py: number, only?: (k: number) => boolean): number {
     if (!this.edgesVisible) return -1;
     // Screen positions from the last draw: the pointer is tested against what is on screen.
     const { edges, nodes, px: X, py: Y } = this;
@@ -1009,6 +1018,7 @@ export class GraphEngine {
       if (px < lo(ax, bx) - 5 || px > hi(ax, bx) + 5 || py < lo(ay, by) - 5 || py > hi(ay, by) + 5) continue;
       if (!nodes[i].visible || !nodes[j].visible) continue;
       if (!this.showImplicit && this.implicitEdgeIdx.has(k) && !this.relationEdges.has(k)) continue;
+      if (only && !only(k)) continue;
       const dx = bx - ax, dy = by - ay;
       const len2 = dx * dx + dy * dy;
       if (len2 === 0) continue;
@@ -1185,7 +1195,7 @@ export class GraphEngine {
         lastTap = now;
       }
       const p = local(cx, cy);
-      this.handleClick(p.x, p.y, shift || this.multiMode);
+      this.handleClick(p.x, p.y, shift || this.multiMode, isTouch);
     };
     // A pan or zoom drops the hover, so the gesture can draw nodes from the worker's bitmap.
     const clearHover = () => {
@@ -1473,10 +1483,17 @@ export class GraphEngine {
     if (slider) slider.style.display = this.currentLayout === 'force' ? '' : 'none';
   }
 
-  private handleClick(px: number, py: number, additive: boolean): void {
+  private handleClick(px: number, py: number, additive: boolean, touch = false): void {
     const hit = this.hitTest(px, py);
     if (hit < 0) {
-      const edgeHit = this.edgeHitTest(px, py);
+      // A fingertip on a dense graph is always near some line, so a tap picks only the nearest
+      // connection already lit by the selection; anywhere else it clears.
+      let lit: Set<number> | undefined;
+      if (touch) {
+        lit = new Set(this.selectedEdges);
+        for (const i of this.selectedNodes) for (const k of this.incident[i]) lit.add(k);
+      }
+      const edgeHit = this.edgeHitTest(px, py, lit && ((k) => lit!.has(k)));
       if (edgeHit >= 0) {
         if (!additive) { this.selectedNodes.clear(); this.selectedEdges.clear(); }
         if (!this.selectedEdges.delete(edgeHit)) this.selectedEdges.add(edgeHit);
