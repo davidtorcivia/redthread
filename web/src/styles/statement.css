@@ -111,9 +111,12 @@ dl.band-facts > div {display:contents}
 .focus-cluster a {font-weight:650;font-size:19px;letter-spacing:-.01em}
 .focus-cluster a:hover {color:var(--band)}
 .focus-cluster .focus-meta {color:var(--muted);font-size:13px}
+/* The heading's own rule is enough above the first row. */
+.dispatch-pair > .section-heading + .statement-item {border-top:0}
 @media (min-width:901px) {
   .dispatch-pair {display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0 3rem}
   .dispatch-pair > .section-heading,.dispatch-pair > .focus-cluster {grid-column:1/-1}
+  .dispatch-pair > .section-heading + .statement-item + .statement-item {border-top:0}
 }
 .statement-cols {display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:0 3rem}
 .statement-cols h3 {margin:0;padding:1em 0 .3em;font:700 15px/1.5 var(--sans);font-variation-settings:"wdth" 88;text-transform:uppercase}

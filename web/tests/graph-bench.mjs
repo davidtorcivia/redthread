@@ -44,10 +44,37 @@ async function probe(path, sel, cpu, twoHop = false) {
       last = now;
     }
     fire('mouseup', r.left + 500, r.top + 280, window);
-    times.sort((a, b) => a - b);
-    return { median: Math.round(times[20]), p90: Math.round(times[36]) };
+    // Frames after the gesture ends, while the graph settles and redraws in full.
+    const settleTimes = [];
+    for (let i = 0, prev = performance.now(); i < 30; i++) {
+      await new Promise(requestAnimationFrame);
+      const now = performance.now();
+      settleTimes.push(now - prev);
+      prev = now;
+    }
+    const stats = (t) => { t.sort((a, b) => a - b); return `${Math.round(t[t.length >> 1])}/${Math.round(t[Math.floor(t.length * .9)])}/${Math.round(t[t.length - 1])}`; };
+    const pan = stats(times), settle = stats(settleTimes);
+    // Wheel zoom: notches in and back out at the centre, timing every frame of the glide.
+    const frameTimes = async (n, step) => {
+      const out = [];
+      let prev = performance.now();
+      for (let i = 0; i < n; i++) {
+        step(i);
+        await new Promise(requestAnimationFrame);
+        const now = performance.now();
+        out.push(now - prev);
+        prev = now;
+      }
+      return out;
+    };
+    const cx = r.left + r.width / 2, cy = r.top + r.height / 2;
+    const wheel = (dy) => c.dispatchEvent(new WheelEvent('wheel', { deltaY: dy, deltaMode: 0, clientX: cx, clientY: cy, bubbles: true, cancelable: true, ctrlKey: true }));
+    const zoom = stats(await frameTimes(80, (i) => { if (i % 5 === 0) wheel(i < 40 ? -100 : 100); }));
+    // Hover sweep: the pointer crosses the graph quickly, over many nodes.
+    const hover = stats(await frameTimes(60, (i) => fire('mousemove', r.left + 40 + i * (r.width - 80) / 60, r.top + r.height * (.3 + .4 * Math.sin(i / 6)))));
+    return { pan, settle, zoom, hover };
   }, sel);
-  console.log(`${path}${twoHop ? ' (2-hop)' : ''} cpu x${cpu}: pan ${frames.median} ms median, ${frames.p90} ms p90; long tasks ${JSON.stringify(longTasks)}`);
+  console.log(`${path}${twoHop ? ' (2-hop)' : ''} cpu x${cpu} (median/p90/max ms): pan ${frames.pan}, after pan ${frames.settle}, zoom ${frames.zoom}, hover ${frames.hover}; long tasks ${JSON.stringify(longTasks)}`);
   await ctx.close();
 }
 for (const cpu of [1, 4]) {

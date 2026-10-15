@@ -9,6 +9,7 @@
  */
 import type { Adjacency } from './adjacency';
 import { TYPE_LABELS, entityHref, el } from './entity-types';
+import { EDGE_CROSS, EDGE_FOCAL, EDGE_IMPLICIT, EDGE_SKIP, renderIdleEdges, type EdgeScene } from './graph-edges';
 
 export interface GraphNode {
   id: string;
@@ -51,6 +52,8 @@ export type Edge = [number, number];
 interface Layer {
   canvas: HTMLCanvasElement;
   ctx: CanvasRenderingContext2D;
+  /** What is composited: the canvas, or a bitmap the edge worker sent. */
+  image?: CanvasImageSource;
   view: { tx: number; ty: number; scale: number } | null;
   key: string;
 }
@@ -181,6 +184,7 @@ export class GraphEngine {
   private py = new Float64Array(0);
   private pr = new Float64Array(0);
   private truncated = new Map<string, string>();
+  private textWidths = new Map<string, number>();
   /** Edge indices touching each node. */
   incident: number[][] = [];
   // Idle edges, and the selection's edges, each cached for the view they were drawn in.
@@ -190,6 +194,16 @@ export class GraphEngine {
   private cullPad = 0;
   private selectionLayer = newLayer();
   private version = 0;
+  /** Bumped only by what changes the idle edges (layout, visibility, colours, data), so a
+   *  click that only changes the selection keeps the cached idle edges. */
+  private edgeVersion = 0;
+  private visibleSig = 0;
+  private scene: { version: number; scene: EdgeScene } | null = null;
+  /** undefined until first needed; null where workers or OffscreenCanvas are missing. */
+  private edgeWorker: Worker | null | undefined;
+  private workerScene = -1;
+  private edgeRequest: { id: number; key: string; view: { tx: number; ty: number; scale: number } } | null = null;
+  private edgeRequestId = 0;
 
   constructor(root: HTMLElement, opts: EngineOptions) {
     this.root = root;
@@ -198,6 +212,8 @@ export class GraphEngine {
     this.shell = root.querySelector('.net-shell') as HTMLElement;
     this.canvas = root.querySelector('.net-canvas') as HTMLCanvasElement;
     this.ctx = this.canvas.getContext('2d') as CanvasRenderingContext2D;
+    // Widths measured in a fallback face are wrong once the web font arrives.
+    document.fonts?.addEventListener('loadingdone', () => { this.textWidths.clear(); this.truncated.clear(); this.requestDraw(); });
     this.tooltip = root.querySelector('.net-tooltip') as HTMLElement;
     this.panel = root.querySelector('.net-selection') as HTMLElement;
     this.COLORS = readColors(root);
@@ -206,6 +222,7 @@ export class GraphEngine {
     window.addEventListener('themechange', () => {
       this.COLORS = readColors(root);
       this.version++;
+      this.edgeVersion++;
       this.recolor();
       this.requestDraw();
     });
@@ -226,6 +243,7 @@ export class GraphEngine {
     this.neighborSets = Array.from({ length: nodes.length }, () => new Set<number>());
     this.incident = Array.from({ length: nodes.length }, () => [] as number[]);
     this.version++;
+    this.edgeVersion++;
     edges.forEach(([a, b], k) => {
       this.incident[a].push(k);
       this.incident[b].push(k);
@@ -301,6 +319,7 @@ export class GraphEngine {
   applyLayout(): void {
     this.annotations = [];
     this.version++;
+    this.edgeVersion++;
     this.opts.layouts.find((l) => l.key === this.currentLayout)!.apply(this);
     this.fit();
   }
@@ -318,6 +337,7 @@ export class GraphEngine {
     const { W, H } = this.canvasSize();
     for (const n of this.nodes) { n.x *= ratio; n.y *= ratio; }
     this.version++;
+    this.edgeVersion++;
     this.view.tx = (W / 2) * (1 - ratio) + this.view.tx * ratio;
     this.view.ty = (H / 2) * (1 - ratio) + this.view.ty * ratio;
     this.requestDraw();
@@ -340,6 +360,9 @@ export class GraphEngine {
   /** Call after any change to the selection sets or node visibility. */
   selectionChanged(): void {
     this.version++; // positions, visibility or selection
+    let sig = 0;
+    for (let i = 0; i < this.nodes.length; i++) if (this.nodes[i].visible) sig = (sig * 31 + i + 1) | 0;
+    if (sig !== this.visibleSig) { this.visibleSig = sig; this.edgeVersion++; }
     for (const idx of this.selectedNodes) {
       if (!this.nodes[idx].visible) this.selectedNodes.delete(idx);
     }
@@ -380,6 +403,14 @@ export class GraphEngine {
     clearTimeout(this.settleTimer);
     this.settleTimer = setTimeout(() => { this.interacting = false; this.requestDraw(); }, 140);
     this.requestDraw();
+  }
+
+  /** Width of `text` in the current font, cached. */
+  private textWidth(text: string): number {
+    const key = `${this.ctx.font}|${text}`;
+    let w = this.textWidths.get(key);
+    if (w === undefined) this.textWidths.set(key, w = this.ctx.measureText(text).width);
+    return w;
   }
 
   /** `text` cut with an ellipsis to fit `max` px in the current font, cached. */
@@ -451,6 +482,110 @@ export class GraphEngine {
     this.ctx.globalAlpha = 1;
   }
 
+  /** The idle edges, by flag per edge, rebuilt when edgeVersion moves. */
+  private edgeScene(): EdgeScene {
+    if (this.scene?.version === this.edgeVersion) return this.scene.scene;
+    const { nodes, edges, COLORS, P } = this;
+    const pairs = new Uint32Array(edges.length * 2), flags = new Uint8Array(edges.length);
+    const x = new Float64Array(nodes.length), y = new Float64Array(nodes.length);
+    nodes.forEach((n, i) => { x[i] = n.x; y[i] = n.y; });
+    const islands = this.annotations.length > 0;
+    edges.forEach(([a, b], k) => {
+      pairs[2 * k] = a;
+      pairs[2 * k + 1] = b;
+      // On the entity graph, links between neighbours are the story (every neighbour links
+      // to the focal entry), so they draw stronger than its own.
+      const cls = nodes[a].isFocal || nodes[b].isFocal ? EDGE_FOCAL : islands && nodes[a].community !== nodes[b].community ? EDGE_CROSS : 0;
+      const skip = this.relationEdges.has(k) || !nodes[a].visible || !nodes[b].visible;
+      flags[k] = cls | (this.implicitEdgeIdx.has(k) ? EDGE_IMPLICIT : 0) | (skip ? EDGE_SKIP : 0);
+    });
+    const scene: EdgeScene = {
+      pairs, x, y, flags,
+      styles: {
+        cross: hexToRgba(COLORS.line, P.crossEdgeAlpha),
+        focal: hexToRgba(COLORS.line, P.focalEdgeAlpha),
+        between: hexToRgba(COLORS[P.edgeInk], P.edgeAlpha),
+        width: P.edgeWidth,
+      },
+    };
+    this.scene = { version: this.edgeVersion, scene };
+    return scene;
+  }
+
+  /** The worker that renders idle edges off the main thread, started on first use. */
+  private getEdgeWorker(): Worker | null {
+    if (this.edgeWorker !== undefined) return this.edgeWorker;
+    this.edgeWorker = null;
+    if (typeof Worker === 'undefined' || typeof OffscreenCanvas === 'undefined' || !('transferToImageBitmap' in OffscreenCanvas.prototype)) return null;
+    try {
+      const w = new Worker(new URL('./graph-edge-worker.ts', import.meta.url), { type: 'module' });
+      w.onmessage = (e: MessageEvent<{ id: number; bitmap?: ImageBitmap }>) => {
+        const req = this.edgeRequest, { id, bitmap } = e.data;
+        if (!req || id !== req.id) { bitmap?.close(); return; }
+        this.edgeRequest = null;
+        const layer = this.idleLayer;
+        // A layer redrawn for new edges since the request makes this bitmap stale.
+        if (bitmap && req.key === layer.key) {
+          if (layer.image && layer.image !== layer.canvas) (layer.image as ImageBitmap).close();
+          layer.image = bitmap;
+          layer.view = req.view;
+        } else bitmap?.close();
+        this.requestDraw();
+      };
+      // A worker that fails to load leaves the main thread to draw, as before.
+      w.onerror = () => { w.terminate(); this.edgeWorker = null; this.edgeRequest = null; this.requestDraw(); };
+      this.edgeWorker = w;
+    } catch { /* stays null */ }
+    return this.edgeWorker;
+  }
+
+  /** The idle edges, cached a quarter screen past each edge. When only the view changed, the
+   *  worker renders the new view while the old bitmap is shifted and scaled, so a gesture
+   *  never blocks on it, and it refreshes as often as the worker keeps up. New edges
+   *  (layout, filters, theme) and browsers without the worker draw here, as before. */
+  private paintIdleLayer(W: number, H: number, alpha: number): void {
+    const layer = this.idleLayer, v = this.view;
+    const mx = Math.round(W / 4), my = Math.round(H / 4), dpr = this.dpr;
+    const key = `${W}|${H}|${dpr}|${this.showImplicit}|${this.edgeVersion}`;
+    const place = (from: { tx: number; ty: number; scale: number }) => {
+      const s = v.scale / from.scale;
+      return { x: v.tx - from.tx * s - mx * s, y: v.ty - from.ty * s - my * s, w: (W + 2 * mx) * s, h: (H + 2 * my) * s };
+    };
+    const drawHere = () => {
+      const cw = Math.round((W + 2 * mx) * dpr), ch = Math.round((H + 2 * my) * dpr);
+      if (layer.canvas.width !== cw || layer.canvas.height !== ch) { layer.canvas.width = cw; layer.canvas.height = ch; }
+      layer.ctx.setTransform(dpr, 0, 0, dpr, mx * dpr, my * dpr);
+      layer.ctx.clearRect(-mx, -my, W + 2 * mx, H + 2 * my);
+      renderIdleEdges(layer.ctx, this.edgeScene(), v, W, H, Math.max(mx, my), this.showImplicit);
+      if (layer.image && layer.image !== layer.canvas) (layer.image as ImageBitmap).close();
+      layer.image = layer.canvas;
+      layer.view = { ...v };
+      layer.key = key;
+    };
+    const at = layer.view;
+    if (!at || layer.key !== key) drawHere();
+    else if (at.tx !== v.tx || at.ty !== v.ty || at.scale !== v.scale) {
+      const worker = this.getEdgeWorker();
+      const r = place(at), covered = r.x <= 0 && r.y <= 0 && r.x + r.w >= W && r.y + r.h >= H;
+      // A jump outside a gesture (a search result) that leaves the old edges short draws here.
+      if (worker && (this.interacting || covered)) {
+        if (!this.edgeRequest) {
+          if (this.workerScene !== this.edgeVersion) {
+            worker.postMessage({ type: 'scene', version: this.edgeVersion, scene: this.edgeScene() });
+            this.workerScene = this.edgeVersion;
+          }
+          const id = ++this.edgeRequestId, view = { ...v };
+          this.edgeRequest = { id, key, view };
+          worker.postMessage({ type: 'render', id, version: this.edgeVersion, view, W, H, dpr, mx, my, showImplicit: this.showImplicit });
+        }
+      } else if (!this.interacting || !covered) drawHere();
+    }
+    const r = place(layer.view!);
+    this.ctx.globalAlpha = alpha;
+    this.ctx.drawImage(layer.image ?? layer.canvas, r.x, r.y, r.w, r.h);
+    this.ctx.globalAlpha = 1;
+  }
+
   /** Whether edge k is visible and could cross the screen. */
   private edgeShown(k: number, W: number, H: number): boolean {
     const [a, b] = this.edges[k], { px, py } = this, m = this.cullPad;
@@ -458,33 +593,6 @@ export class GraphEngine {
     return !((px[a] < -m && px[b] < -m) || (px[a] > W + m && px[b] > W + m) || (py[a] < -m && py[b] < -m) || (py[a] > H + m && py[b] > H + m));
   }
 
-  /** Every idle edge. On the entity graph, links between neighbours are the story
-   *  (every neighbour links to the focal entry), so they draw stronger than its own. */
-  private drawIdleEdges(c: CanvasRenderingContext2D, W: number, H: number): void {
-    const { nodes, edges, px, py, COLORS, P } = this;
-    // Between neighbours, the focal entry's own, between islands; each linked, then inferred.
-    const lists: number[][] = [[], [], [], [], [], []];
-    const islands = this.annotations.length > 0;
-    for (let i = 0; i < edges.length; i++) {
-      if (this.relationEdges.has(i) || !this.edgeShown(i, W, H)) continue;
-      const [a, b] = edges[i];
-      // A sub-pixel edge only adds to the wash.
-      if ((px[b] - px[a]) ** 2 + (py[b] - py[a]) ** 2 < 2.25) continue;
-      const inferred = this.implicitEdgeIdx.has(i);
-      if (inferred && !this.showImplicit) continue;
-      const kind = nodes[a].isFocal || nodes[b].isFocal ? 2 : islands && nodes[a].community !== nodes[b].community ? 4 : 0;
-      lists[kind + (inferred ? 1 : 0)].push(i);
-    }
-    const cross = hexToRgba(COLORS.line, P.crossEdgeAlpha);
-    this.strokeEdges(c, lists[4], .65, cross, false);
-    this.strokeEdges(c, lists[5], .65, cross, true);
-    const between = hexToRgba(COLORS[P.edgeInk], P.edgeAlpha);
-    const focal = hexToRgba(COLORS.line, P.focalEdgeAlpha);
-    this.strokeEdges(c, lists[2], .7, focal, false);
-    this.strokeEdges(c, lists[3], .7, focal, true);
-    this.strokeEdges(c, lists[0], P.edgeWidth, between, false);
-    this.strokeEdges(c, lists[1], P.edgeWidth, between, true);
-  }
 
   /** Highlighted edges: linked, inferred (dashed), then typed relations. */
   private drawLitEdges(c: CanvasRenderingContext2D, lit: Iterable<number>, W: number, H: number): void {
@@ -540,7 +648,7 @@ export class GraphEngine {
     if (this.edgesVisible) {
       const key = `${W}|${H}|${this.dpr}|${this.showImplicit}|${this.version}`;
       // A selection or hover fades the idle edges rather than redrawing them.
-      this.paintLayer(this.idleLayer, key, W, H, focus ? 1 - .64 * strength : 1, (c) => this.drawIdleEdges(c, W, H));
+      this.paintIdleLayer(W, H, focus ? 1 - .64 * strength : 1);
       const selected = new Set(this.selectedEdges);
       for (const i of this.selectedNodes) for (const k of this.incident[i]) selected.add(k);
       if (selected.size) this.paintLayer(this.selectionLayer, key, W, H, 1, (c) => this.drawLitEdges(c, selected, W, H));
@@ -607,10 +715,10 @@ export class GraphEngine {
       const [lead, ...rest] = a.text.split(' · ');
       ctx.font = '700 12px "Archivo", sans-serif';
       const head = lead.toUpperCase();
-      const headW = Math.min(ctx.measureText(head).width, W - 26);
+      const headW = Math.min(this.textWidth(head), W - 26);
       ctx.font = '500 11px "Archivo", sans-serif';
       const tail = rest.length ? this.fitText(rest.join(' · '), Math.round(Math.max(headW, 160) / 20) * 20) : '';
-      const w = Math.max(headW, tail ? ctx.measureText(tail).width : 0) + 10, h = tail ? 34 : 20;
+      const w = Math.max(headW, tail ? this.textWidth(tail) : 0) + 10, h = tail ? 34 : 20;
       const r = a.r * this.view.scale, x = this.sx(a.x), y = this.sy(a.y);
       const box = [[x - w / 2, y - r - h - 2], [x - w / 2, y + r + 4], [x + r + 6, y - h / 2], [x - r - 6 - w, y - h / 2]]
         .map(([bx, by]) => ({ x: bx, y: by, w, h }))
@@ -650,7 +758,7 @@ export class GraphEngine {
       const important = c.tier === 0, fontSize = important ? 14 : 12;
       ctx.font = `${important ? 700 : 500} ${fontSize}px "Archivo", sans-serif`;
       const title = this.fitText(c.n.title, Math.min(W - 32, important ? 300 : 190));
-      const w = ctx.measureText(title).width + 10, h = fontSize + 8;
+      const w = this.textWidth(title) + 10, h = fontSize + 8;
       const x = px[c.i], y = py[c.i], r = pr[c.i];
       const box = [
         { x: x + r + 7, y: y - h / 2 },
@@ -685,21 +793,24 @@ export class GraphEngine {
   }
   private edgeHitTest(px: number, py: number): number {
     if (!this.edgesVisible) return -1;
-    const { W, H } = this.canvasSize();
-    let best = -1, bestD = 5;
-    for (let k = 0; k < this.edges.length; k++) {
+    // Screen positions from the last draw: the pointer is tested against what is on screen.
+    const { edges, nodes, px: X, py: Y } = this;
+    const lo = Math.min, hi = Math.max;
+    let best = -1, bestD2 = 25;
+    for (let k = 0; k < edges.length; k++) {
+      const [i, j] = edges[k];
+      const ax = X[i], ay = Y[i], bx = X[j], by = Y[j];
+      // Cheapest test first: the pointer must sit inside the edge's box, padded by 5px.
+      if (px < lo(ax, bx) - 5 || px > hi(ax, bx) + 5 || py < lo(ay, by) - 5 || py > hi(ay, by) + 5) continue;
+      if (!nodes[i].visible || !nodes[j].visible) continue;
       if (!this.showImplicit && this.implicitEdgeIdx.has(k) && !this.relationEdges.has(k)) continue;
-      const a = this.nodes[this.edges[k][0]], b = this.nodes[this.edges[k][1]];
-      if (!a.visible || !b.visible) continue;
-      const ax = this.sx(a.x), ay = this.sy(a.y), bx = this.sx(b.x), by = this.sy(b.y);
-      if ((ax < -10 && bx < -10) || (ax > W + 10 && bx > W + 10) ||
-          (ay < -10 && by < -10) || (ay > H + 10 && by > H + 10)) continue;
       const dx = bx - ax, dy = by - ay;
       const len2 = dx * dx + dy * dy;
       if (len2 === 0) continue;
-      const t = Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / len2));
-      const d = Math.hypot(px - (ax + t * dx), py - (ay + t * dy));
-      if (d < bestD) { bestD = d; best = k; }
+      const t = hi(0, lo(1, ((px - ax) * dx + (py - ay) * dy) / len2));
+      const ex = px - (ax + t * dx), ey = py - (ay + t * dy);
+      const d2 = ex * ex + ey * ey;
+      if (d2 < bestD2) { bestD2 = d2; best = k; }
     }
     return best;
   }
@@ -833,6 +944,8 @@ export class GraphEngine {
       const p = local(cx, cy);
       this.handleClick(p.x, p.y, shift || this.multiMode);
     };
+    // A fast mouse sends several moves per frame; hit-test only the latest, once per frame.
+    let hoverAt: { cx: number; cy: number } | null = null;
     const onMove = (cx: number, cy: number) => {
       if (isPanning && panStart) {
         this.view.tx = panStart.tx + (cx - panStart.x);
@@ -841,6 +954,10 @@ export class GraphEngine {
         tooltip.hidden = true;
         return;
       }
+      if (!hoverAt) requestAnimationFrame(() => { const at = hoverAt; hoverAt = null; if (at && !isPanning) hoverTest(at.cx, at.cy); });
+      hoverAt = { cx, cy };
+    };
+    const hoverTest = (cx: number, cy: number) => {
       const p = local(cx, cy);
       const hit = this.hitTest(p.x, p.y);
       const edgeHit = hit < 0 ? this.edgeHitTest(p.x, p.y) : -1;
@@ -919,6 +1036,7 @@ export class GraphEngine {
     canvas.addEventListener('mouseleave', () => {
       if (this.opts.profile !== 'full') engaged = false;
       clearTimeout(this.hoverTimer);
+      hoverAt = null;
       if (this.hoveredIdx !== -1 || this.hoveredEdge !== -1) {
         this.hoveredIdx = -1;
         this.hoveredEdge = -1;
