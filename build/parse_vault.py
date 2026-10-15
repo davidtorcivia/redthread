@@ -13,6 +13,7 @@ import hashlib
 import html
 import json
 import math
+import os
 import re
 import subprocess
 import sys
@@ -841,7 +842,9 @@ def _process_headings(rendered: str) -> tuple[str, list[dict[str, Any]]]:
 
     def repl(m: re.Match) -> str:
         level, attrs, inner = int(m.group(1)), m.group(2), m.group(3)
-        text = TAG.sub("", inner).strip()
+        # Text, not HTML: the TOC renders it escaped, and [[Page#Section]] links slug the raw
+        # heading, so "Kirkland &amp; Ellis" must become "Kirkland & Ellis" before either.
+        text = html.unescape(TAG.sub("", inner)).strip()
         if not text:
             return m.group(0)
         base = slugify(text)
@@ -867,7 +870,8 @@ def render_html(entities: list[dict[str, Any]], slug_index: dict[str, str],
 
     def wikilink(m: re.Match) -> str:
         target, display, section = split_wikilink(m)
-        target = html.unescape(target)  # markdown-it has already escaped '&' and '"'
+        # markdown-it has already escaped '&' and '"'; headings are slugged unescaped too.
+        target, section = html.unescape(target), html.unescape(section)
         href = href_for(target, section)
         if href:
             return f'<a class="wikilink" href="{href}">{display}</a>'
@@ -1284,6 +1288,27 @@ def git_edit_counts(vault_root: Path, days: int = 30) -> Counter:
     return Counter(line.strip() for line in out.splitlines() if line.strip().endswith(".md"))
 
 
+def git_last_edits(vault_root: Path) -> dict[str, str]:
+    """Vault-relative .md path -> UTC ISO time of its last commit. Empty without git."""
+    try:
+        # In UTC, so the times sort as strings whatever offset each commit carried.
+        out = subprocess.run(
+            ["git", "-C", str(vault_root), "-c", "core.quotePath=false", "log", "--relative",
+             "--date=format-local:%Y-%m-%dT%H:%M:%SZ", "--format=%x00%cd", "--name-only"],
+            capture_output=True, text=True, timeout=120, check=True, env={**os.environ, "TZ": "UTC"},
+        ).stdout
+    except (OSError, subprocess.SubprocessError):
+        return {}
+    last: dict[str, str] = {}
+    when = ""
+    for line in out.splitlines():
+        if line.startswith("\0"):
+            when = line[1:]
+        elif line.strip() and line.strip() not in last:
+            last[line.strip()] = when
+    return last
+
+
 def read_focus_pins(path: Path | None, slug_index: dict[str, str]) -> list[str]:
     """Entity ids wikilinked from the focus note, in order."""
     if path is None:
@@ -1485,6 +1510,11 @@ def main() -> int:
             i += 1
         seen_ids.add(e["id"])
         entities.append(e)
+
+    # File mtimes reset on every clone; the last commit is when the page was really edited.
+    last_edit = git_last_edits(vault_root)
+    for e in entities:
+        e["mtime"] = last_edit.get(e["path"]) or e["mtime"]
 
     slug_index = build_slug_index(entities)
     edges, unresolved = resolve_links(entities, slug_index)

@@ -493,5 +493,20 @@ class TestRelations(unittest.TestCase):
         self.assertEqual([(r["other_id"], r["role"]) for r in rows["kid"]], [("dad", "father")])
 
 
+class TestHeadings(unittest.TestCase):
+    def test_toc_text_is_unescaped_and_matches_section_links(self):
+        html_out, toc = pv._process_headings('<h3>Kirkland &amp; Ellis &quot;Days&quot;</h3>')
+        self.assertEqual(toc[0]["text"], 'Kirkland & Ellis "Days"')
+        self.assertEqual(toc[0]["id"], pv.slugify('Kirkland & Ellis "Days"'))
+        self.assertIn(f'id="{toc[0]["id"]}"', html_out)
+
+    def test_section_link_matches_heading_id(self):
+        ents = [{"id": "att", "title": "AT&T", "type": "organization", "footnotes": [],
+                 "body_md": '### Kirkland & Ellis "Days"\n\nSee [[AT&T#Kirkland & Ellis "Days"]].'}]
+        pv.render_html(ents, pv.build_slug_index([make_entity("att", "AT&T")]))
+        anchor = ents[0]["toc"][0]["id"]
+        self.assertIn(f'href="/organizations/att/#{anchor}"', ents[0]["body_html"])
+
+
 if __name__ == "__main__":
     unittest.main()

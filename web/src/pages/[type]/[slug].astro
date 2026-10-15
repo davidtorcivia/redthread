@@ -49,6 +49,13 @@ const ranks = [
 ].filter(Boolean) as { href: string; text: string }[];
 
 const jsonLd = entityJsonLd(entity);
+// The author's `updated:` date when the note has one, else its last commit. UTC, so the
+// date matches on any build host.
+const updatedFm = String(entity.frontmatter?.updated ?? '').trim();
+const editedIso = /^\d{4}-\d{2}-\d{2}/.test(updatedFm) ? updatedFm : entity.mtime;
+const editedAt = editedIso ? new Date(editedIso) : null;
+const edited = editedAt && !Number.isNaN(editedAt.getTime())
+  ? editedAt.toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'UTC' }) : '';
 ---
 <Base
   title={entity.title}
@@ -93,6 +100,7 @@ const jsonLd = entityJsonLd(entity);
           <div><dt>Mentioned on</dt><dd>{entity.mention_count.toLocaleString()} {entity.mention_count === 1 ? 'page' : 'pages'}</dd></div>
           {clusterShown && <div><dt>Cluster</dt><dd><a href={`/clusters/#c-${clusterShown.id}`}>{clusterShown.label}</a></dd></div>}
           {ranks.length > 0 && <div><dt>Rank</dt><dd>{ranks.map((r, i) => <>{i > 0 && ' · '}<a href={r.href}>{r.text}</a></>)}</dd></div>}
+          {edited && <div data-pagefind-ignore><dt>Last edited</dt><dd><time datetime={editedIso!}>{edited}</time></dd></div>}
         </dl>
       </div>
     </header>
