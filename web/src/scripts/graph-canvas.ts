@@ -149,6 +149,8 @@ export class GraphEngine {
   relationEdges = new Map<number, string>();
   /** Set by a layout; cleared before each layout runs. */
   annotations: Annotation[] = [];
+  /** Radians the layout has been turned by two-finger rotation since it was laid out. */
+  private rotation = 0;
   view = { tx: 0, ty: 0, scale: 1 };
   selectedNodes = new Set<number>();
   selectedEdges = new Set<number>();
@@ -315,7 +317,24 @@ export class GraphEngine {
   private sx(x: number): number { return x * this.view.scale + this.view.tx; }
   private sy(y: number): number { return y * this.view.scale + this.view.ty; }
 
+  /** Turn the layout by `angle` around layout point (cx, cy): node and island positions
+   *  change, so every renderer, hit test and label follows with nothing else to know. */
+  private rotateLayout(angle: number, cx: number, cy: number): void {
+    const c = Math.cos(angle), s = Math.sin(angle);
+    for (const p of [...this.nodes, ...this.annotations]) {
+      const dx = p.x - cx, dy = p.y - cy;
+      p.x = cx + dx * c - dy * s;
+      p.y = cy + dx * s + dy * c;
+    }
+    this.rotation += angle;
+    this.version++;
+    this.edgeVersion++;
+    this.requestDraw();
+  }
+
+  /** Fit the visible nodes to the canvas, undoing any rotation first. */
   fit(): void {
+    if (this.rotation) this.rotateLayout(-this.rotation, 0, 0);
     let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
     for (const n of this.nodes) {
       if (!n.visible) continue;
@@ -338,6 +357,7 @@ export class GraphEngine {
   /** Run the current layout, refit and redraw. */
   applyLayout(): void {
     this.annotations = [];
+    this.rotation = 0;
     this.version++;
     this.edgeVersion++;
     this.opts.layouts.find((l) => l.key === this.currentLayout)!.apply(this);
@@ -1081,7 +1101,37 @@ export class GraphEngine {
     let panStart: { x: number; y: number; tx: number; ty: number } | null = null;
     let downAt: { x: number; y: number } | null = null;
     let lastTap = 0;
-    let pinchStart: { dist: number; scale: number; tx: number; ty: number; midX: number; midY: number } | null = null;
+    let pinchStart: { dist: number; scale: number; tx: number; ty: number; midX: number; midY: number; angle: number; engaged: number | null; turn: number } | null = null;
+    // Two-finger rotation: while the fingers turn, the canvases turn under CSS around the
+    // pinch point (free to composite); on release the angle is baked into the layout. It
+    // engages past 12 degrees of twist, so a plain pinch never tilts the graph.
+    const TWIST = .21;
+    const layers = () => [canvas, this.gl?.canvas].filter((c): c is HTMLCanvasElement => !!c);
+    const showTurn = (angle: number, x: number, y: number) => {
+      for (const c of layers()) {
+        c.style.transformOrigin = `${x}px ${y}px`;
+        c.style.transform = angle ? `rotate(${angle}rad)` : '';
+      }
+    };
+    // After endTurn: local() reads the canvas box, which a CSS rotation would distort.
+    const startPinch = (touches: TouchList) => {
+      const [a, b] = touches;
+      const mid = local((a.clientX + b.clientX) / 2, (a.clientY + b.clientY) / 2);
+      pinchStart = {
+        dist: Math.hypot(b.clientX - a.clientX, b.clientY - a.clientY),
+        scale: this.view.scale, tx: this.view.tx, ty: this.view.ty,
+        midX: mid.x, midY: mid.y,
+        angle: Math.atan2(b.clientY - a.clientY, b.clientX - a.clientX), engaged: null, turn: 0,
+      };
+    };
+    const endTurn = () => {
+      if (!pinchStart?.turn) return;
+      const { turn, midX, midY } = pinchStart;
+      showTurn(0, 0, 0);
+      const v = this.view;
+      this.rotateLayout(turn, (midX - v.tx) / v.scale, (midY - v.ty) / v.scale);
+      pinchStart.turn = 0;
+    };
 
     const local = (cx: number, cy: number) => {
       const r = canvas.getBoundingClientRect();
@@ -1262,13 +1312,7 @@ export class GraphEngine {
         onDown(e.touches[0].clientX, e.touches[0].clientY);
       } else if (e.touches.length === 2) {
         isPanning = false;
-        const [a, b] = e.touches;
-        const mid = local((a.clientX + b.clientX) / 2, (a.clientY + b.clientY) / 2);
-        pinchStart = {
-          dist: Math.hypot(b.clientX - a.clientX, b.clientY - a.clientY),
-          scale: this.view.scale, tx: this.view.tx, ty: this.view.ty,
-          midX: mid.x, midY: mid.y,
-        };
+        startPinch(e.touches);
       }
       e.preventDefault();
     }, { passive: false });
@@ -1281,6 +1325,13 @@ export class GraphEngine {
         this.view.scale = newScale;
         this.view.tx = pinchStart.midX - (pinchStart.midX - pinchStart.tx) * r;
         this.view.ty = pinchStart.midY - (pinchStart.midY - pinchStart.ty) * r;
+        let twist = Math.atan2(b.clientY - a.clientY, b.clientX - a.clientX) - pinchStart.angle;
+        twist = Math.atan2(Math.sin(twist), Math.cos(twist));  // into -pi..pi
+        if (pinchStart.engaged === null && Math.abs(twist) > TWIST) pinchStart.engaged = twist;
+        if (pinchStart.engaged !== null) {
+          pinchStart.turn = twist - pinchStart.engaged;
+          showTurn(pinchStart.turn, pinchStart.midX, pinchStart.midY);
+        }
         this.moved();
       } else if (e.touches.length === 1) {
         onMove(e.touches[0].clientX, e.touches[0].clientY);
@@ -1288,12 +1339,14 @@ export class GraphEngine {
       e.preventDefault();
     }, { passive: false });
     canvas.addEventListener('touchend', (e) => {
-      if (e.touches.length < 2) pinchStart = null;
+      if (e.touches.length < 2) { endTurn(); pinchStart = null; }
+      // Back to two fingers after a third: the pair may differ, so restart from it.
+      else if (e.touches.length === 2 && pinchStart) { endTurn(); startPinch(e.touches); }
       if (e.changedTouches.length === 1 && e.touches.length === 0) {
         onUp(e.changedTouches[0].clientX, e.changedTouches[0].clientY, true, false);
       }
     });
-    canvas.addEventListener('touchcancel', () => { isPanning = false; pinchStart = null; downAt = null; });
+    canvas.addEventListener('touchcancel', () => { endTurn(); isPanning = false; pinchStart = null; downAt = null; });
 
     // Generic controls. Every one is optional in the markup.
     const btn = (cls: string) => root.querySelector<HTMLButtonElement>(cls);

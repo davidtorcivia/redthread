@@ -56,6 +56,7 @@
 .entity-article .entity-network .net-blurb {max-width:60em;font:400 17px/1.4 var(--serif);margin:0 0 20px}
 .graph-caption {display:flex;align-items:center;gap:20px;border-top:1px solid var(--line);padding:10px 0;font:400 12px/1.5 var(--sans);color:var(--muted)}
 .graph-caption .net-stats {margin-right:auto;color:var(--ink)}
+.graph-touch-hint {display:none}
 .graph-zoom {display:flex;gap:1px}
 .graph-zoom button {font:500 22px/1 var(--sans);width:36px;height:36px;border:1px solid var(--line);background:none;color:var(--ink);cursor:pointer}
 .graph-zoom button:hover {background:var(--ink);color:var(--paper)}
@@ -97,6 +98,7 @@
   .network-article .net-shell,.entity-network .net-shell {height:490px}
   .graph-caption {flex-wrap:wrap;gap:6px;font-size:11px}
   .graph-caption>span:nth-child(2) {display:none}
+  .graph-caption>.graph-touch-hint {display:inline}
   .network-article.fullscreen,.entity-network.fullscreen {padding:8px 12px}
   /* Expanded on a phone, the graph and its tools get the whole screen. */
   .network-article.fullscreen .network-header,.entity-network.fullscreen>.section-heading {display:none}
