@@ -1305,8 +1305,10 @@ def compute_focus(
 
     Score is the page's own commits plus the commits to pages linking it, as a
     share of its linkers so mega-hubs do not win on volume, scaled by
-    log(mentions). Pins take the first slots. The cluster is the community
-    with the most edited member pages.
+    log(mentions). Pins take the first slots. Organizations in the top 5% by
+    mentions (the CIA, the NSA) are left to pins: every edit touches them, and a
+    reader finds them anyway. The cluster is the community with the most edited
+    member pages.
     """
     by_id = {e["id"]: e for e in entities}
     own = Counter({e["id"]: edits[e["path"]] for e in entities if edits[e["path"]]})
@@ -1315,8 +1317,12 @@ def compute_focus(
         t = edge.get("target_id")
         if t and t != edge["source"] and own[edge["source"]]:
             linked[t] += own[edge["source"]]
+    counts = sorted(e.get("mention_count", 0) for e in entities if e["type"] in FOCUS_TYPES)
+    big_org = counts[int(len(counts) * .95)] if counts else math.inf
     scored = []
     for e in entities:
+        if e["type"] == "organization" and e.get("mention_count", 0) > big_org:
+            continue
         if e["type"] in FOCUS_TYPES and e.get("summary") and own[e["id"]]:
             m = e.get("mention_count", 0)
             scored.append((own[e["id"]] + linked[e["id"]] / max(1, m) * math.log(2 + m), e["id"]))
@@ -1329,13 +1335,13 @@ def compute_focus(
 
     pages = []
     for i in chosen:
-        parts = []
         if own[i]:
-            parts.append(plural(own[i], "edit"))
-        if linked[i]:
-            parts.append(plural(linked[i], "linking page") + " edited")
-        pages.append({"id": i, "pinned": i in pins,
-                      "reason": f"{', '.join(parts)} in the last {days} days" if parts else ""})
+            reason = f"{plural(own[i], 'edit')} in the last {days} days"
+        elif linked[i]:
+            reason = f"{plural(linked[i], 'edit')} to pages linking it in the last {days} days"
+        else:
+            reason = ""
+        pages.append({"id": i, "pinned": i in pins, "reason": reason})
 
     edited_in = Counter(e["community_id"] for e in entities
                         if own[e["id"]] and e.get("community_id") is not None)

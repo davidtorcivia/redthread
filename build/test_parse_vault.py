@@ -410,8 +410,19 @@ class TestFocus(unittest.TestCase):
         f = pv.compute_focus(ents, [{"source": "b", "target_id": "c"}], comms, edits, pins=["c"], slots=2)
         self.assertEqual([p["id"] for p in f["pages"]], ["c", "a"])  # places never picked
         self.assertTrue(f["pages"][0]["pinned"])
-        self.assertIn("1 linking page edited", f["pages"][0]["reason"])
+        self.assertEqual(f["pages"][0]["reason"], "1 edit to pages linking it in the last 30 days")
+        self.assertEqual(f["pages"][1]["reason"], "3 edits in the last 30 days")
         self.assertEqual(f["cluster"]["id"], 0)  # a and p edited in 0, only b in 1
+
+    def test_big_organizations_left_to_pins(self):
+        ents = [{"id": f"p{i}", "path": f"10/p{i}.md", "type": "person", "summary": "x", "mention_count": 1}
+                for i in range(20)]
+        ents.append({"id": "o", "path": "20/o.md", "type": "organization", "summary": "x", "mention_count": 500})
+        edits = Counter({"20/o.md": 10, "10/p0.md": 1})
+        f = pv.compute_focus(ents, [], [], edits, pins=[], slots=1)
+        self.assertEqual([p["id"] for p in f["pages"]], ["p0"])
+        f = pv.compute_focus(ents, [], [], edits, pins=["o"], slots=1)
+        self.assertEqual([p["id"] for p in f["pages"]], ["o"])
 
 
 class TestRelations(unittest.TestCase):

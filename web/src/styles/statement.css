@@ -94,6 +94,7 @@ dl.band-facts > div {display:contents}
 .item-facts {font-size:15px;line-height:1.45;color:var(--muted);align-self:start;padding-top:.5em}
 .item-facts b {color:var(--ink);font-weight:600}
 .item-facts i {display:block}
+.focus-meta {display:block}
 .item-dek {grid-column:2;font-size:17px;line-height:1.45;max-width:60ch;margin:.2em 0 .6em;text-wrap:pretty}
 /* The facts span both rows, so a long facts column no longer pushes the dek away from its title. */
 @media (min-width:1101px) {.statement-item > .item-facts {grid-row:span 2}}
@@ -103,7 +104,7 @@ dl.band-facts > div {display:contents}
   .dispatch-pair > .section-heading {grid-column:1/-1}
   .dispatch-pair .statement-item {grid-template-columns:minmax(0,1fr);align-content:start}
   .dispatch-pair .item-facts {grid-row:auto;padding-top:0}
-  .dispatch-pair .item-dek {grid-column:1}
+  .dispatch-pair .item-dek {grid-column:1;max-width:none}
   .dispatch-pair > .focus-cluster {grid-column:1/-1}
 }
 .statement-cols {display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:0 3rem}

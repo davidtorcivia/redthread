@@ -81,6 +81,9 @@ export interface EngineOptions {
 // labels only for landmarks or nodes big enough on screen. Edges between other
 // nodes use edgeInk/edgeAlpha; the entity graph's spokes to its focal entry are fainter,
 // and on its Clusters layout so are links between islands (crossEdgeAlpha).
+const HOVER_DELAY = 110;
+const HOVER_FADE = 160;
+
 const PROFILES = {
   entity: { zoomMax: 20, fitPad: 30, minR: 3, maxR: 12, edgeAlpha: .3, edgeInk: 'muted', edgeWidth: .8, focalEdgeAlpha: .3, crossEdgeAlpha: .1, labelAll: true, searchZoom: 1.1 },
   full: { zoomMax: 50, fitPad: 40, minR: 1.7, maxR: 9, edgeAlpha: .25, edgeInk: 'line', edgeWidth: .65, focalEdgeAlpha: .25, crossEdgeAlpha: .25, labelAll: false, searchZoom: .8 },
@@ -157,12 +160,19 @@ export class GraphEngine {
   opacityMult = 1;
   /** How far a selection or hover fades everything else, 0 (not at all) to 1. */
   highlightStrength = 1;
+  /** 0 to 1: how far the hover highlight has faded in. It waits HOVER_DELAY ms, then fades over
+   *  HOVER_FADE ms, so sweeping the pointer across the graph does not flash every node passed. */
+  private hoverMix = 1;
+  private hoverFadeStart = 0;
+  private hoverTimer: ReturnType<typeof setTimeout> | undefined;
   forceMult = 1;
   currentLayout: string;
   private layoutIdx = 0;
   private dpr = 1;
   private fitScale = 1;
   private drawScheduled = false;
+  /** Runs at the start of each frame's draw, so an animated view change paints in the same frame. */
+  private beforeDraw: (() => void) | null = null;
   /** True while panning or zooming: the full graph skips labels until it settles. */
   private interacting = false;
   private settleTimer: ReturnType<typeof setTimeout> | undefined;
@@ -478,6 +488,7 @@ export class GraphEngine {
   }
 
   private draw(): void {
+    this.beforeDraw?.();
     const { nodes, ctx, COLORS, px, py, pr } = this;
     const { W, H } = this.canvasSize();
     if (!W || !H) return;
@@ -488,9 +499,17 @@ export class GraphEngine {
     if (!nodes.length) return;
 
     const hasSelection = this.selectedNodes.size > 0 || this.selectedEdges.size > 0;
-    const hoverFocus = !hasSelection && this.hoveredIdx >= 0
+    if (this.hoverFadeStart) {
+      this.hoverMix = Math.min(1, (performance.now() - this.hoverFadeStart) / HOVER_FADE);
+      if (this.hoverMix < 1) this.requestDraw();
+      else this.hoverFadeStart = 0;
+    }
+    const hoverFocus = !hasSelection && this.hoveredIdx >= 0 && this.hoverMix > 0
       ? new Set([this.hoveredIdx, ...this.neighborSets[this.hoveredIdx]]) : null;
     const focus = this.focusNodes || hoverFocus;
+    // A selection's highlight is immediate; a hover's fades in with hoverMix.
+    const mix = this.focusNodes ? 1 : this.hoverMix;
+    const strength = this.highlightStrength * mix;
     for (let i = 0; i < nodes.length; i++) {
       px[i] = this.sx(nodes[i].x);
       py[i] = this.sy(nodes[i].y);
@@ -504,16 +523,19 @@ export class GraphEngine {
     if (this.edgesVisible) {
       const key = `${W}|${H}|${this.dpr}|${this.showImplicit}|${this.version}`;
       // A selection or hover fades the idle edges rather than redrawing them.
-      this.paintLayer(this.idleLayer, key, W, H, focus ? 1 - .64 * this.highlightStrength : 1, (c) => this.drawIdleEdges(c, W, H));
+      this.paintLayer(this.idleLayer, key, W, H, focus ? 1 - .64 * strength : 1, (c) => this.drawIdleEdges(c, W, H));
       const selected = new Set(this.selectedEdges);
       for (const i of this.selectedNodes) for (const k of this.incident[i]) selected.add(k);
       if (selected.size) this.paintLayer(this.selectionLayer, key, W, H, 1, (c) => this.drawLitEdges(c, selected, W, H));
       const hovered = new Set<number>();
       if (this.hoveredIdx >= 0) for (const k of this.incident[this.hoveredIdx]) if (!selected.has(k)) hovered.add(k);
       if (this.hoveredEdge >= 0 && !selected.has(this.hoveredEdge)) hovered.add(this.hoveredEdge);
+      ctx.save();
+      ctx.globalAlpha = this.hoverMix;
       this.drawLitEdges(ctx, hovered, W, H);
+      ctx.restore();
       const relations = [...this.relationEdges.keys()].filter((k) => !selected.has(k) && !hovered.has(k) && this.edgeShown(k, W, H));
-      this.strokeEdges(ctx, relations, 1.2, hexToRgba(COLORS.ink, focus ? .15 : .3), false);
+      this.strokeEdges(ctx, relations, 1.2, hexToRgba(COLORS.ink, focus ? .3 - .15 * mix : .3), false);
     }
 
     const ring = (x: number, y: number, r: number) => { ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); };
@@ -525,7 +547,7 @@ export class GraphEngine {
         if (active !== top || !n.visible || x + r < 0 || x - r > W || y + r < 0 || y - r > H) continue;
         const inFocus = !focus || focus.has(i);
         // Second-hop nodes are drawn a little fainter than the first ring.
-        ctx.globalAlpha = active ? 1 : (inFocus ? .88 : .88 - .75 * this.highlightStrength) *
+        ctx.globalAlpha = active ? 1 : (inFocus ? .88 : .88 - .75 * strength) *
           this.opacityMult * (n.hop === 2 ? .62 : 1);
         if (active) {
           ctx.fillStyle = hexToRgba(COLORS.accent, .1);
@@ -768,6 +790,7 @@ export class GraphEngine {
     const navigateTo = (i: number) => {
       if (!this.nodes[i].isFocal) location.href = hrefFor(this.nodes[i]);
     };
+    const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)');
     const onDown = (cx: number, cy: number) => {
       isPanning = true;
       panStart = { x: cx, y: cy, tx: this.view.tx, ty: this.view.ty };
@@ -807,6 +830,16 @@ export class GraphEngine {
       if (hit !== this.hoveredIdx || edgeHit !== this.hoveredEdge) {
         this.hoveredIdx = hit;
         this.hoveredEdge = edgeHit;
+        clearTimeout(this.hoverTimer);
+        this.hoverMix = 0;
+        this.hoverFadeStart = 0;
+        if (hit >= 0 || edgeHit >= 0) {
+          this.hoverTimer = setTimeout(() => {
+            if (reduceMotion.matches) this.hoverMix = 1;
+            else this.hoverFadeStart = performance.now();
+            this.requestDraw();
+          }, HOVER_DELAY);
+        }
         this.requestDraw();
       }
       canvas.style.cursor = hit >= 0 || edgeHit >= 0 ? 'pointer' : '';
@@ -826,26 +859,24 @@ export class GraphEngine {
     };
     // Wheel notches and the zoom buttons ease toward an accumulated target instead of
     // jumping, anchored at the latest pointer. Any direct manipulation cancels the glide.
-    const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)');
     // `at` is the view the glide last set: a search jump or refit since then ends the glide.
     let glide: { scale: number; px: number; py: number; at: string } | null = null;
     const viewKey = () => `${this.view.scale},${this.view.tx},${this.view.ty}`;
-    let glideFrame = 0;
-    const stopGlide = () => { glide = null; cancelAnimationFrame(glideFrame); glideFrame = 0; };
-    const glideStep = () => {
-      glideFrame = 0;
-      if (!glide || glide.at !== viewKey()) { glide = null; return; }
+    const stopGlide = () => { glide = null; };
+    // Each draw advances the glide 45% of the way (in log scale), so a notch settles in about 6 frames.
+    this.beforeDraw = () => {
+      if (!glide) return;
+      if (glide.at !== viewKey()) { glide = null; return; }
       const left = Math.log(glide.scale / this.view.scale);
       const done = Math.abs(left) < .003;
-      zoomAt(glide.px, glide.py, Math.exp(done ? left : left * .25));
+      zoomAt(glide.px, glide.py, Math.exp(done ? left : left * .45));  // moved() queues the next frame
       glide.at = viewKey();
       if (done) glide = null;
-      else glideFrame = requestAnimationFrame(glideStep);
     };
     const smoothZoomAt = (px: number, py: number, factor: number) => {
       if (reduceMotion.matches) { zoomAt(px, py, factor); return; }
       glide = { scale: zoomTo((glide?.scale ?? this.view.scale) * factor), px, py, at: viewKey() };
-      if (!glideFrame) glideFrame = requestAnimationFrame(glideStep);
+      this.requestDraw();
     };
 
     canvas.addEventListener('mousedown', (e) => onDown(e.clientX, e.clientY));
@@ -870,6 +901,7 @@ export class GraphEngine {
     canvas.addEventListener('pointerdown', () => { engaged = true; hint.hidden = true; stopGlide(); });
     canvas.addEventListener('mouseleave', () => {
       if (this.opts.profile !== 'full') engaged = false;
+      clearTimeout(this.hoverTimer);
       if (this.hoveredIdx !== -1 || this.hoveredEdge !== -1) {
         this.hoveredIdx = -1;
         this.hoveredEdge = -1;
@@ -884,7 +916,11 @@ export class GraphEngine {
       const p = local(e.clientX, e.clientY);
       // Firefox reports lines (deltaMode 1) or pages (2) instead of pixels.
       const dy = e.deltaY * (e.deltaMode === 1 ? 33 : e.deltaMode === 2 ? this.canvasSize().H : 1);
-      smoothZoomAt(p.x, p.y, Math.exp(-Math.max(-100, Math.min(100, dy)) * .002));
+      const factor = Math.exp(-Math.max(-100, Math.min(100, dy)) * .002);
+      // Trackpad scrolls and pinches already arrive as a stream of small pixel deltas: apply them
+      // directly. Mouse-wheel notches (40px and up) glide.
+      if (e.deltaMode === 0 && Math.abs(dy) < 40) { stopGlide(); zoomAt(p.x, p.y, factor); }
+      else smoothZoomAt(p.x, p.y, factor);
     }, { passive: false });
     canvas.addEventListener('dblclick', (e) => {
       const p = local(e.clientX, e.clientY);

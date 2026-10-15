@@ -21,6 +21,17 @@ python="${PYTHON:-python3}"
 [[ -x "$root/.venv/bin/python" && -z "${PYTHON:-}" ]] && python="$root/.venv/bin/python"
 sync=("$python" "$root/deploy/r2_sync.py" --bucket "$bucket" --dist "$dist" --semantic "$root/data/semantic")
 
+# A build that is missing or still being written (astro empties dist first) must not
+# replace the live site. FORCE_DEPLOY=1 allows an intended shrink.
+count() { find "$1" -type f ! -name '*.gz' 2>/dev/null | wc -l; }
+if [[ ! -f "$dist/index.html" ]]; then
+  echo "[deploy] refusing: $dist has no index.html" >&2; exit 1
+fi
+if [[ -z "${FORCE_DEPLOY:-}" ]] && (( $(count "$dist") * 2 < $(count "$assets") )); then
+  echo "[deploy] refusing: $dist has $(count "$dist") files, under half of the last deploy's $(count "$assets"); set FORCE_DEPLOY=1 if intended" >&2
+  exit 1
+fi
+
 version="$("${sync[@]}" upload)"
 mkdir -p "$assets"
 rsync -a --delete --delete-excluded --exclude='*.gz' --exclude='/og/' --exclude='/*/*.md' --exclude='/fulltext.json' "$dist/" "$assets/"

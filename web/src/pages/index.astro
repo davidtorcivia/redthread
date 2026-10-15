@@ -43,12 +43,12 @@ const shortDate = (iso: string) => {
     {featured.length > 0 && <section class="statement-list dispatch-pair">
       <h2 class="section-heading">In focus <span>most worked on, last {inFocus.days} days</span></h2>
       {featured.map(({ e, reason }) => <article class="statement-item">
-        <div class="item-facts"><b>{e.mention_count} pages</b> · {TYPE_LABELS[e.type]}{e.category && <i>{e.category}</i>}{reason && <i>{reason}</i>}</div>
+        <div class="item-facts"><b>{TYPE_LABELS[e.type]}</b>{e.category && ` · ${e.category}`}<span class="focus-meta">{[reason, `named on ${e.mention_count.toLocaleString()} pages`].filter(Boolean).join(' · ')}</span></div>
         <a class="item-title" href={hrefFor(e)}>{e.title}</a>
         {e.summary && <p class="item-dek" set:html={renderInlineMd(e.summary)} />}
       </article>)}
       {focusCluster && <article class="statement-item focus-cluster">
-        <div class="item-facts"><b>{focusCluster.size} entries</b> · Cluster<i>{focusCluster.edited} pages edited in the last {focusCluster.days} days</i></div>
+        <div class="item-facts"><b>Cluster</b> · {focusCluster.size} entries<span class="focus-meta">{focusCluster.edited} pages edited in the last {focusCluster.days} days</span></div>
         <a class="item-title" href={`/clusters/#c-${focusCluster.id}`}>{focusCluster.label}</a>
       </article>}
     </section>}

@@ -710,7 +710,6 @@ footer.site .foot-nav a:hover { color: var(--accent); }
 /* Browse pages */
 .browse-header {
   margin: 0 auto;
-  border-bottom: 2px solid var(--ink);
 }
 .browse-header h1 {
   margin: 0 0 0.8rem;
