@@ -11,9 +11,12 @@ layout(location=1) in vec4 ends;
 layout(location=2) in vec4 color;
 layout(location=3) in vec2 style;
 uniform vec3 view; uniform vec2 res; uniform float minLen;
+// A live two-finger rotation, about a screen point: (cos, sin, x, y).
+uniform vec4 turn;
+vec2 turned(vec2 p) { vec2 d = p - turn.zw; return turn.zw + vec2(d.x * turn.x - d.y * turn.y, d.x * turn.y + d.y * turn.x); }
 out vec4 vColor; out float vAcross; out float vAlong; out float vWidth; out float vDashed;
 void main() {
-  vec2 a = ends.xy * view.z + view.xy, b = ends.zw * view.z + view.xy;
+  vec2 a = turned(ends.xy * view.z + view.xy), b = turned(ends.zw * view.z + view.xy);
   vec2 d = b - a; float len = length(d);
   if (len <= minLen) { gl_Position = vec4(2.0, 2.0, 2.0, 1.0); return; }
   vec2 dir = d / len, nrm = vec2(-dir.y, dir.x);
@@ -42,13 +45,16 @@ layout(location=2) in float size;
 layout(location=3) in vec4 color;
 layout(location=4) in vec2 look;
 uniform vec3 view; uniform vec2 res; uniform vec2 radii;
+// A live two-finger rotation, about a screen point: (cos, sin, x, y).
+uniform vec4 turn;
+vec2 turned(vec2 p) { vec2 d = p - turn.zw; return turn.zw + vec2(d.x * turn.x - d.y * turn.y, d.x * turn.y + d.y * turn.x); }
 out vec2 vLocal; out float vR; out vec4 vColor; out vec2 vLook;
 void main() {
   if (look.x <= 0.0) { gl_Position = vec4(2.0, 2.0, 2.0, 1.0); return; }
   float r = clamp(size * sqrt(max(0.01, view.z)), radii.x, radii.y);
   float reach = r + (look.y > 0.5 ? 3.0 : 1.5);
   vec2 c = vec2(corner.x * 2.0 - 1.0, corner.y);
-  vec2 p = pos * view.z + view.xy + c * reach;
+  vec2 p = turned(pos * view.z + view.xy) + c * reach;
   vLocal = c * reach; vR = r; vColor = color; vLook = look;
   gl_Position = vec4(p / res * 2.0 - 1.0, 0.0, 1.0) * vec4(1.0, -1.0, 1.0, 1.0);
 }`;
@@ -134,6 +140,8 @@ export class GraphGL {
   private dynamic: Drawable;
   private nodes: Drawable & { look: WebGLBuffer };
   lost = false;
+  /** A live rotation (cos, sin, pivot x, pivot y) applied after the view; none is (1, 0, 0, 0). */
+  turn: [number, number, number, number] = [1, 0, 0, 0];
   /** Called when the context is lost, so the engine can redraw in 2D at once. */
   onLost: (() => void) | null = null;
 
@@ -167,8 +175,8 @@ export class GraphGL {
     this.edgeProg = this.program(EDGE_VS, EDGE_FS);
     this.nodeProg = this.program(NODE_VS, NODE_FS);
     const uniforms = (p: WebGLProgram, names: string[]) => Object.fromEntries(names.map((n) => [n, gl.getUniformLocation(p, n)]));
-    this.edgeU = uniforms(this.edgeProg, ['view', 'res', 'minLen', 'dpr', 'alpha']);
-    this.nodeU = uniforms(this.nodeProg, ['view', 'res', 'radii', 'dpr', 'paper', 'gold']);
+    this.edgeU = uniforms(this.edgeProg, ['view', 'res', 'minLen', 'dpr', 'alpha', 'turn']);
+    this.nodeU = uniforms(this.nodeProg, ['view', 'res', 'radii', 'dpr', 'paper', 'gold', 'turn']);
     this.corner = gl.createBuffer()!;
     gl.bindBuffer(gl.ARRAY_BUFFER, this.corner);
     gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([0, -1, 1, -1, 0, 1, 1, 1]), gl.STATIC_DRAW);
@@ -283,6 +291,7 @@ export class GraphGL {
     gl.uniform1f(u.dpr, dpr);
     gl.uniform1f(u.alpha, alpha);
     gl.uniform1f(u.minLen, minLen);
+    gl.uniform4fv(u.turn, this.turn);
   }
 
   /** The idle edges; edges under 1.5px on screen are skipped, as in the 2D pass. */
@@ -317,6 +326,7 @@ export class GraphGL {
     gl.uniform1f(u.dpr, dpr);
     gl.uniform3f(u.paper, paper[0] / 255, paper[1] / 255, paper[2] / 255);
     gl.uniform3f(u.gold, gold[0] / 255, gold[1] / 255, gold[2] / 255);
+    gl.uniform4fv(u.turn, this.turn);
     gl.bindBuffer(gl.ARRAY_BUFFER, this.nodes.look);
     gl.bufferData(gl.ARRAY_BUFFER, look, gl.STREAM_DRAW);
     gl.bindVertexArray(this.nodes.vao);

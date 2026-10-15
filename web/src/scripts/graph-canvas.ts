@@ -151,6 +151,9 @@ export class GraphEngine {
   annotations: Annotation[] = [];
   /** Radians the layout has been turned by two-finger rotation since it was laid out. */
   private rotation = 0;
+  /** A rotation in progress (WebGL path): screen positions turn by it about a screen point
+   *  until release bakes it into the layout. */
+  private turn: { c: number; s: number; x: number; y: number } | null = null;
   view = { tx: 0, ty: 0, scale: 1 };
   selectedNodes = new Set<number>();
   selectedEdges = new Set<number>();
@@ -315,6 +318,13 @@ export class GraphEngine {
     requestAnimationFrame(() => { this.drawScheduled = false; this.draw(); });
   }
   private sx(x: number): number { return x * this.view.scale + this.view.tx; }
+  /** Screen position of a layout point, turned by any rotation in progress. */
+  private project(x: number, y: number): [number, number] {
+    const X = this.sx(x), Y = this.sy(y), t = this.turn;
+    if (!t) return [X, Y];
+    const dx = X - t.x, dy = Y - t.y;
+    return [t.x + dx * t.c - dy * t.s, t.y + dx * t.s + dy * t.c];
+  }
   private sy(y: number): number { return y * this.view.scale + this.view.ty; }
 
   /** Turn the layout by `angle` around layout point (cx, cy): node and island positions
@@ -755,6 +765,9 @@ export class GraphEngine {
   }
 
   private draw(): void {
+    // A lost context falls back to 2D before anything projects; a live turn belongs to the
+    // GL path, so the rest of that gesture turns under CSS instead.
+    if (this.gl?.lost) { this.gl.canvas.remove(); this.gl = null; this.turn = null; }
     this.beforeDraw?.();
     const { nodes, ctx, COLORS, px, py, pr } = this;
     const { W, H } = this.canvasSize();
@@ -778,19 +791,19 @@ export class GraphEngine {
     const mix = this.focusNodes ? 1 : this.hoverMix;
     const strength = this.highlightStrength * mix;
     for (let i = 0; i < nodes.length; i++) {
-      px[i] = this.sx(nodes[i].x);
-      py[i] = this.sy(nodes[i].y);
+      [px[i], py[i]] = this.project(nodes[i].x, nodes[i].y);
       pr[i] = this.radius(nodes[i]);
     }
     const isActive = (i: number) => this.selectedNodes.has(i) || i === this.hoveredIdx || !!nodes[i].isFocal;
 
-    if (this.gl?.lost) { this.gl.canvas.remove(); this.gl = null; }
     const gl = this.gl;
     if (gl) {
       // Every edge and idle node on the GPU, every frame; the 2D canvas above keeps the
       // active nodes, cluster names and labels.
       gl.begin(this.canvas.width, this.canvas.height);
       this.syncGL(gl);
+      const t = this.turn;
+      gl.turn = t ? [t.c, t.s, t.x, t.y] : [1, 0, 0, 0];
       const v = this.view, dpr = this.dpr;
       if (this.edgesVisible) {
         gl.drawIdle(v, W, H, dpr, focus ? 1 - .64 * strength : 1);
@@ -911,7 +924,7 @@ export class GraphEngine {
       ctx.font = '500 11px "Archivo", sans-serif';
       const tail = rest.length ? this.fitText(rest.join(' · '), Math.round(Math.max(headW, 160) / 20) * 20) : '';
       const w = Math.max(headW, tail ? this.textWidth(tail) : 0) + 10, h = tail ? 34 : 20;
-      const r = a.r * this.view.scale, x = this.sx(a.x), y = this.sy(a.y);
+      const r = a.r * this.view.scale, [x, y] = this.project(a.x, a.y);
       const box = [[x - w / 2, y - r - h - 2], [x - w / 2, y + r + 4], [x + r + 6, y - h / 2], [x - r - 6 - w, y - h / 2]]
         .map(([bx, by]) => ({ x: bx, y: by, w, h }))
         .find((b) => b.x >= 0 && b.x + b.w <= W && b.y >= 0 && b.y + b.h <= H && !overlaps(b));
@@ -1108,6 +1121,14 @@ export class GraphEngine {
     const TWIST = .21;
     const layers = () => [canvas, this.gl?.canvas].filter((c): c is HTMLCanvasElement => !!c);
     const showTurn = (angle: number, x: number, y: number) => {
+      // With WebGL the whole graph redraws turned each frame, so no corner goes blank; the
+      // 2D fallback turns the canvases under CSS instead.
+      if (this.gl) {
+        this.turn = angle ? { c: Math.cos(angle), s: Math.sin(angle), x, y } : null;
+        this.requestDraw();
+        return;
+      }
+      this.turn = null;
       for (const c of layers()) {
         c.style.transformOrigin = `${x}px ${y}px`;
         c.style.transform = angle ? `rotate(${angle}rad)` : '';
