@@ -70,6 +70,8 @@
 .net-selection .gs-context p {margin:0 0 .35em}
 .net-selection .gs-context a {color:inherit;text-decoration:underline;text-underline-offset:.15em}
 .net-selection .gs-go {font:600 14px/1.4 var(--sans);color:var(--accent)}
+.net-selection .gs-more {display:none}
+.net-selection .gs-more[hidden] {display:none!important}
 .net-tooltip {background:var(--paper);color:var(--ink);border:1px solid var(--line);border-radius:0;max-width:280px;padding:10px 12px;box-shadow:0 4px 12px #0000000a}
 .net-tooltip .gt-pair {font:600 14px/1.25 var(--sans)}
 .net-tooltip .gt-meta {font:400 12px/1.4 var(--sans);color:var(--muted)}
@@ -98,7 +100,16 @@
   .network-article.fullscreen,.entity-network.fullscreen {padding:8px 12px}
   /* Expanded on a phone, the graph and its tools get the whole screen. */
   .network-article.fullscreen .network-header,.entity-network.fullscreen>.section-heading {display:none}
-  .network-article .net-selection,.entity-network .net-selection {padding:12px;left:12px;bottom:12px;max-width:calc(100% - 24px)}
+  /* A phone's panel is a slim strip across the bottom; Details opens the rest, capped so
+     most of the graph stays visible. */
+  .network-article .net-selection,.entity-network .net-selection {padding:10px 12px;left:8px;right:8px;bottom:8px;max-width:none;max-height:45%;overflow-y:auto;overscroll-behavior:contain}
+  .net-selection .gs-title {font-size:18px;margin-top:2px}
+  .net-selection .gs-actions {margin-top:8px;padding-top:8px}
+  .net-selection .gs-more {display:inline-block;margin-left:auto;padding:0;border:0;background:none;color:var(--ink);font:600 13px/1.4 var(--sans);text-decoration:underline;text-underline-offset:.15em;cursor:pointer}
+  .net-selection:not(.is-open) :is(.gs-meta,.gs-bridge,.gs-hub,.gs-context,.gs-summary) {display:none}
+  .net-selection:not(.is-open) .gs-row {display:flex;align-items:baseline;gap:8px;min-width:0}
+  .net-selection:not(.is-open) .gs-title {margin:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+  .net-selection:not(.is-open) .gs-actions {margin-top:6px;padding-top:6px}
 }
 /* Shown when the wheel scrolls past the embedded graph instead of zooming it. */
 .net-wheel-hint {position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);z-index:5;padding:8px 12px;background:var(--ink);color:var(--paper);font:600 13px/1.3 var(--sans);pointer-events:none;white-space:nowrap}

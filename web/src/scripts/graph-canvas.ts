@@ -1386,6 +1386,13 @@ export class GraphEngine {
     });
     this.updateForceSliderVisibility();
     this.panel.querySelector('.gs-deselect')?.addEventListener('click', () => this.clearSelection());
+    // On a phone the panel opens compact (name and actions); Details shows the rest.
+    const more = this.panel.querySelector<HTMLButtonElement>('.gs-more');
+    more?.addEventListener('click', () => {
+      const open = this.panel.classList.toggle('is-open');
+      more.setAttribute('aria-expanded', String(open));
+      more.textContent = open ? 'Less' : 'Details';
+    });
   }
   private updateForceSliderVisibility(): void {
     const slider = this.root.querySelector<HTMLElement>('[data-force-only]');
@@ -1436,6 +1443,9 @@ export class GraphEngine {
 
     const nc = this.selectedNodes.size, ec = this.selectedEdges.size;
     panel.hidden = nc + ec === 0;
+    panel.classList.remove('is-open');
+    const more = q('.gs-more');
+    if (more) { more.setAttribute('aria-expanded', 'false'); more.textContent = 'Details'; more.hidden = false; }
     if (panel.hidden) return;
     const eyebrow = q('.gs-eyebrow')!, title = q('.gs-title')!, count = q('.gs-count')!;
     eyebrow.className = 'gs-eyebrow';
@@ -1457,6 +1467,7 @@ export class GraphEngine {
       goB.href = hrefFor(b);
       goB.textContent = `Go to ${b.title} →`;
       goB.hidden = false;
+      if (more) more.hidden = true;  // both names are already on the links
       return;
     }
     if (nc === 1 && ec === 0) {
