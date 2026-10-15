@@ -1,5 +1,5 @@
-// Idle-edge drawing shared by the graph engine and its worker (graph-edge-worker.ts):
-// the same scene renders on the main thread when no worker is available.
+// Idle-edge and idle-node drawing shared by the graph engine and its worker
+// (graph-edge-worker.ts): the same scene renders on the main thread when no worker is available.
 
 /** Per-edge flags: drawn never, inferred (NER) link, and the class in the upper bits. */
 export const EDGE_SKIP = 1;
@@ -15,6 +15,24 @@ export interface EdgeScene {
   y: Float64Array;
   flags: Uint8Array;
   styles: { cross: string; focal: string; between: string; width: number };
+  nodes: NodeScene;
+}
+
+/** Per-node flags for renderNodes. */
+export const NODE_SKIP = 1;   // hidden, or the focal entry (always drawn live, on top)
+export const NODE_BRIDGE = 2; // ringed in gold
+export const NODE_HOP2 = 4;   // second ring of an entity graph, drawn fainter
+
+export interface NodeScene {
+  size: Float32Array;
+  /** Index into palette per node. */
+  color: Uint16Array;
+  palette: string[];
+  flags: Uint8Array;
+  paper: string;
+  gold: string;
+  minR: number;
+  maxR: number;
 }
 
 export interface EdgeView { tx: number; ty: number; scale: number }
@@ -63,4 +81,38 @@ export function renderIdleEdges(c: Ctx, s: EdgeScene, v: EdgeView, W: number, H:
   stroke(c, lists[3], pairs, X, Y, .7, focal, true);
   stroke(c, lists[0], pairs, X, Y, width, between, false);
   stroke(c, lists[1], pairs, X, Y, width, between, true);
+}
+
+/** Every visible node as the engine's node pass draws it with no selection, or, given the
+ *  selection's focus as a mask, every node outside it, faded by `strength` (those inside are
+ *  drawn live, on top). */
+export function renderNodes(c: Ctx, s: EdgeScene, v: EdgeView, W: number, H: number, pad: number, opacity: number,
+  focus: Uint8Array | null = null, strength = 1): void {
+  const ns = s.nodes, n = s.x.length, TAU = Math.PI * 2;
+  const grow = Math.sqrt(Math.max(.01, v.scale));
+  for (let i = 0; i < n; i++) {
+    const f = ns.flags[i];
+    if (f & NODE_SKIP || focus?.[i]) continue;
+    const x = s.x[i] * v.scale + v.tx, y = s.y[i] * v.scale + v.ty;
+    const r = Math.max(ns.minR, Math.min(ns.maxR, ns.size[i] * grow));
+    if (x + r < -pad || x - r > W + pad || y + r < -pad || y - r > H + pad) continue;
+    c.globalAlpha = (focus ? .88 - .75 * strength : .88) * opacity * (f & NODE_HOP2 ? .62 : 1);
+    c.fillStyle = ns.palette[ns.color[i]];
+    c.beginPath();
+    c.arc(x, y, r, 0, TAU);
+    c.fill();
+    if (r > 3) {
+      c.strokeStyle = ns.paper;
+      c.lineWidth = 1.3;
+      c.stroke();
+    }
+    if (f & NODE_BRIDGE && !focus && r > 2) {
+      c.strokeStyle = ns.gold;
+      c.lineWidth = 1;
+      c.beginPath();
+      c.arc(x, y, r + 2, 0, TAU);
+      c.stroke();
+    }
+  }
+  c.globalAlpha = 1;
 }

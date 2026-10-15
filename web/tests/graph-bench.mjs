@@ -72,9 +72,21 @@ async function probe(path, sel, cpu, twoHop = false) {
     const zoom = stats(await frameTimes(80, (i) => { if (i % 5 === 0) wheel(i < 40 ? -100 : 100); }));
     // Hover sweep: the pointer crosses the graph quickly, over many nodes.
     const hover = stats(await frameTimes(60, (i) => fire('mousemove', r.left + 40 + i * (r.width - 80) / 60, r.top + r.height * (.3 + .4 * Math.sin(i / 6)))));
-    return { pan, settle, zoom, hover };
+    // Pan again with the biggest visible node selected: the selection's neighbourhood draws live.
+    c.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    const sel = document.querySelector(s + ' .net-search');
+    let selected = 'n/a';
+    if (sel) {
+      sel.value = ''; sel.dispatchEvent(new Event('input'));
+      fire('mousedown', cx, cy); fire('mouseup', cx, cy, window);
+      await new Promise((ok) => setTimeout(ok, 300));
+      fire('mousedown', r.left + 300, r.top + 200);
+      selected = stats(await frameTimes(40, (i) => fire('mousemove', r.left + 300 + i * 5, r.top + 200 + i * 2)));
+      fire('mouseup', r.left + 500, r.top + 280, window);
+    }
+    return { pan, settle, zoom, hover, selected };
   }, sel);
-  console.log(`${path}${twoHop ? ' (2-hop)' : ''} cpu x${cpu} (median/p90/max ms): pan ${frames.pan}, after pan ${frames.settle}, zoom ${frames.zoom}, hover ${frames.hover}; long tasks ${JSON.stringify(longTasks)}`);
+  console.log(`${path}${twoHop ? ' (2-hop)' : ''} cpu x${cpu} (median/p90/max ms): pan ${frames.pan}, after pan ${frames.settle}, zoom ${frames.zoom}, hover ${frames.hover}, pan with click ${frames.selected}; long tasks ${JSON.stringify(longTasks)}`);
   await ctx.close();
 }
 for (const cpu of [1, 4]) {

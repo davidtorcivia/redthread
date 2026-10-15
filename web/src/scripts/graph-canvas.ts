@@ -9,7 +9,7 @@
  */
 import type { Adjacency } from './adjacency';
 import { TYPE_LABELS, entityHref, el } from './entity-types';
-import { EDGE_CROSS, EDGE_FOCAL, EDGE_IMPLICIT, EDGE_SKIP, renderIdleEdges, type EdgeScene } from './graph-edges';
+import { EDGE_CROSS, EDGE_FOCAL, EDGE_IMPLICIT, EDGE_SKIP, NODE_BRIDGE, NODE_HOP2, NODE_SKIP, renderIdleEdges, type EdgeScene } from './graph-edges';
 
 export interface GraphNode {
   id: string;
@@ -198,11 +198,16 @@ export class GraphEngine {
    *  click that only changes the selection keeps the cached idle edges. */
   private edgeVersion = 0;
   private visibleSig = 0;
-  private scene: { version: number; scene: EdgeScene } | null = null;
+  /** Bumped when node colours change (colour mode, theme). */
+  private colorVersion = 0;
+  private scene: { version: string; scene: EdgeScene } | null = null;
   /** undefined until first needed; null where workers or OffscreenCanvas are missing. */
   private edgeWorker: Worker | null | undefined;
-  private workerScene = -1;
-  private edgeRequest: { id: number; key: string; view: { tx: number; ty: number; scale: number } } | null = null;
+  private workerScene = '';
+  private edgeRequest: { id: number; key: string; nodeKey: string; view: { tx: number; ty: number; scale: number } } | null = null;
+  /** Idle nodes as the worker last drew them, composited instead of drawing each node while
+   *  a gesture runs with nothing selected or hovered. */
+  private nodeLayer: { image: ImageBitmap | null; key: string; view: { tx: number; ty: number; scale: number } | null } = { image: null, key: '', view: null };
   private edgeRequestId = 0;
 
   constructor(root: HTMLElement, opts: EngineOptions) {
@@ -261,6 +266,7 @@ export class GraphEngine {
     this.updateStats();
   }
   private recolor(): void {
+    this.colorVersion++;
     const dark = document.documentElement.dataset.theme === 'dark';
     for (const n of this.nodes) {
       n.color = this.colorMode === 'community' && n.community >= 0
@@ -483,8 +489,10 @@ export class GraphEngine {
   }
 
   /** The idle edges, by flag per edge, rebuilt when edgeVersion moves. */
+  private sceneVersion(): string { return `${this.edgeVersion}|${this.colorVersion}`; }
+
   private edgeScene(): EdgeScene {
-    if (this.scene?.version === this.edgeVersion) return this.scene.scene;
+    if (this.scene?.version === this.sceneVersion()) return this.scene.scene;
     const { nodes, edges, COLORS, P } = this;
     const pairs = new Uint32Array(edges.length * 2), flags = new Uint8Array(edges.length);
     const x = new Float64Array(nodes.length), y = new Float64Array(nodes.length);
@@ -499,6 +507,16 @@ export class GraphEngine {
       const skip = this.relationEdges.has(k) || !nodes[a].visible || !nodes[b].visible;
       flags[k] = cls | (this.implicitEdgeIdx.has(k) ? EDGE_IMPLICIT : 0) | (skip ? EDGE_SKIP : 0);
     });
+    const palette: string[] = [], paletteIdx = new Map<string, number>();
+    const size = new Float32Array(nodes.length), color = new Uint16Array(nodes.length), nodeFlags = new Uint8Array(nodes.length);
+    nodes.forEach((n, i) => {
+      const c = n.isFocal ? COLORS.accent : n.color || COLORS.muted;
+      let ci = paletteIdx.get(c);
+      if (ci === undefined) { paletteIdx.set(c, ci = palette.length); palette.push(c); }
+      color[i] = ci;
+      size[i] = n.size;
+      nodeFlags[i] = (!n.visible || n.isFocal ? NODE_SKIP : 0) | (n.bridgeRank ? NODE_BRIDGE : 0) | (n.hop === 2 ? NODE_HOP2 : 0);
+    });
     const scene: EdgeScene = {
       pairs, x, y, flags,
       styles: {
@@ -507,8 +525,9 @@ export class GraphEngine {
         between: hexToRgba(COLORS[P.edgeInk], P.edgeAlpha),
         width: P.edgeWidth,
       },
+      nodes: { size, color, palette, flags: nodeFlags, paper: COLORS.paper, gold: COLORS.gold, minR: P.minR, maxR: P.maxR },
     };
-    this.scene = { version: this.edgeVersion, scene };
+    this.scene = { version: this.sceneVersion(), scene };
     return scene;
   }
 
@@ -519,9 +538,9 @@ export class GraphEngine {
     if (typeof Worker === 'undefined' || typeof OffscreenCanvas === 'undefined' || !('transferToImageBitmap' in OffscreenCanvas.prototype)) return null;
     try {
       const w = new Worker(new URL('./graph-edge-worker.ts', import.meta.url), { type: 'module' });
-      w.onmessage = (e: MessageEvent<{ id: number; bitmap?: ImageBitmap }>) => {
-        const req = this.edgeRequest, { id, bitmap } = e.data;
-        if (!req || id !== req.id) { bitmap?.close(); return; }
+      w.onmessage = (e: MessageEvent<{ id: number; bitmap?: ImageBitmap; nodeBitmap?: ImageBitmap }>) => {
+        const req = this.edgeRequest, { id, bitmap, nodeBitmap } = e.data;
+        if (!req || id !== req.id) { bitmap?.close(); nodeBitmap?.close(); return; }
         this.edgeRequest = null;
         const layer = this.idleLayer;
         // A layer redrawn for new edges since the request makes this bitmap stale.
@@ -530,10 +549,21 @@ export class GraphEngine {
           layer.image = bitmap;
           layer.view = req.view;
         } else bitmap?.close();
+        if (nodeBitmap && req.nodeKey === this.nodeKey()) {
+          this.nodeLayer.image?.close();
+          this.nodeLayer = { image: nodeBitmap, key: req.nodeKey, view: req.view };
+        } else nodeBitmap?.close();
         this.requestDraw();
       };
       // A worker that fails to load leaves the main thread to draw, as before.
-      w.onerror = () => { w.terminate(); this.edgeWorker = null; this.edgeRequest = null; this.requestDraw(); };
+      w.onerror = () => {
+        w.terminate();
+        this.edgeWorker = null;
+        this.edgeRequest = null;
+        this.nodeLayer.image?.close();
+        this.nodeLayer = { image: null, key: '', view: null };
+        this.requestDraw();
+      };
       this.edgeWorker = w;
     } catch { /* stays null */ }
     return this.edgeWorker;
@@ -543,14 +573,33 @@ export class GraphEngine {
    *  worker renders the new view while the old bitmap is shifted and scaled, so a gesture
    *  never blocks on it, and it refreshes as often as the worker keeps up. New edges
    *  (layout, filters, theme) and browsers without the worker draw here, as before. */
+  /** Where a layer drawn for view `from`, a quarter screen past each edge, lands now. */
+  private placeLayer(from: { tx: number; ty: number; scale: number }, W: number, H: number) {
+    const v = this.view, s = v.scale / from.scale, mx = Math.round(W / 4), my = Math.round(H / 4);
+    return { x: v.tx - from.tx * s - mx * s, y: v.ty - from.ty * s - my * s, w: (W + 2 * mx) * s, h: (H + 2 * my) * s };
+  }
+
+  /** The selection's focus as one byte per node, or null with nothing selected. */
+  private focusMask(): Uint8Array | null {
+    if (!this.focusNodes) return null;
+    const m = new Uint8Array(this.nodes.length);
+    for (const i of this.focusNodes) m[i] = 1;
+    return m;
+  }
+
+  private nodeKey(): string {
+    const { W, H } = this.canvasSize();
+    // A selection fades the nodes outside it, so its bitmap is keyed on the selection too.
+    const sel = this.focusNodes ? `${this.version}|${this.highlightStrength}` : '-';
+    return `${W}|${H}|${this.dpr}|${this.sceneVersion()}|${this.opacityMult}|${sel}`;
+  }
+
   private paintIdleLayer(W: number, H: number, alpha: number): void {
     const layer = this.idleLayer, v = this.view;
     const mx = Math.round(W / 4), my = Math.round(H / 4), dpr = this.dpr;
     const key = `${W}|${H}|${dpr}|${this.showImplicit}|${this.edgeVersion}`;
-    const place = (from: { tx: number; ty: number; scale: number }) => {
-      const s = v.scale / from.scale;
-      return { x: v.tx - from.tx * s - mx * s, y: v.ty - from.ty * s - my * s, w: (W + 2 * mx) * s, h: (H + 2 * my) * s };
-    };
+    const place = (from: { tx: number; ty: number; scale: number }) => this.placeLayer(from, W, H);
+    const moved = (a: { tx: number; ty: number; scale: number } | null) => !a || a.tx !== v.tx || a.ty !== v.ty || a.scale !== v.scale;
     const drawHere = () => {
       const cw = Math.round((W + 2 * mx) * dpr), ch = Math.round((H + 2 * my) * dpr);
       if (layer.canvas.width !== cw || layer.canvas.height !== ch) { layer.canvas.width = cw; layer.canvas.height = ch; }
@@ -562,23 +611,28 @@ export class GraphEngine {
       layer.view = { ...v };
       layer.key = key;
     };
-    const at = layer.view;
-    if (!at || layer.key !== key) drawHere();
-    else if (at.tx !== v.tx || at.ty !== v.ty || at.scale !== v.scale) {
-      const worker = this.getEdgeWorker();
-      const r = place(at), covered = r.x <= 0 && r.y <= 0 && r.x + r.w >= W && r.y + r.h >= H;
+    if (!layer.view || layer.key !== key) drawHere();
+    const worker = this.getEdgeWorker();
+    if (moved(layer.view)) {
+      const r = place(layer.view!), covered = r.x <= 0 && r.y <= 0 && r.x + r.w >= W && r.y + r.h >= H;
       // A jump outside a gesture (a search result) that leaves the old edges short draws here.
-      if (worker && (this.interacting || covered)) {
-        if (!this.edgeRequest) {
-          if (this.workerScene !== this.edgeVersion) {
-            worker.postMessage({ type: 'scene', version: this.edgeVersion, scene: this.edgeScene() });
-            this.workerScene = this.edgeVersion;
-          }
-          const id = ++this.edgeRequestId, view = { ...v };
-          this.edgeRequest = { id, key, view };
-          worker.postMessage({ type: 'render', id, version: this.edgeVersion, view, W, H, dpr, mx, my, showImplicit: this.showImplicit });
-        }
-      } else if (!this.interacting || !covered) drawHere();
+      if (!(worker && (this.interacting || covered)) && (!this.interacting || !covered)) drawHere();
+    }
+    const nodeKey = this.nodeKey();
+    const wantEdges = moved(layer.view), wantNodes = this.nodeLayer.key !== nodeKey || moved(this.nodeLayer.view);
+    if (worker && !this.edgeRequest && (wantEdges || wantNodes)) {
+      const version = this.sceneVersion();
+      if (this.workerScene !== version) {
+        worker.postMessage({ type: 'scene', version, scene: this.edgeScene() });
+        this.workerScene = version;
+      }
+      const id = ++this.edgeRequestId, view = { ...v };
+      this.edgeRequest = { id, key, nodeKey, view };
+      worker.postMessage({
+        type: 'render', id, version, view, W, H, dpr, mx, my, showImplicit: this.showImplicit,
+        edges: wantEdges, nodes: wantNodes, opacity: this.opacityMult,
+        focus: this.focusMask(), strength: this.highlightStrength,
+      });
     }
     const r = place(layer.view!);
     this.ctx.globalAlpha = alpha;
@@ -664,13 +718,26 @@ export class GraphEngine {
     }
 
     const ring = (x: number, y: number, r: number) => { ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); };
+    // Unless a hover is fading in, idle nodes come from the worker's bitmap (refreshed as fast
+    // as it keeps up) instead of one path each; with a selection it holds the faded nodes
+    // outside it, and those inside draw live on top. A bitmap that no longer covers the screen
+    // is used only mid-gesture, as is one drawn at another zoom (radii grow with the square root
+    // of the scale, a scaled bitmap linearly); at rest the nodes then draw live until the next
+    // one arrives. Requests ride on the edge layer, so hidden edges mean live nodes.
+    const nl = this.nodeLayer;
+    const nr = this.edgesVisible && nl.image && nl.view && nl.key === this.nodeKey() ? this.placeLayer(nl.view, W, H) : null;
+    const exact = nr && nl.view!.scale === this.view.scale && nr.x <= 0 && nr.y <= 0 && nr.x + nr.w >= W && nr.y + nr.h >= H;
+    const nodeBitmap = focus === this.focusNodes && nr && (this.interacting || exact) ? nl : null;
+    if (nodeBitmap) ctx.drawImage(nodeBitmap.image!, nr!.x, nr!.y, nr!.w, nr!.h);
     // Active nodes (the focal entry, the selection, the hovered node) go last, on top.
     for (const top of [false, true]) {
+      if (nodeBitmap && !top && !focus) continue;
       for (let i = 0; i < nodes.length; i++) {
         const n = nodes[i], x = px[i], y = py[i], r = pr[i];
         const active = isActive(i);
         if (active !== top || !n.visible || x + r < 0 || x - r > W || y + r < 0 || y - r > H) continue;
         const inFocus = !focus || focus.has(i);
+        if (nodeBitmap && !inFocus && !active) continue;  // already in the bitmap, faded
         // Second-hop nodes are drawn a little fainter than the first ring.
         ctx.globalAlpha = active ? 1 : (inFocus ? .88 : .88 - .75 * strength) *
           this.opacityMult * (n.hop === 2 ? .62 : 1);
@@ -944,12 +1011,20 @@ export class GraphEngine {
       const p = local(cx, cy);
       this.handleClick(p.x, p.y, shift || this.multiMode);
     };
+    // A pan or zoom drops the hover, so the gesture can draw nodes from the worker's bitmap.
+    const clearHover = () => {
+      if (this.hoveredIdx < 0 && this.hoveredEdge < 0) return;
+      this.hoveredIdx = this.hoveredEdge = -1;
+      clearTimeout(this.hoverTimer);
+      canvas.style.cursor = isPanning ? 'grabbing' : '';
+    };
     // A fast mouse sends several moves per frame; hit-test only the latest, once per frame.
     let hoverAt: { cx: number; cy: number } | null = null;
     const onMove = (cx: number, cy: number) => {
       if (isPanning && panStart) {
         this.view.tx = panStart.tx + (cx - panStart.x);
         this.view.ty = panStart.ty + (cy - panStart.y);
+        clearHover();
         this.moved();
         tooltip.hidden = true;
         return;
@@ -988,6 +1063,7 @@ export class GraphEngine {
       this.view.tx = px - (px - this.view.tx) * ratio;
       this.view.ty = py - (py - this.view.ty) * ratio;
       this.view.scale = newScale;
+      clearHover();
       this.moved();
       tooltip.hidden = true;
     };
