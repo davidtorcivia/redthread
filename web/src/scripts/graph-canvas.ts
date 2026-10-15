@@ -10,6 +10,7 @@
 import type { Adjacency } from './adjacency';
 import { TYPE_LABELS, entityHref, el } from './entity-types';
 import { EDGE_CROSS, EDGE_FOCAL, EDGE_IMPLICIT, EDGE_SKIP, NODE_BRIDGE, NODE_HOP2, NODE_SKIP, renderIdleEdges, type EdgeScene } from './graph-edges';
+import { EdgeBatch, GraphGL, cssRgba, cssRgbaAlpha } from './graph-gl';
 
 export interface GraphNode {
   id: string;
@@ -209,6 +210,11 @@ export class GraphEngine {
    *  a gesture runs with nothing selected or hovered. */
   private nodeLayer: { image: ImageBitmap | null; key: string; view: { tx: number; ty: number; scale: number } | null } = { image: null, key: '', view: null };
   private edgeRequestId = 0;
+  /** WebGL2 renderer for edges and idle nodes, under the 2D canvas; null without WebGL2,
+   *  or after its context is lost, when everything draws in 2D (with the worker's help). */
+  private gl: GraphGL | null = null;
+  private glScene = '';
+  private look = new Float32Array(0);
 
   constructor(root: HTMLElement, opts: EngineOptions) {
     this.root = root;
@@ -217,6 +223,14 @@ export class GraphEngine {
     this.shell = root.querySelector('.net-shell') as HTMLElement;
     this.canvas = root.querySelector('.net-canvas') as HTMLCanvasElement;
     this.ctx = this.canvas.getContext('2d') as CanvasRenderingContext2D;
+    this.gl = GraphGL.create();
+    if (this.gl) {
+      Object.assign(this.gl.canvas.style, { position: 'absolute', inset: '0', width: '100%', height: '100%', pointerEvents: 'none' });
+      this.gl.canvas.setAttribute('aria-hidden', 'true');
+      this.canvas.style.position = 'relative';
+      this.canvas.before(this.gl.canvas);
+      this.gl.onLost = () => this.requestDraw();
+    }
     // Widths measured in a fallback face are wrong once the web font arrives.
     document.fonts?.addEventListener('loadingdone', () => { this.textWidths.clear(); this.truncated.clear(); this.requestDraw(); });
     this.tooltip = root.querySelector('.net-tooltip') as HTMLElement;
@@ -573,6 +587,60 @@ export class GraphEngine {
    *  worker renders the new view while the old bitmap is shifted and scaled, so a gesture
    *  never blocks on it, and it refreshes as often as the worker keeps up. New edges
    *  (layout, filters, theme) and browsers without the worker draw here, as before. */
+  /** Upload the idle edges and node data when the scene changes. */
+  private syncGL(gl: GraphGL): void {
+    const key = `${this.sceneVersion()}|${this.showImplicit}`;
+    if (this.glScene === key) return;
+    this.glScene = key;
+    const s = this.edgeScene(), { pairs, flags, x, y } = s;
+    // In the 2D pass's order: between islands, to the focal entry, between neighbours; each
+    // linked, then inferred.
+    const styles = [[s.styles.between, s.styles.width], [s.styles.focal, .7], [s.styles.cross, .65]] as const;
+    const batch = new EdgeBatch(flags.length);
+    for (const cls of [2, 1, 0]) {
+      const rgba = cssRgba(styles[cls][0]), width = styles[cls][1];
+      for (const implicit of [false, true]) {
+        if (implicit && !this.showImplicit) continue;
+        for (let k = 0; k < flags.length; k++) {
+          const f = flags[k];
+          if (f & EDGE_SKIP || (f >> 2) !== cls || ((f & EDGE_IMPLICIT) !== 0) !== implicit) continue;
+          const a = pairs[2 * k], b = pairs[2 * k + 1];
+          batch.push(x[a], y[a], x[b], y[b], rgba, width, implicit);
+        }
+      }
+    }
+    gl.setIdleEdges(batch);
+    const ns = s.nodes, rgba = new Uint8Array(x.length * 4);
+    const palette = ns.palette.map(cssRgba);
+    for (let i = 0; i < x.length; i++) rgba.set(palette[ns.color[i]], i * 4);
+    gl.setNodes(x, y, ns.size, rgba);
+    this.look = new Float32Array(x.length * 2);
+  }
+
+  /** Lit edges as drawLitEdges strokes them, as a WebGL batch. */
+  private litBatch(lit: Iterable<number>): EdgeBatch {
+    const { nodes, edges } = this;
+    const linked: number[] = [], inferred: number[] = [], relations: number[] = [];
+    for (const k of lit) {
+      const [a, b] = edges[k];
+      if (!nodes[a].visible || !nodes[b].visible) continue;
+      if (this.relationEdges.has(k)) relations.push(k);
+      else if (!this.implicitEdgeIdx.has(k)) linked.push(k);
+      else if (this.showImplicit) inferred.push(k);
+    }
+    const n = linked.length + inferred.length;
+    const color = cssRgbaAlpha(this.COLORS.accent, Math.max(.2, Math.min(.72, 6 / Math.sqrt(n || 1))));
+    const width = n > 150 ? 1 : 1.3;
+    const batch = new EdgeBatch(n + relations.length);
+    const add = (list: number[], c: [number, number, number, number], w: number, dashed: boolean) => {
+      for (const k of list) { const [a, b] = edges[k]; batch.push(nodes[a].x, nodes[a].y, nodes[b].x, nodes[b].y, c, w, dashed); }
+    };
+    add(linked, color, width, false);
+    add(inferred, color, width, true);
+    add(relations, cssRgba(this.COLORS.accent), 2, false);
+    return batch;
+  }
+
   /** Where a layer drawn for view `from`, a quarter screen past each edge, lands now. */
   private placeLayer(from: { tx: number; ty: number; scale: number }, W: number, H: number) {
     const v = this.view, s = v.scale / from.scale, mx = Math.round(W / 4), my = Math.round(H / 4);
@@ -696,10 +764,47 @@ export class GraphEngine {
     }
     const isActive = (i: number) => this.selectedNodes.has(i) || i === this.hoveredIdx || !!nodes[i].isFocal;
 
-    // Idle edges and the selection's edges are cached layers, so hovering reuses
-    // them and a pan or zoom shifts them until input settles. Long highlighted
-    // lines were most of a frame. Only hover edges and typed relations draw live.
-    if (this.edgesVisible) {
+    if (this.gl?.lost) { this.gl.canvas.remove(); this.gl = null; }
+    const gl = this.gl;
+    if (gl) {
+      // Every edge and idle node on the GPU, every frame; the 2D canvas above keeps the
+      // active nodes, cluster names and labels.
+      gl.begin(this.canvas.width, this.canvas.height);
+      this.syncGL(gl);
+      const v = this.view, dpr = this.dpr;
+      if (this.edgesVisible) {
+        gl.drawIdle(v, W, H, dpr, focus ? 1 - .64 * strength : 1);
+        const selected = new Set(this.selectedEdges);
+        for (const i of this.selectedNodes) for (const k of this.incident[i]) selected.add(k);
+        if (selected.size) gl.drawBatch(this.litBatch(selected), v, W, H, dpr, 1);
+        const hovered = new Set<number>();
+        if (this.hoveredIdx >= 0) for (const k of this.incident[this.hoveredIdx]) if (!selected.has(k)) hovered.add(k);
+        if (this.hoveredEdge >= 0 && !selected.has(this.hoveredEdge)) hovered.add(this.hoveredEdge);
+        if (hovered.size) gl.drawBatch(this.litBatch(hovered), v, W, H, dpr, this.hoverMix);
+        const rel = new EdgeBatch(this.relationEdges.size);
+        const ink = cssRgbaAlpha(COLORS.ink, focus ? .3 - .15 * mix : .3);
+        for (const k of this.relationEdges.keys()) {
+          if (selected.has(k) || hovered.has(k)) continue;
+          const [a, b] = this.edges[k];
+          if (nodes[a].visible && nodes[b].visible) rel.push(nodes[a].x, nodes[a].y, nodes[b].x, nodes[b].y, ink, 1.2, false);
+        }
+        gl.drawBatch(rel, v, W, H, dpr, 1);
+      }
+      const look = this.look;
+      for (let i = 0; i < nodes.length; i++) {
+        const n = nodes[i];
+        if (!n.visible || isActive(i)) { look[2 * i] = 0; continue; }
+        const inFocus = !focus || focus.has(i);
+        look[2 * i] = (inFocus ? .88 : .88 - .75 * strength) * this.opacityMult * (n.hop === 2 ? .62 : 1);
+        look[2 * i + 1] = n.bridgeRank && inFocus ? 1 : 0;
+      }
+      gl.drawNodes(look, v, W, H, dpr, this.P.minR, this.P.maxR, cssRgba(COLORS.paper), cssRgba(COLORS.gold));
+    }
+
+    // Without WebGL: idle edges and the selection's edges are cached layers, so hovering
+    // reuses them and a pan or zoom shifts them until input settles. Only hover edges and
+    // typed relations draw live.
+    if (this.edgesVisible && !gl) {
       const key = `${W}|${H}|${this.dpr}|${this.showImplicit}|${this.version}`;
       // A selection or hover fades the idle edges rather than redrawing them.
       this.paintIdleLayer(W, H, focus ? 1 - .64 * strength : 1);
@@ -727,11 +832,11 @@ export class GraphEngine {
     const nl = this.nodeLayer;
     const nr = this.edgesVisible && nl.image && nl.view && nl.key === this.nodeKey() ? this.placeLayer(nl.view, W, H) : null;
     const exact = nr && nl.view!.scale === this.view.scale && nr.x <= 0 && nr.y <= 0 && nr.x + nr.w >= W && nr.y + nr.h >= H;
-    const nodeBitmap = focus === this.focusNodes && nr && (this.interacting || exact) ? nl : null;
+    const nodeBitmap = !gl && focus === this.focusNodes && nr && (this.interacting || exact) ? nl : null;
     if (nodeBitmap) ctx.drawImage(nodeBitmap.image!, nr!.x, nr!.y, nr!.w, nr!.h);
     // Active nodes (the focal entry, the selection, the hovered node) go last, on top.
     for (const top of [false, true]) {
-      if (nodeBitmap && !top && !focus) continue;
+      if ((gl || nodeBitmap && !focus) && !top) continue;
       for (let i = 0; i < nodes.length; i++) {
         const n = nodes[i], x = px[i], y = py[i], r = pr[i];
         const active = isActive(i);
