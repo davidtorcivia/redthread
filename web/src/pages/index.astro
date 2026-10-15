@@ -35,7 +35,7 @@ const shortDate = (iso: string) => {
     {latestDispatches.length > 0 && <section class="statement-list dispatch-pair">
       <h2 class="section-heading">Dispatches <span><a href="/dispatches/">all dispatches</a></span></h2>
       {latestDispatches.map(d => <article class="statement-item">
-        <div class="item-facts"><b>{new Date(d.date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' })}</b></div>
+        <div class="item-facts"><b>{new Date(d.date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' })}</b>{d.entities.length > 0 && ` · cites ${d.entities.length} ${d.entities.length === 1 ? 'entry' : 'entries'}`}</div>
         <a class="item-title" href={dispatchHref(d.id)}>{d.title}</a>
         {d.summary && <p class="item-dek" set:html={renderInlineMd(d.summary)} />}
       </article>)}
@@ -47,10 +47,11 @@ const shortDate = (iso: string) => {
         <a class="item-title" href={hrefFor(e)}>{e.title}</a>
         {e.summary && <p class="item-dek" set:html={renderInlineMd(e.summary)} />}
       </article>)}
-      {focusCluster && <article class="statement-item focus-cluster">
-        <div class="item-facts"><b>Cluster</b> · {focusCluster.size} entries<span class="focus-meta">{focusCluster.edited} pages edited in the last {focusCluster.days} days</span></div>
-        <a class="item-title" href={`/clusters/#c-${focusCluster.id}`}>{focusCluster.label}</a>
-      </article>}
+      {focusCluster && <p class="focus-cluster">
+        <span class="focus-cluster-label">Most active cluster</span>
+        <a href={`/clusters/#c-${focusCluster.id}`}>{focusCluster.label}</a>
+        <span class="focus-meta">{focusCluster.size} entries · {focusCluster.edited} edited in the last {focusCluster.days} days</span>
+      </p>}
     </section>}
     <section class="statement-list">
       <h2 class="section-heading">Most mentioned</h2>

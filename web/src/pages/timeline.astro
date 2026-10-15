@@ -103,6 +103,26 @@ const heatHeight = (count: number, peak: number) => count ? `${Math.round((0.16 
         if (text != null) el.textContent = text;
         return el;
       };
+      // The decade the reader is in: the last one whose top has passed under the sticky bar.
+      const markCurrent = () => {
+        const edge = nav.getBoundingClientRect().bottom + 40;  // a decade jumped to sits about 32px below the bar
+        let current = '';
+        for (const section of list.querySelectorAll('.chron-decade')) {
+          if (section.getBoundingClientRect().top > edge) break;
+          current = `#${section.id}`;
+        }
+        for (const link of nav.querySelectorAll('a')) {
+          const on = link.hash === current;
+          if (on && !link.classList.contains('is-current') && nav.scrollWidth > nav.clientWidth) {
+            nav.scrollTo({ left: link.offsetLeft - (nav.clientWidth - link.offsetWidth) / 2 });
+          }
+          link.classList.toggle('is-current', on);
+          if (on) link.setAttribute('aria-current', 'location'); else link.removeAttribute('aria-current');
+        }
+      };
+      let markFrame = 0;
+      addEventListener('scroll', () => { if (!markFrame) markFrame = requestAnimationFrame(() => { markFrame = 0; markCurrent(); }); }, { passive: true });
+      list.addEventListener('toggle', markCurrent, true);
       const render = () => {
         if (!data) return;
         const term = normalize(query.trim());
@@ -158,6 +178,7 @@ const heatHeight = (count: number, peak: number) => count ? `${Math.round((0.16 
           section.append(ol);
           list.append(section);
         }
+        markCurrent();
         if (location.hash.startsWith('#d-')) {
           const target = document.getElementById(location.hash.slice(1));
           if (target) target.open = true;
@@ -175,6 +196,7 @@ const heatHeight = (count: number, peak: number) => count ? `${Math.round((0.16 
       window.addEventListener('popstate', () => { const state = new URLSearchParams(location.search); selected = new Set(parseTypes(state.get('types'))); query = state.get('q') || ''; input.value = query; setButtons(); if (data) render(); else if (query || [...selected].join(',') !== defaults.join(',')) update(); });
       setButtons();
       if (query || [...selected].join(',') !== defaults.join(',')) update();
+      markCurrent();
     })();
   </script>
 </Base>
@@ -194,6 +216,13 @@ const heatHeight = (count: number, peak: number) => count ? `${Math.round((0.16 
   .chron-status {font:400 14px/1.3 var(--sans);color:var(--muted);margin:17px 0}
   .chron-decades {display:grid;grid-template-columns:repeat(auto-fit,minmax(95px,1fr));border-top:1px solid var(--line);border-left:1px solid var(--line);border-right:1px solid var(--line);border-bottom:1px solid var(--line);margin-bottom:26px}
   .chron-decades:empty {display:none}
+  /* The decade bar stays at the top while the list scrolls and marks the decade in view.
+     On phones it wraps to several rows, too tall to pin. */
+  @media(min-width:721px) {
+    .chron-decades {position:sticky;top:0;z-index:5;background:var(--paper);grid-template-columns:none;grid-auto-flow:column;grid-auto-columns:minmax(88px,1fr);overflow-x:auto;scrollbar-width:thin}
+  }
+  .chron-decades a.is-current {background:var(--paper-2);box-shadow:inset 0 -3px 0 var(--accent);color:var(--accent)}
+  .chron-decades a.is-current .chron-decade-label {background:var(--paper-2)}
   .chron-decades a {position:relative;display:flex;align-items:end;min-width:0;height:76px;padding:5px;border-right:1px solid var(--line);border-bottom:1px solid var(--line);background:var(--paper);font:700 13px/1.2 var(--sans)}
   .chron-decades a:hover {background:var(--paper-2);color:var(--accent)}
   .chron-heat {position:absolute;inset:5px 5px 24px;display:grid;grid-template-columns:repeat(10,minmax(0,1fr));gap:1px;align-items:end;pointer-events:none}
@@ -201,6 +230,7 @@ const heatHeight = (count: number, peak: number) => count ? `${Math.round((0.16 
   .chron-decade-label {position:relative;background:var(--paper);padding:1px 3px}
   .chron-decades a:hover .chron-decade-label {background:var(--paper-2)}
   .chron-decade {border-top:2px solid var(--ink);scroll-margin-top:25px}
+  @media(min-width:721px) {.chron-decade {scroll-margin-top:110px}}  /* clears the pinned decade bar */
   .chron-decade summary {display:flex;align-items:baseline;gap:18px;cursor:pointer;list-style:none;padding:18px 0;font-family:var(--sans)}
   .chron-decade summary::-webkit-details-marker {display:none}
   .chron-decade summary span {font-size:clamp(30px,4vw,52px);font-weight:700;line-height:1;letter-spacing:-.04em}

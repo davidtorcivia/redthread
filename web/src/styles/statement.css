@@ -74,9 +74,9 @@ dl.band-facts > div {display:contents}
 .fold-toggle::after {content:" ↓";color:var(--muted)}
 .fold-toggle:hover {color:var(--accent)}
 .fold-toggle[hidden] {display:none}
-.sources-toggle {padding:0;border:0;border-bottom:1px solid currentColor;background:none;color:var(--muted);font:500 14px/1.3 var(--sans);text-transform:none;cursor:pointer}
-.sources-toggle:hover {color:var(--accent)}
-.sources-toggle[hidden],#sources.is-collapsed > ol,#sources.is-collapsed > .fold-toggle {display:none}
+#sources.is-collapsed > ol,#sources.is-collapsed > .fold-toggle {display:none}
+#sources.is-collapsed .section-label {color:var(--muted)}
+#sources.is-collapsed .h3-chev {transform:rotate(-90deg)}
 .statement-band a {color:inherit;background:none}
 .statement-band a:hover {text-decoration:underline;text-underline-offset:.15em}
 .statement-wrap {padding:0 var(--gutter)}
@@ -98,14 +98,22 @@ dl.band-facts > div {display:contents}
 .item-dek {grid-column:2;font-size:17px;line-height:1.45;max-width:60ch;margin:.2em 0 .6em;text-wrap:pretty}
 /* The facts span both rows, so a long facts column no longer pushes the dek away from its title. */
 @media (min-width:1101px) {.statement-item > .item-facts {grid-row:span 2}}
-/* Homepage dispatches and in-focus pages: two abreast on desktop, each item stacks facts over title. */
+/* Homepage dispatches and in-focus pages: two abreast on desktop, each item a small sans
+   eyebrow over a title sized to its column, then the dek across the column. */
+.dispatch-pair .statement-item {grid-template-columns:minmax(0,1fr);align-content:start;padding:1.1em 0 1.4em}
+.dispatch-pair .item-facts {grid-row:auto;padding:0 0 .45em;font:600 12px/1.45 var(--sans);letter-spacing:.06em;text-transform:uppercase}
+.dispatch-pair .item-facts b {font-weight:700}
+.dispatch-pair .focus-meta {font-weight:400;letter-spacing:0;text-transform:none;font-size:13px}
+.dispatch-pair .item-title {font-size:clamp(28px,2.6vw,38px);line-height:1.04}
+.dispatch-pair .item-dek {grid-column:1;max-width:none;margin:.55em 0 0;font-size:17px;line-height:1.5}
+.focus-cluster {display:flex;flex-wrap:wrap;align-items:baseline;gap:.25em 1em;margin:0;padding:.9em 0 1em;border-top:1px solid var(--line);font:400 15px/1.4 var(--sans)}
+.focus-cluster-label {font:600 12px/1.45 var(--sans);letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+.focus-cluster a {font-weight:650;font-size:19px;letter-spacing:-.01em}
+.focus-cluster a:hover {color:var(--band)}
+.focus-cluster .focus-meta {color:var(--muted);font-size:13px}
 @media (min-width:901px) {
   .dispatch-pair {display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0 3rem}
-  .dispatch-pair > .section-heading {grid-column:1/-1}
-  .dispatch-pair .statement-item {grid-template-columns:minmax(0,1fr);align-content:start}
-  .dispatch-pair .item-facts {grid-row:auto;padding-top:0}
-  .dispatch-pair .item-dek {grid-column:1;max-width:none}
-  .dispatch-pair > .focus-cluster {grid-column:1/-1}
+  .dispatch-pair > .section-heading,.dispatch-pair > .focus-cluster {grid-column:1/-1}
 }
 .statement-cols {display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:0 3rem}
 .statement-cols h3 {margin:0;padding:1em 0 .3em;font:700 15px/1.5 var(--sans);font-variation-settings:"wdth" 88;text-transform:uppercase}
@@ -343,7 +351,7 @@ header.site .theme-toggle {display:inline-flex;align-items:center;justify-conten
 @media print {
   #sources.is-folded > ol > li {display:list-item!important}
   .backlinks.is-folded > ul > li {display:block!important}
-  .fold-toggle,.aliases-toggle,.sources-toggle {display:none}
+  .fold-toggle,.aliases-toggle {display:none}
   #sources.is-collapsed > ol {display:block!important}
   .band-facts dt {text-align:left}
   .aliases-more[hidden] {display:inline}

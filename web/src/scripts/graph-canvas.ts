@@ -186,6 +186,8 @@ export class GraphEngine {
   // Idle edges, and the selection's edges, each cached for the view they were drawn in.
   // Bumping `version` (positions, visibility, colours or selection changed) redraws both.
   private idleLayer = newLayer();
+  /** Extra px past the screen that edgeShown keeps, while a layer with a margin renders. */
+  private cullPad = 0;
   private selectionLayer = newLayer();
   private version = 0;
 
@@ -413,32 +415,47 @@ export class GraphEngine {
   }
 
   /** Bring `layer` up to date for the current view, except mid-gesture, when the
-   *  old copy is shifted and scaled instead; then composite it onto the canvas. */
+   *  old copy is shifted and scaled instead; then composite it onto the canvas.
+   *  The layer extends a quarter screen past each edge, so a pan or zoom-out shows
+   *  edges already drawn; a gesture that outruns that margin redraws at once. */
   private paintLayer(layer: Layer, key: string, W: number, H: number, alpha: number, render: (c: CanvasRenderingContext2D) => void): void {
     const v = this.view;
+    const mx = Math.round(W / 4), my = Math.round(H / 4);
     let at = layer.view;
-    if (!at || layer.key !== key || (!this.interacting && (at.tx !== v.tx || at.ty !== v.ty || at.scale !== v.scale))) {
-      if (layer.canvas.width !== this.canvas.width || layer.canvas.height !== this.canvas.height) {
-        layer.canvas.width = this.canvas.width;
-        layer.canvas.height = this.canvas.height;
+    const place = (from: { tx: number; ty: number; scale: number }) => {
+      const s = v.scale / from.scale;
+      return { x: v.tx - from.tx * s - mx * s, y: v.ty - from.ty * s - my * s, w: (W + 2 * mx) * s, h: (H + 2 * my) * s };
+    };
+    const stale = !at || layer.key !== key || (at.tx !== v.tx || at.ty !== v.ty || at.scale !== v.scale) && (() => {
+      if (!this.interacting) return true;
+      const r = place(at!);
+      return r.x > 0 || r.y > 0 || r.x + r.w < W || r.y + r.h < H;
+    })();
+    if (stale) {
+      const cw = Math.round((W + 2 * mx) * this.dpr), ch = Math.round((H + 2 * my) * this.dpr);
+      if (layer.canvas.width !== cw || layer.canvas.height !== ch) {
+        layer.canvas.width = cw;
+        layer.canvas.height = ch;
       }
-      layer.ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
-      layer.ctx.clearRect(0, 0, W, H);
+      layer.ctx.setTransform(this.dpr, 0, 0, this.dpr, mx * this.dpr, my * this.dpr);
+      layer.ctx.clearRect(-mx, -my, W + 2 * mx, H + 2 * my);
+      this.cullPad = Math.max(mx, my);
       render(layer.ctx);
+      this.cullPad = 0;
       at = layer.view = { ...v };
       layer.key = key;
     }
-    const s = v.scale / at.scale;
+    const r = place(at!);
     this.ctx.globalAlpha = alpha;
-    this.ctx.drawImage(layer.canvas, v.tx - at.tx * s, v.ty - at.ty * s, W * s, H * s);
+    this.ctx.drawImage(layer.canvas, r.x, r.y, r.w, r.h);
     this.ctx.globalAlpha = 1;
   }
 
   /** Whether edge k is visible and could cross the screen. */
   private edgeShown(k: number, W: number, H: number): boolean {
-    const [a, b] = this.edges[k], { px, py } = this;
+    const [a, b] = this.edges[k], { px, py } = this, m = this.cullPad;
     if (!this.nodes[a].visible || !this.nodes[b].visible) return false;
-    return !((px[a] < 0 && px[b] < 0) || (px[a] > W && px[b] > W) || (py[a] < 0 && py[b] < 0) || (py[a] > H && py[b] > H));
+    return !((px[a] < -m && px[b] < -m) || (px[a] > W + m && px[b] > W + m) || (py[a] < -m && py[b] < -m) || (py[a] > H + m && py[b] > H + m));
   }
 
   /** Every idle edge. On the entity graph, links between neighbours are the story

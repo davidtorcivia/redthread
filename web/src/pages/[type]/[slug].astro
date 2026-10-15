@@ -106,7 +106,7 @@ const jsonLd = entityJsonLd(entity);
 
     {entity.footnotes.length > 0 && (
       <section class="footnotes-block" id="sources" data-fold="narrow">
-        <h2 class="section-label">Sources <button type="button" class="sources-toggle" aria-controls="sources-list" aria-expanded="true" hidden data-pagefind-ignore>Hide</button></h2>
+        <h2 class="section-label">Sources</h2>
         <ol id="sources-list">
           {entity.footnotes.map((f) => (
             <li id={`fn-${f.id}`}>
@@ -169,13 +169,21 @@ const jsonLd = entityJsonLd(entity);
         }
       })();
 
-      // Sources collapse behind the heading button. Open by default; a jump to a footnote reopens it.
+      // The Sources heading folds the list, with the same chevron button as the h3 sections.
+      // Open by default; a jump to a footnote reopens it.
       (() => {
         const block = document.getElementById('sources');
-        const button = block && block.querySelector('.sources-toggle');
-        if (!button) return;
-        const set = (open) => { block.classList.toggle('is-collapsed', !open); button.setAttribute('aria-expanded', String(open)); button.textContent = open ? 'Hide' : 'Show'; };
-        button.hidden = false;
+        const h = block && block.querySelector('.section-label');
+        if (!h) return;
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'h3-toggle';
+        button.setAttribute('aria-expanded', 'true');
+        button.setAttribute('aria-controls', 'sources-list');
+        button.append(...h.childNodes);
+        button.insertAdjacentHTML('beforeend', '<svg class="h3-chev" viewBox="0 0 12 12" aria-hidden="true"><path d="M2.5 4.5 6 8l3.5-3.5"/></svg>');
+        h.append(button);
+        const set = (open) => { block.classList.toggle('is-collapsed', !open); button.setAttribute('aria-expanded', String(open)); };
         button.addEventListener('click', () => set(block.classList.contains('is-collapsed')));
         document.addEventListener('click', (e) => { if (e.target.closest && e.target.closest('a[href^="#fn-"]')) set(true); }, true);
         addEventListener('hashchange', () => { if (location.hash.startsWith('#fn-')) set(true); });
