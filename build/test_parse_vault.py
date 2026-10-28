@@ -498,6 +498,11 @@ class TestRelations(unittest.TestCase):
         self.assertEqual([(r["other_id"], r["role"]) for r in rows["dad"]], [("kid", "child")])
         self.assertEqual([(r["other_id"], r["role"]) for r in rows["kid"]], [("dad", "father")])
 
+    def test_one_side_inverts_role_with_a_qualifier(self):
+        rows = self.kin({"role": "father (adopted 1957)"})
+        self.assertEqual([(r["other_id"], r["role"]) for r in rows["dad"]], [("kid", "child")])
+        self.assertEqual([(r["other_id"], r["role"]) for r in rows["kid"]], [("dad", "father (adopted 1957)")])
+
 
 class TestHeadings(unittest.TestCase):
     def test_toc_text_is_unescaped_and_matches_section_links(self):
