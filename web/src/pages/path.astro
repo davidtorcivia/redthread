@@ -78,7 +78,7 @@ import Base from '../layouts/Base.astro';
   </article>
 
   <script>
-    import { findRoutes, renderChain, entityCombobox } from '../scripts/path-find';
+    import { findRoutes, renderChain, renderSentence, entityCombobox, typedBonus } from '../scripts/path-find';
     import { loadAdjacency, type Adjacency } from '../scripts/adjacency';
     import { el } from '../scripts/entity-types';
 
@@ -147,7 +147,7 @@ import Base from '../layouts/Base.astro';
       if (avoid.length) url.searchParams.set('avoid', avoid.map((i) => d.ids[i]).join(','));
       else url.searchParams.delete('avoid');
       history.replaceState(null, '', url);
-      const routes = findRoutes(d.adj, d.dir, fromIdx, toIdx, avoid);
+      const routes = findRoutes(d.adj, d.dir, fromIdx, toIdx, avoid, 3, typedBonus(d));
       if (!routes.length) {
         status.textContent = `No documented path between ${d.titles[fromIdx]} and ${d.titles[toIdx]}${avoid.length ? ' that avoids those entries' : ''}.`;
         return;
@@ -155,12 +155,12 @@ import Base from '../layouts/Base.astro';
       const hops = (r: number[]) => `${r.length - 1} hop${r.length === 2 ? '' : 's'}`;
       const onAvoid = (i: number) => { addAvoid(i); run(); };
       status.textContent = `${hops(routes[0])}.`;
-      result.append(renderChain(d, routes[0], onAvoid));
+      result.append(renderSentence(d, routes[0]), renderChain(d, routes[0], onAvoid));
       if (routes.length > 1) {
         const others = el('section', 'path-others');
         others.append(el('h2', 'path-others-title', 'Other routes'));
         routes.slice(1).forEach((r, k) => {
-          others.append(el('p', 'path-route-label', `Route ${k + 2} · ${hops(r)}`), renderChain(d, r, onAvoid));
+          others.append(el('p', 'path-route-label', `Route ${k + 2} · ${hops(r)}`), renderSentence(d, r), renderChain(d, r, onAvoid));
         });
         result.append(others);
       }

@@ -43,7 +43,7 @@ const widgetId = `pw-${fromId}`;
 {/* Processed, not is:inline, so every entity page shares one cached bundle.
     Never add define:vars here: it forces the script inline. */}
 <script>
-  import { findPath, renderChain, entityCombobox } from '../scripts/path-find';
+  import { findPath, renderChain, renderSentence, entityCombobox, typedBonus } from '../scripts/path-find';
   import { loadAdjacency } from '../scripts/adjacency';
 
   const root = document.querySelector<HTMLElement>('.path-widget');
@@ -71,10 +71,10 @@ const widgetId = `pw-${fromId}`;
       if (!data) return say('Could not load connections. Try again.');
       const si = data.ids.indexOf(fromId);
       if (si < 0) return say('Entity missing from network.');
-      const path = findPath(data.adj, data.dir, si, toIdx);
+      const path = findPath(data.adj, data.dir, si, toIdx, undefined, typedBonus(data));
       if (!path) return say(`No documented path to ${data.titles[toIdx]}.`);
       say(`${path.length - 1} hop${path.length === 2 ? '' : 's'}.`);
-      result.append(renderChain(data, path));
+      result.append(renderSentence(data, path), renderChain(data, path));
       result.hidden = false;
     });
   }

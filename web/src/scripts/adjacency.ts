@@ -17,6 +17,9 @@ export interface Adjacency {
   /** Sub-community id inside a big community, or -1; indexes subcommunityLabels. */
   subcommunities?: number[];
   subcommunityLabels?: string[];
+  /** Typed frontmatter relations between entries: [subject, object, index into relationTypes]. */
+  relations?: [number, number, number][];
+  relationTypes?: string[];
   communities: number[];
   communityLabels: string[];
 }
