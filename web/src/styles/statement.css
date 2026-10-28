@@ -77,7 +77,7 @@ dl.band-facts > div {display:contents}
 #sources.is-collapsed > ol,#sources.is-collapsed > .fold-toggle {display:none}
 #sources.is-collapsed .section-label {color:var(--muted)}
 #sources.is-collapsed .h3-chev {transform:rotate(-90deg)}
-.sec-fold.is-collapsed > :not(.sec-head) {display:none}
+@media screen {.sec-fold.is-collapsed > :not(.sec-head) {display:none}}
 .sec-fold.is-collapsed .section-heading {color:var(--muted)}
 .sec-fold.is-collapsed .h3-chev {transform:rotate(-90deg)}
 .statement-band a {color:inherit;background:none}
@@ -359,7 +359,7 @@ header.site .theme-toggle {display:inline-flex;align-items:center;justify-conten
   .backlinks.is-folded > ul > li {display:block!important}
   .fold-toggle,.aliases-toggle {display:none}
   #sources.is-collapsed > ol {display:block!important}
-  .sec-fold.is-collapsed > :not(.sec-head),.lv-tier.is-collapsed > :not(.lv-h) {display:revert!important}
+  .h3-toggle {display:inline!important}
   .band-facts dt {text-align:left}
   .aliases-more[hidden] {display:inline}
 }

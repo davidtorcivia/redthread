@@ -18,7 +18,10 @@
 /* Tree */
 .lv-frame {position:relative;margin-top:22px}
 .lv-canvas {overflow:auto;height:min(78vh,900px);background:var(--paper-2);border:1px solid var(--line);overscroll-behavior:contain;-webkit-overflow-scrolling:touch}
-.lv-canvas.short {height:auto;max-height:min(78vh,900px)}
+.lv-canvas {touch-action:none;user-select:none;-webkit-user-select:none;cursor:grab}
+.lv-canvas.panning {cursor:grabbing}
+.lv-canvas.panning * {cursor:grabbing!important}
+.lv-hint {font:500 12.5px/1.3 var(--sans);color:var(--muted);margin:8px 0 0}
 .lv-tree {display:block;margin:0 auto}
 .lv-zoom {position:absolute;top:10px;right:10px;display:flex;z-index:2;background:var(--paper);border:1px solid var(--line-2)}
 .lv-zoom button {font:600 14px/1 var(--sans);min-width:40px;height:36px;padding:0 10px;border:0;background:none;color:var(--ink);cursor:pointer}
@@ -65,7 +68,7 @@
 .lv-tier {display:grid;grid-template-columns:170px minmax(0,1fr);gap:20px;border-top:1px solid var(--line);padding-block:20px}
 .lv-tier>.lv-h {margin-top:2px}
 .lv-tier .h3-toggle {color:inherit}
-.lv-tier.is-collapsed > :not(.lv-h) {display:none}
+@media screen {.lv-tier.is-collapsed > :not(.lv-h) {display:none}}
 .lv-tier.is-collapsed {padding-bottom:10px}
 .lv-tier.is-collapsed .h3-chev {transform:rotate(-90deg)}
 /* On wide screens the timeline and its key sit centred in their column. */

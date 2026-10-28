@@ -251,6 +251,8 @@ export class GraphEngine {
       this.requestDraw();
     });
     window.addEventListener('resize', () => { if (this.nodes.length) this.resize(); });
+    // A folded entry section hides the shell; this catches it being shown again at a new size.
+    new ResizeObserver(() => { if (this.nodes.length) this.resize(); }).observe(this.shell);
   }
 
   // --- Data ---------------------------------------------------------------
@@ -305,9 +307,12 @@ export class GraphEngine {
   }
   resize(): void {
     const rect = this.shell.getBoundingClientRect();
-    this.dpr = Math.max(1, window.devicePixelRatio || 1);
-    this.canvas.width = Math.round(rect.width * this.dpr);
-    this.canvas.height = Math.round(rect.height * this.dpr);
+    if (!rect.width || !rect.height) return; // hidden: keep the last size until shown again
+    const dpr = Math.max(1, window.devicePixelRatio || 1), w = Math.round(rect.width * dpr), h = Math.round(rect.height * dpr);
+    if (w === this.canvas.width && h === this.canvas.height && dpr === this.dpr) return this.requestDraw();
+    this.dpr = dpr;
+    this.canvas.width = w;
+    this.canvas.height = h;
     this.canvas.style.width = rect.width + 'px';
     this.canvas.style.height = rect.height + 'px';
     this.requestDraw();
