@@ -328,22 +328,33 @@ export async function renderFamily(root: HTMLElement, f: Family, focus: string) 
   root.querySelector('[data-zoom="out"]')?.addEventListener('click', () => zoomCentre(scale / 1.25));
   root.querySelector('[data-zoom="fit"]')?.addEventListener('click', () => zoomCentre(fit()));
 
-  // Wheel and trackpad pinch (a wheel event with ctrlKey) zoom toward the pointer.
+  // The canvas never scrolls natively, so a plain wheel or a one-finger swipe always scrolls the
+  // page. Ctrl or Cmd with the wheel, or a trackpad pinch (a wheel event with ctrlKey), zooms
+  // toward the pointer.
   canvas.addEventListener('wheel', (e) => {
-    e.preventDefault();
-    const dy = e.deltaY * (e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? 400 : 1);
-    zoomAt(scale * Math.exp(-dy * (e.ctrlKey ? 0.01 : 0.0015)), e.clientX, e.clientY);
+    const unit = e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? 400 : 1, dx = e.deltaX * unit, dy = e.deltaY * unit;
+    if (e.ctrlKey || e.metaKey) {
+      e.preventDefault();
+      // A mouse notch is about 100; clamped, one notch is a gentle step and a pinch stays smooth.
+      zoomAt(scale * Math.exp(-Math.max(-40, Math.min(40, dy)) * 0.01), e.clientX, e.clientY);
+    } else if (Math.abs(dx) > Math.abs(dy)) {
+      // A sideways trackpad swipe pans the tree; vertical wheel input stays with the page.
+      e.preventDefault();
+      canvas.scrollLeft += dx;
+    }
   }, { passive: false });
 
-  // Drag pans with a mouse or one finger; two fingers pinch. A drag never counts as a click.
+  // A mouse drags to pan. On touch, one finger is left to the page and two fingers pan and
+  // pinch the tree. A drag never counts as a click.
   const pts = new Map<number, { x: number; y: number }>();
-  let moved = 0, pinch: { d: number; z: number } | null = null, swallowUntil = 0;
+  // moved is the farthest straight-line distance from where the gesture began, so a tap's wobble
+  // does not count as a drag.
+  let moved = 0, start = { x: 0, y: 0 }, pinch: { d: number; z: number } | null = null, swallowUntil = 0;
   const mid = () => { const [a, b] = [...pts.values()]; return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2, d: Math.hypot(a.x - b.x, a.y - b.y) }; };
   canvas.addEventListener('pointerdown', (e) => {
     if (e.pointerType === 'mouse' && e.button !== 0) return;
-    if ((e.target as Element).closest('.lv-zoom')) return;
     pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
-    if (pts.size === 1) moved = 0;
+    if (pts.size === 1) { moved = 0; start = { x: e.clientX, y: e.clientY }; }
     if (pts.size === 2) pinch = { d: mid().d || 1, z: scale };
   });
   addEventListener('pointermove', (e) => {
@@ -352,15 +363,15 @@ export async function renderFamily(root: HTMLElement, f: Family, focus: string) 
     const before = pts.size === 2 ? mid() : null;
     const dx = e.clientX - p.x, dy = e.clientY - p.y;
     pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
-    if (pts.size === 2 && pinch && before) {
+    if (pts.size === 2 && pinch && before && e.pointerType === 'touch') {
       const after = mid();
       zoomAt(pinch.z * after.d / pinch.d, after.x, after.y);
       canvas.scrollLeft -= after.x - before.x;
       canvas.scrollTop -= after.y - before.y;
       moved = 99;
-    } else if (pts.size === 1) {
-      moved += Math.abs(dx) + Math.abs(dy);
-      if (moved > 5) {
+    } else if (pts.size === 1 && e.pointerType !== 'touch') {
+      moved = Math.max(moved, Math.hypot(e.clientX - start.x, e.clientY - start.y));
+      if (moved > 4) {
         canvas.classList.add('panning');
         canvas.scrollLeft -= dx;
         canvas.scrollTop -= dy;
@@ -369,11 +380,12 @@ export async function renderFamily(root: HTMLElement, f: Family, focus: string) 
   });
   const end = (e: PointerEvent) => {
     if (!pts.delete(e.pointerId)) return;
-    if (pts.size < 2) pinch = null;
+    // Lifting one of three fingers leaves a new pair: the pinch restarts from it.
+    pinch = pts.size === 2 ? { d: mid().d || 1, z: scale } : null;
     if (!pts.size) {
       canvas.classList.remove('panning');
       // A mouse drag ends in a click; a touch drag does not, so the window is short.
-      if (moved > 5) swallowUntil = performance.now() + 400;
+      if (moved > 4) swallowUntil = performance.now() + 400;
     }
   };
   addEventListener('pointerup', end);

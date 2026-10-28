@@ -307,7 +307,9 @@ export class GraphEngine {
   }
   resize(): void {
     const rect = this.shell.getBoundingClientRect();
-    if (!rect.width || !rect.height) return; // hidden: keep the last size until shown again
+    // Hidden (a folded section): keep the last size, and refit once shown, since a layout run
+    // meanwhile was fitted to the stale size.
+    if (!rect.width || !rect.height) { this.unsized = true; return; }
     const dpr = Math.max(1, window.devicePixelRatio || 1), w = Math.round(rect.width * dpr), h = Math.round(rect.height * dpr);
     if (w === this.canvas.width && h === this.canvas.height && dpr === this.dpr) return this.requestDraw();
     this.dpr = dpr;
@@ -315,8 +317,14 @@ export class GraphEngine {
     this.canvas.height = h;
     this.canvas.style.width = rect.width + 'px';
     this.canvas.style.height = rect.height + 'px';
+    if (this.unsized && this.nodes.length) {
+      this.unsized = false;
+      if (this.annotations.length) this.applyLayout();
+      else this.fit();
+    }
     this.requestDraw();
   }
+  private unsized = false;
   requestDraw(): void {
     if (this.drawScheduled) return;
     this.drawScheduled = true;

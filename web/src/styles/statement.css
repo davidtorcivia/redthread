@@ -77,7 +77,8 @@ dl.band-facts > div {display:contents}
 #sources.is-collapsed > ol,#sources.is-collapsed > .fold-toggle {display:none}
 #sources.is-collapsed .section-label {color:var(--muted)}
 #sources.is-collapsed .h3-chev {transform:rotate(-90deg)}
-@media screen {.sec-fold.is-collapsed > :not(.sec-head) {display:none}}
+/* .entity-article raises it above section rules such as .entity-article .backlinks .hc-list. */
+@media screen {.entity-article .sec-fold.is-collapsed > :not(.sec-head) {display:none}}
 .sec-fold.is-collapsed .section-heading {color:var(--muted)}
 .sec-fold.is-collapsed .h3-chev {transform:rotate(-90deg)}
 .statement-band a {color:inherit;background:none}
