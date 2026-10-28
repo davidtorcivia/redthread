@@ -36,7 +36,7 @@ const json = l ? JSON.stringify(l).replace(/</g, '\\u003c') : '';
 )}
 
 <script>
-  import { renderLineage } from '../scripts/lineage-view';
+  // Most entry pages have no lineage, so the drawing code loads only where one exists.
   const root = document.getElementById('lv-lineage');
-  if (root) renderLineage(root, JSON.parse(root.querySelector('.lv-data')!.textContent!));
+  if (root) import('../scripts/lineage-view').then(({ renderLineage }) => renderLineage(root, JSON.parse(root.querySelector('.lv-data')!.textContent!)));
 </script>

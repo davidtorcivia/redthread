@@ -1,0 +1,13 @@
+---
+// /lineage/<id>/ shipped as its own page; the lineage now lives on the organization's entry.
+import Redirect from '../../components/Redirect.astro';
+import { entity, hrefFor, lineageData } from '../../lib/data.ts';
+
+export function getStaticPaths() {
+  return lineageData().lineages.flatMap((l) => {
+    const e = entity(l.id);
+    return e ? [{ params: { id: l.id }, props: { to: `${hrefFor(e)}#lv-lineage` } }] : [];
+  });
+}
+---
+<Redirect to={Astro.props.to} />

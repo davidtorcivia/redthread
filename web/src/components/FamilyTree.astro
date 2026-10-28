@@ -55,14 +55,14 @@ const json = f ? JSON.stringify({ family: f, focus: id }).replace(/</g, '\\u003c
 )}
 
 <script>
-  import { renderFamily } from '../scripts/lineage-view';
+  // Most entry pages have no tree, so the drawing code loads only where one is opened.
   const root = document.getElementById('lv-family') as HTMLDetailsElement | null;
   if (root) {
     const draw = () => {
       if (!root.open || root.dataset.drawn) return;
       root.dataset.drawn = '1';
       const { family, focus } = JSON.parse(root.querySelector('.lv-data')!.textContent!);
-      renderFamily(root, family, focus);
+      import('../scripts/lineage-view').then(({ renderFamily }) => renderFamily(root, family, focus));
     };
     root.addEventListener('toggle', draw);
     // A link to #lv-family opens it.

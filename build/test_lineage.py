@@ -72,6 +72,12 @@ class FamilyTests(unittest.TestCase):
         will = [e for e in fam["edges"] if e["cls"] == "parent" and "t:will smith" in (e["a"], e["b"])]
         self.assertEqual((will[0]["a"], will[0]["b"], will[0]["verified"]), ("t:will smith", "s", False))
 
+    def test_bounds_ignore_events_after_death(self):
+        e = ent("h", "Dag H")
+        e["dates"] = {"died": "1961"}
+        e["relations"] = [rel("employed_by", "x", "X", start="1930"), rel("subject_of", "y", "Y", start="2015")]
+        self.assertEqual(lineage.Lineage([e]).birth_bounds()["h"], (1930 - 95, 1930 - 16))
+
     def test_a_drawn_pair_is_not_also_listed_as_other(self):
         f, s, d = ent("f", "Ann Smith", born="1900"), ent("s", "Bob Smith", born="1930"), ent("d", "Cat Smith")
         s["relations"] = [rel("relative_of", "f", "Ann Smith", role="son"), rel("relative_of", "d", "Cat Smith", role="sister")]

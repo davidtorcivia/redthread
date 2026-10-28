@@ -115,16 +115,21 @@ class Lineage:
     def birth_bounds(self) -> dict[str, tuple[int, int]]:
         """(earliest, latest) possible birth year per person key. A recorded birth year is exact.
         Otherwise dated relations bound it: born at most 16 years before the first one, and at
-        most 80 before the last. Marriages count, so people without entries get bounds too.
-        relative_of dates are left out: they are often the child's birth year."""
+        most 95 before the last. Marriages count, so people without entries get bounds too.
+        relative_of dates are left out (often the child's birth year), and so is anything dated
+        after a recorded death (an investigation of the dead). A range that comes out inverted
+        is dropped."""
         starts: dict[str, list[int]] = collections.defaultdict(list)
         for e in self.ents.values():
+            died = _year((e.get("dates") or {}).get("died"))
             for r in e["relations"] + e["relations_in"]:
-                if r["type"] != "relative_of" and (y := _year(r["start"])):
-                    starts[e["id"]].append(y)
-                    if r["type"] == "spouse_of" and not r["other_id"]:
-                        starts[self.key(r)].append(y)
-        out = {k: (max(ys) - 80, min(ys) - 16) for k, ys in starts.items()}
+                y = _year(r["start"])
+                if r["type"] == "relative_of" or not y or (died and y > died):
+                    continue
+                starts[e["id"]].append(y)
+                if r["type"] == "spouse_of" and not r["other_id"]:
+                    starts[self.key(r)].append(y)
+        out = {k: (max(ys) - 95, min(ys) - 16) for k, ys in starts.items() if max(ys) - 95 <= min(ys) - 16}
         for e in self.ents.values():
             if (b := _year((e.get("dates") or {}).get("born"))) is not None:
                 out[e["id"]] = (b, b)

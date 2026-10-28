@@ -1,0 +1,13 @@
+---
+// /families/<id>/ shipped as its own page; the tree now lives on the member's entry.
+import Redirect from '../../components/Redirect.astro';
+import { entity, hrefFor, lineageData } from '../../lib/data.ts';
+
+export function getStaticPaths() {
+  return lineageData().families.flatMap((f) => {
+    const e = entity(f.id);
+    return e ? [{ params: { id: f.id }, props: { to: `${hrefFor(e)}#lv-family` } }] : [];
+  });
+}
+---
+<Redirect to={Astro.props.to} />
