@@ -3,10 +3,10 @@
 .lv-section {margin:76px 0 0;padding:0;border-top:2px solid var(--ink)}
 .lv-family>summary {cursor:pointer;list-style:none}
 .lv-family>summary::-webkit-details-marker {display:none}
-.lv-family>summary span {margin-left:auto}
-.lv-family>summary::after {content:"Show";font:600 12px/1 var(--sans);text-transform:uppercase;letter-spacing:.06em;color:var(--ink);border:1px solid var(--line-2);padding:7px 9px;flex:none}
-.lv-family[open]>summary::after {content:"Hide"}
-.lv-family>summary:hover::after {border-color:var(--ink)}
+.lv-sum {font-weight:inherit}
+.lv-family>summary:hover .h3-chev {stroke:var(--accent)}
+.lv-family:not([open])>summary {color:var(--muted)}
+.lv-family:not([open]) .h3-chev {transform:rotate(-90deg)}
 .lv-family>summary:focus-visible {outline:2px solid var(--accent);outline-offset:2px}
 .lv-meta {font:500 14px/1.4 var(--sans);color:var(--muted);margin:4px 0 0;font-variant-numeric:tabular-nums}
 .lv-meta a {color:inherit}
@@ -64,6 +64,12 @@
 /* Lineage */
 .lv-tier {display:grid;grid-template-columns:170px minmax(0,1fr);gap:20px;border-top:1px solid var(--line);padding-block:20px}
 .lv-tier>.lv-h {margin-top:2px}
+.lv-tier .h3-toggle {color:inherit}
+.lv-tier.is-collapsed > :not(.lv-h) {display:none}
+.lv-tier.is-collapsed {padding-bottom:10px}
+.lv-tier.is-collapsed .h3-chev {transform:rotate(-90deg)}
+/* On wide screens the timeline and its key sit centred in their column. */
+.lv-chartbox {width:max-content;max-width:100%;margin-inline:auto;min-width:0}
 .lv-origins {display:flex;flex-wrap:wrap;gap:10px;min-width:0}
 .lv-node {font-family:var(--sans);border:1px solid var(--line);border-top:2px solid var(--ink);padding:8px 10px;min-width:0;max-width:300px;background:var(--paper)}
 .lv-node .k {font:700 10.5px/1.2 var(--sans);text-transform:uppercase;letter-spacing:.05em;color:var(--muted)}
@@ -131,8 +137,6 @@
 .lv-tip.lv-sheet .tt {padding-right:36px}
 
 @media (max-width:640px) {
-  .lv-family>summary span {display:none}
-  .lv-family>summary::after {margin-left:auto}
   .lv-tier {grid-template-columns:minmax(0,1fr);gap:10px}
   .lv-shared>div {grid-template-columns:minmax(0,1fr)}
   .lv-canvas {height:70vh}
