@@ -251,6 +251,8 @@ export class GraphEngine {
       this.requestDraw();
     });
     window.addEventListener('resize', () => { if (this.nodes.length) this.resize(); });
+    // A folded entry section hides the shell; this catches it being shown again at a new size.
+    new ResizeObserver(() => { if (this.nodes.length) this.resize(); }).observe(this.shell);
   }
 
   // --- Data ---------------------------------------------------------------
@@ -305,13 +307,25 @@ export class GraphEngine {
   }
   resize(): void {
     const rect = this.shell.getBoundingClientRect();
-    this.dpr = Math.max(1, window.devicePixelRatio || 1);
-    this.canvas.width = Math.round(rect.width * this.dpr);
-    this.canvas.height = Math.round(rect.height * this.dpr);
+    // Hidden (a folded section): keep the last size, and refit once shown, since a layout run
+    // meanwhile was fitted to the stale size.
+    if (!rect.width || !rect.height) { this.unsized = true; return; }
+    const dpr = Math.max(1, window.devicePixelRatio || 1), w = Math.round(rect.width * dpr), h = Math.round(rect.height * dpr);
+    // Shown again at the size it had: nothing was fitted to a stale size, so no refit is owed.
+    if (w === this.canvas.width && h === this.canvas.height && dpr === this.dpr) { this.unsized = false; return this.requestDraw(); }
+    this.dpr = dpr;
+    this.canvas.width = w;
+    this.canvas.height = h;
     this.canvas.style.width = rect.width + 'px';
     this.canvas.style.height = rect.height + 'px';
+    if (this.unsized && this.nodes.length) {
+      this.unsized = false;
+      if (this.annotations.length) this.applyLayout();
+      else this.fit();
+    }
     this.requestDraw();
   }
+  private unsized = false;
   requestDraw(): void {
     if (this.drawScheduled) return;
     this.drawScheduled = true;

@@ -15,10 +15,10 @@ const json = l ? JSON.stringify(l).replace(/</g, '\\u003c') : '';
 {l && (
   <section class="lv-section lv-lineage" id="lv-lineage" data-pagefind-ignore>
     <h2 class="section-heading">Lineage <span>{meta}</span></h2>
-    <div class="lv-tier"><h3 class="lv-h">Origins</h3><div class="lv-origins"></div></div>
+    <div class="lv-tier" data-folded><h3 class="lv-h">Origins</h3><div class="lv-origins"></div></div>
     <div class="lv-tier">
       <h3 class="lv-h">People, by year</h3>
-      <div>
+      <div class="lv-chartbox">
         <div class="lv-gantt"><svg class="lv-names" aria-hidden="true"></svg><svg class="lv-chart" role="img" aria-label={`People at ${l.title} by year`}></svg></div>
         <div class="lv-key">
           <span><i style="background:var(--accent)"></i>headed</span>
@@ -29,8 +29,8 @@ const json = l ? JSON.stringify(l).replace(/</g, '\\u003c') : '';
         </div>
       </div>
     </div>
-    <div class="lv-tier"><h3 class="lv-h">Later roles</h3><div class="lv-later"></div></div>
-    <div class="lv-tier"><h3 class="lv-h">Reached by several members</h3><div class="lv-shared"></div></div>
+    <div class="lv-tier" data-folded><h3 class="lv-h">Later roles</h3><div class="lv-later"></div></div>
+    <div class="lv-tier" data-folded><h3 class="lv-h">Reached by several members</h3><div class="lv-shared"></div></div>
     <script type="application/json" class="lv-data" is:inline set:html={json}></script>
   </section>
 )}
@@ -38,5 +38,18 @@ const json = l ? JSON.stringify(l).replace(/</g, '\\u003c') : '';
 <script>
   // Most entry pages have no lineage, so the drawing code loads only where one exists.
   const root = document.getElementById('lv-lineage');
+  // Each part folds under its label; the ones marked data-folded start closed.
+  for (const tier of root?.querySelectorAll<HTMLElement>('.lv-tier') ?? []) {
+    const h = tier.querySelector('.lv-h')!;
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'h3-toggle';
+    button.append(...h.childNodes);
+    button.insertAdjacentHTML('beforeend', '<svg class="h3-chev" viewBox="0 0 12 12" aria-hidden="true"><path d="M2.5 4.5 6 8l3.5-3.5"/></svg>');
+    h.append(button);
+    const set = (open: boolean) => { tier.classList.toggle('is-collapsed', !open); button.setAttribute('aria-expanded', String(open)); };
+    set(!('folded' in tier.dataset));
+    button.addEventListener('click', () => set(tier.classList.contains('is-collapsed')));
+  }
   if (root) import('../scripts/lineage-view').then(({ renderLineage }) => renderLineage(root, JSON.parse(root.querySelector('.lv-data')!.textContent!)));
 </script>

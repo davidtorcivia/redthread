@@ -342,7 +342,7 @@ def resolve_relations(entities: list[dict[str, Any]], slug_index: dict[str, str]
                 out.update(fn=f["fns"][page[0]], fn_page=page[0])
             role = f["roles"].get(other[0])
             if not role and (mirror := f["roles"].get(page[0])):
-                role = _ROLE_INVERSE.get(mirror.lower())
+                role = _ROLE_INVERSE.get(re.split(r"[;,(]", mirror.lower())[0].strip())
         return {**out, "role": role, "label": label, "other_id": other[0], "other_title": other[1]}
 
     for f in facts.values():

@@ -305,23 +305,98 @@ export async function renderFamily(root: HTMLElement, f: Family, focus: string) 
   const size = await drawTree(f, svg, focus);
   let scale = 1;
   const fit = () => Math.min(1, (canvas.clientWidth - 2) / size.width);
-  const apply = (z: number, keepCenter = true) => {
-    const cx = (canvas.scrollLeft + canvas.clientWidth / 2) / scale, cy = (canvas.scrollTop + canvas.clientHeight / 2) / scale;
-    scale = Math.max(0.3, Math.min(1.6, z));
+  const resize = (z: number) => {
+    scale = Math.max(0.25, Math.min(2.5, z));
     svg.setAttribute('width', String(Math.round(size.width * scale)));
     svg.setAttribute('height', String(Math.round(size.height * scale)));
-    if (keepCenter) {
-      canvas.scrollLeft = cx * scale - canvas.clientWidth / 2;
-      canvas.scrollTop = cy * scale - canvas.clientHeight / 2;
-    }
   };
+  // Zoom keeping the tree point under (cx, cy) on screen still. The SVG is centred in the canvas
+  // when smaller than it, so the point is measured from the SVG's own box before and after.
+  const zoomAt = (z: number, cx: number, cy: number) => {
+    const r0 = svg.getBoundingClientRect(), px = (cx - r0.left) / scale, py = (cy - r0.top) / scale;
+    resize(z);
+    const r1 = svg.getBoundingClientRect();
+    canvas.scrollLeft += r1.left + px * scale - cx;
+    canvas.scrollTop += r1.top + py * scale - cy;
+  };
+  const zoomCentre = (z: number) => { const r = canvas.getBoundingClientRect(); zoomAt(z, r.left + r.width / 2, r.top + r.height / 2); };
   // Phones open a little smaller than full size.
-  apply(Math.max(fit(), matchMedia('(max-width: 640px)').matches ? 0.8 : 1), false);
+  resize(Math.max(fit(), matchMedia('(max-width: 640px)').matches ? 0.8 : 1));
   canvas.scrollLeft = size.anchor.x * scale - canvas.clientWidth / 2;
   canvas.scrollTop = Math.max(0, size.anchor.y * scale - canvas.clientHeight / 3);
-  root.querySelector('[data-zoom="in"]')?.addEventListener('click', () => apply(scale * 1.25));
-  root.querySelector('[data-zoom="out"]')?.addEventListener('click', () => apply(scale / 1.25));
-  root.querySelector('[data-zoom="fit"]')?.addEventListener('click', () => apply(fit()));
+  root.querySelector('[data-zoom="in"]')?.addEventListener('click', () => zoomCentre(scale * 1.25));
+  root.querySelector('[data-zoom="out"]')?.addEventListener('click', () => zoomCentre(scale / 1.25));
+  root.querySelector('[data-zoom="fit"]')?.addEventListener('click', () => zoomCentre(fit()));
+
+  // The canvas never scrolls natively, so a plain wheel or a one-finger swipe always scrolls the
+  // page. Ctrl or Cmd with the wheel, or a trackpad pinch (a wheel event with ctrlKey), zooms
+  // toward the pointer.
+  canvas.addEventListener('wheel', (e) => {
+    const unit = e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? 400 : 1, dx = e.deltaX * unit, dy = e.deltaY * unit;
+    if (e.ctrlKey || e.metaKey) {
+      e.preventDefault();
+      // A mouse notch is about 100; clamped, one notch is a gentle step and a pinch stays smooth.
+      zoomAt(scale * Math.exp(-Math.max(-40, Math.min(40, dy)) * 0.01), e.clientX, e.clientY);
+    } else if (Math.abs(dx) > Math.abs(dy)) {
+      // A sideways trackpad swipe pans the tree; vertical wheel input stays with the page.
+      e.preventDefault();
+      canvas.scrollLeft += dx;
+    }
+  }, { passive: false });
+
+  // A mouse drags to pan. On touch, one finger is left to the page and two fingers pan and
+  // pinch the tree. A drag never counts as a click.
+  const pts = new Map<number, { x: number; y: number }>();
+  // moved is the farthest straight-line distance from where the gesture began, so a tap's wobble
+  // does not count as a drag.
+  let moved = 0, start = { x: 0, y: 0 }, pinch: { d: number; z: number } | null = null, swallowUntil = 0;
+  const mid = () => { const [a, b] = [...pts.values()]; return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2, d: Math.hypot(a.x - b.x, a.y - b.y) }; };
+  canvas.addEventListener('pointerdown', (e) => {
+    if (e.pointerType === 'mouse' && e.button !== 0) return;
+    pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (pts.size === 1) { moved = 0; start = { x: e.clientX, y: e.clientY }; }
+    if (pts.size === 2) pinch = { d: mid().d || 1, z: scale };
+  });
+  addEventListener('pointermove', (e) => {
+    const p = pts.get(e.pointerId);
+    if (!p) return;
+    const before = pts.size === 2 ? mid() : null;
+    const dx = e.clientX - p.x, dy = e.clientY - p.y;
+    pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (pts.size === 2 && pinch && before && e.pointerType === 'touch') {
+      const after = mid();
+      zoomAt(pinch.z * after.d / pinch.d, after.x, after.y);
+      canvas.scrollLeft -= after.x - before.x;
+      canvas.scrollTop -= after.y - before.y;
+      moved = 99;
+    } else if (pts.size === 1 && e.pointerType !== 'touch') {
+      moved = Math.max(moved, Math.hypot(e.clientX - start.x, e.clientY - start.y));
+      if (moved > 4) {
+        canvas.classList.add('panning');
+        canvas.scrollLeft -= dx;
+        canvas.scrollTop -= dy;
+      }
+    }
+  });
+  const end = (e: PointerEvent) => {
+    if (!pts.delete(e.pointerId)) return;
+    // Lifting one of three fingers leaves a new pair: the pinch restarts from it.
+    pinch = pts.size === 2 ? { d: mid().d || 1, z: scale } : null;
+    if (!pts.size) {
+      canvas.classList.remove('panning');
+      // A mouse drag ends in a click; a touch drag does not, so the window is short.
+      if (moved > 4) swallowUntil = performance.now() + 400;
+    }
+  };
+  addEventListener('pointerup', end);
+  addEventListener('pointercancel', end);
+  // Runs before the tooltip's document-level click handler, so a drag's click opens nothing.
+  addEventListener('click', (e) => {
+    if (performance.now() > swallowUntil) return;
+    swallowUntil = 0;
+    if (canvas.contains(e.target as Node)) { e.preventDefault(); e.stopPropagation(); }
+  }, true);
+  svg.addEventListener('dragstart', (e) => e.preventDefault());
 
   const at = (e: Event) => (e.target as Element).closest?.('.lv-card[data-id], path.lv-hit') ?? null;
   const on = (el: Element) => (el.matches('path.lv-hit')

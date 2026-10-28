@@ -203,6 +203,31 @@ const edited = editedAt && !Number.isNaN(editedAt.getTime())
         addEventListener('hashchange', () => { if (location.hash.startsWith('#fn-')) set(true); });
       })();
 
+      // Every other section heading folds its section the same way, open by default. Only the
+      // heading's text goes in the button; its count or note stays beside it.
+      (() => {
+        for (const h of document.querySelectorAll('.entity-article h2.section-heading')) {
+          const block = h.closest('section');
+          if (!block) continue;
+          let head = h;
+          while (head.parentElement !== block) head = head.parentElement;
+          head.classList.add('sec-head');
+          block.classList.add('sec-fold');
+          const button = document.createElement('button');
+          button.type = 'button';
+          button.className = 'h3-toggle';
+          button.setAttribute('aria-expanded', 'true');
+          button.append(...[...h.childNodes].filter((n) => !(n.nodeType === 1 && n.tagName === 'SPAN')));
+          button.insertAdjacentHTML('beforeend', '<svg class="h3-chev" viewBox="0 0 12 12" aria-hidden="true"><path d="M2.5 4.5 6 8l3.5-3.5"/></svg>');
+          h.prepend(button);
+          const set = (open) => { block.classList.toggle('is-collapsed', !open); button.setAttribute('aria-expanded', String(open)); };
+          button.addEventListener('click', () => set(block.classList.contains('is-collapsed')));
+          // A link to something inside a folded section opens it.
+          const reveal = () => { const t = location.hash && document.getElementById(decodeURIComponent(location.hash.slice(1))); if (t && block.contains(t)) set(true); };
+          addEventListener('hashchange', reveal);
+        }
+      })();
+
       // Each h3 folds the content up to the next h1-h3. Open by default; find-in-page
       // (hidden=until-found) and any in-page link into a folded section reopen it.
       (() => {

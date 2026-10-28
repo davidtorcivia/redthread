@@ -77,6 +77,10 @@ dl.band-facts > div {display:contents}
 #sources.is-collapsed > ol,#sources.is-collapsed > .fold-toggle {display:none}
 #sources.is-collapsed .section-label {color:var(--muted)}
 #sources.is-collapsed .h3-chev {transform:rotate(-90deg)}
+/* .entity-article raises it above section rules such as .entity-article .backlinks .hc-list. */
+@media screen {.entity-article .sec-fold.is-collapsed > :not(.sec-head) {display:none}}
+.sec-fold.is-collapsed .section-heading {color:var(--muted)}
+.sec-fold.is-collapsed .h3-chev {transform:rotate(-90deg)}
 .statement-band a {color:inherit;background:none}
 .statement-band a:hover {text-decoration:underline;text-underline-offset:.15em}
 .statement-wrap {padding:0 var(--gutter)}
@@ -356,6 +360,7 @@ header.site .theme-toggle {display:inline-flex;align-items:center;justify-conten
   .backlinks.is-folded > ul > li {display:block!important}
   .fold-toggle,.aliases-toggle {display:none}
   #sources.is-collapsed > ol {display:block!important}
+  .h3-toggle {display:inline!important}
   .band-facts dt {text-align:left}
   .aliases-more[hidden] {display:inline}
 }

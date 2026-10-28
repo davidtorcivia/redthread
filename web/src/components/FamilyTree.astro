@@ -17,7 +17,7 @@ const json = f ? JSON.stringify({ family: f, focus: id }).replace(/</g, '\\u003c
 ---
 {f && (
   <details class="lv-section lv-family" id="lv-family" data-pagefind-ignore>
-    <summary class="section-heading">Family tree <span>{f.name} · {f.people.length} people</span></summary>
+    <summary class="section-heading"><strong class="lv-sum">Family tree<svg class="h3-chev" viewBox="0 0 12 12" aria-hidden="true"><path d="M2.5 4.5 6 8l3.5-3.5"/></svg></strong><span>{f.name} · {f.people.length} people</span></summary>
     <p class="lv-meta">{meta}</p>
     <div class="lv-frame">
       <div class="lv-canvas"><svg class="lv-tree" role="img" aria-label={`Family tree: ${f.name}`}></svg></div>
@@ -27,6 +27,7 @@ const json = f ? JSON.stringify({ family: f, focus: id }).replace(/</g, '\\u003c
         <button type="button" data-zoom="in" aria-label="Zoom in">+</button>
       </div>
     </div>
+    <p class="lv-hint"><span class="mouse">Drag to move. Ctrl or ⌘ and scroll, or pinch, to zoom.</span><span class="touch">Use two fingers to move and zoom.</span></p>
     <div class="lv-legend">
       <span><svg width="34" height="10" aria-hidden="true"><path class="lv-edge" d="M0,5H34"/></svg>parent to child</span>
       <span><svg width="34" height="10" aria-hidden="true"><path class="lv-edge guess" d="M0,5H34"/></svg>direction not confirmed by birth years</span>
