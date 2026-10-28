@@ -311,7 +311,8 @@ export class GraphEngine {
     // meanwhile was fitted to the stale size.
     if (!rect.width || !rect.height) { this.unsized = true; return; }
     const dpr = Math.max(1, window.devicePixelRatio || 1), w = Math.round(rect.width * dpr), h = Math.round(rect.height * dpr);
-    if (w === this.canvas.width && h === this.canvas.height && dpr === this.dpr) return this.requestDraw();
+    // Shown again at the size it had: nothing was fitted to a stale size, so no refit is owed.
+    if (w === this.canvas.width && h === this.canvas.height && dpr === this.dpr) { this.unsized = false; return this.requestDraw(); }
     this.dpr = dpr;
     this.canvas.width = w;
     this.canvas.height = h;
