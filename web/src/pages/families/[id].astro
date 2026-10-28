@@ -1,0 +1,64 @@
+---
+import Base from '../../layouts/Base.astro';
+import '../../styles/lineage.css';
+import { entity as getEntity, hrefFor, lineageData } from '../../lib/data.ts';
+import type { Family } from '../../scripts/lineage-view.ts';
+
+export function getStaticPaths() {
+  return lineageData().families.map((f) => ({ params: { id: f.id }, props: { f } }));
+}
+interface Props { f: Family }
+const { f } = Astro.props;
+const withPage = f.people.filter((p) => p.id).length;
+const born = f.people.map((p) => p.born).filter((y): y is number => !!y).sort((a, b) => a - b);
+const kin = f.edges.filter((e) => e.cls === 'parent' || e.cls === 'gp');
+const unverified = kin.filter((e) => !e.verified).length;
+const anchor = getEntity(f.anchor);
+const meta = [`${f.people.length} people`, `${withPage} with entries`, born.length ? `born ${born[0]}–${born.at(-1)}` : '',
+  unverified ? `${unverified} of ${kin.length} parent links unverified` : ''].filter(Boolean).join(' · ');
+// Inline JSON for the page script; "<" escaped so no entry text can close the tag.
+const json = JSON.stringify(f).replace(/</g, '\\u003c');
+---
+<Base bodyClass="utility" title={`${f.name} family tree`} description={`Family tree of ${f.people.length} people around ${anchor?.title ?? f.name}, drawn from the archive's recorded family relations.`}>
+  <article class="changelog-article lv-article" id="lv-family">
+    <p class="lv-h"><a href="/families/">Families</a></p>
+    <h1 class="entity-title">{f.name}</h1>
+    <p class="lv-meta">{meta}{anchor && <> · around <a href={hrefFor(anchor)}>{anchor.title}</a></>}</p>
+    <div class="lv-frame">
+      <div class="lv-canvas"><svg class="lv-tree" role="img" aria-label={`Family tree: ${f.name}`}></svg></div>
+      <div class="lv-zoom" role="group" aria-label="Zoom">
+        <button type="button" data-zoom="out" aria-label="Zoom out">−</button>
+        <button type="button" data-zoom="fit">Fit</button>
+        <button type="button" data-zoom="in" aria-label="Zoom in">+</button>
+      </div>
+    </div>
+    <div class="lv-legend">
+      <span><svg width="34" height="10" aria-hidden="true"><path class="lv-edge" d="M0,5H34"/></svg>parent to child</span>
+      <span><svg width="34" height="10" aria-hidden="true"><path class="lv-edge guess" d="M0,5H34"/></svg>direction from the role only (no birth years)</span>
+      <span><svg width="34" height="10" aria-hidden="true"><path class="lv-edge grand" d="M0,5H34"/></svg>grandparent</span>
+      <span><svg width="14" height="14" aria-hidden="true"><circle class="lv-knot" cx="7" cy="7" r="4.5"/></svg>marriage</span>
+      <span><svg width="14" height="14" aria-hidden="true"><circle class="lv-knot unknown" cx="7" cy="7" r="4.5"/></svg>siblings, parents not recorded</span>
+      <span><svg width="22" height="14" aria-hidden="true"><rect x="1" y="1" width="20" height="12" style="fill:var(--paper-2);stroke:var(--line-2);stroke-dasharray:3 3"/></svg>no entry yet</span>
+    </div>
+    <div class="lv-below">
+      <div>
+        <h2 class="lv-h">Other recorded relatives</h2>
+        {f.others.length ? <table><tbody>{f.others.map((o) => <tr><td>{o.a}</td><td class="r">{o.role ?? 'no role'}</td><td>{o.b}</td></tr>)}</tbody></table> : <p class="lv-empty">None</p>}
+      </div>
+      <div>
+        <h2 class="lv-h">Family entries</h2>
+        {f.familyEntries.length ? <div class="lv-chips">{f.familyEntries.map((r) => {
+          const e = r.id ? getEntity(r.id) : undefined;
+          return e ? <a href={hrefFor(e)}>{r.title}</a> : <span>{r.title}</span>;
+        })}</div> : <p class="lv-empty">None</p>}
+      </div>
+    </div>
+    <script type="application/json" id="lv-data" is:inline set:html={json}></script>
+  </article>
+</Base>
+
+<script>
+  import { renderFamily } from '../../scripts/lineage-view';
+  const root = document.getElementById('lv-family')!;
+  renderFamily(root, JSON.parse(document.getElementById('lv-data')!.textContent!));
+</script>

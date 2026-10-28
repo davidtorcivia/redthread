@@ -5,6 +5,7 @@ import { dirname, resolve } from 'node:path';
 import type { Entity, Edge, Backlink, EntityType, Related, ImplicitMention } from './types.ts';
 import { TYPE_DIRS as DIRS, TYPE_LABELS as LABELS } from '../scripts/entity-types.ts';
 import { yearOf } from './dates.ts';
+import type { LineageData } from '../scripts/lineage-view.ts';
 
 export { renderInlineMd } from './inline-md.ts';
 
@@ -335,3 +336,10 @@ export function dispatchHref(id: string): string {
 export function dispatchesCiting(id: string): Dispatch[] {
   return dispatches().filter((d) => d.entities.includes(id));
 }
+
+/** Family trees and institution lineages from build/lineage.py. */
+export const lineageData = memo(() => loadOptional<LineageData>('lineage.json', { families: [], lineages: [] }));
+const familyByMember = memo(() => new Map(lineageData().families.flatMap((f) => f.people.filter((p) => p.id).map((p) => [p.id!, f] as const))));
+const lineageById = memo(() => new Map(lineageData().lineages.map((l) => [l.id, l])));
+export const familyOf = (id: string) => familyByMember().get(id);
+export const lineageOf = (id: string) => lineageById().get(id);

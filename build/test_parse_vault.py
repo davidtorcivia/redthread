@@ -383,6 +383,12 @@ class TestBuildAdjacency(unittest.TestCase):
         self.assertEqual([d("a", "b"), d("b", "a"), d("b", "c"), d("a", "c")], [1, 2, 3, 0])
         self.assertEqual(adj["implicitPairs"], [[idx["a"], idx["c"]]])
 
+    def test_relations_index_resolved_targets_only(self):
+        a, b = make_entity("a", "A"), make_entity("b", "B")
+        a["relations"] = [{"type": "founded", "other_id": "b"}, {"type": "funded", "other_id": None}]
+        adj = pv.build_adjacency([a, b], [edge("a", "b")])
+        self.assertEqual(adj["relations"], [[0, 1, adj["relationTypes"].index("founded")]])
+
 
 class TestSummarizeCommunities(unittest.TestCase):
     def test_label_uses_top_rankable_members(self):

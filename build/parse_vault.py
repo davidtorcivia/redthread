@@ -948,7 +948,13 @@ def build_adjacency(entities: list[dict[str, Any]], edges: list[dict[str, Any]])
         if kind == "explicit":
             explicit.add((si, ti))
     adj = [sorted(s) for s in adj_sets]
+    types = list(RELATION_TYPES)
     return {
+        # [subject, object, index into relationTypes], for the path finder's sentences.
+        "relationTypes": types,
+        "relations": [[idx[e["id"]], idx[r["other_id"]], types.index(r["type"])]
+                      for e in entities for r in e.get("relations", [])
+                      if r["other_id"] in idx and r["other_id"] != e["id"]],
         "ids": ids,
         "titles": [e["title"] for e in entities],
         "types": [e["type"] for e in entities],

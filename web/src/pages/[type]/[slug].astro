@@ -11,7 +11,7 @@ import SimilarEntries from '../../components/SimilarEntries.astro';
 import Relations from '../../components/Relations.astro';
 import TableOfContents from '../../components/TableOfContents.astro';
 import FootnotePreviews from '../../components/FootnotePreviews.astro';
-import { aliasesOf, BROWSE_TYPES, entities, hrefFor, communityOf, CLUSTER_MIN_SIZE, tagHref, renderInlineMd, TYPE_DIRS, TYPE_LABELS, TYPE_PLURALS } from '../../lib/data.ts';
+import { aliasesOf, BROWSE_TYPES, entities, familyOf, hrefFor, communityOf, CLUSTER_MIN_SIZE, lineageOf, tagHref, renderInlineMd, TYPE_DIRS, TYPE_LABELS, TYPE_PLURALS } from '../../lib/data.ts';
 import { formatDates } from '../../lib/dates.ts';
 import { entityJsonLd } from '../../lib/schema.ts';
 import type { Entity } from '../../lib/types.ts';
@@ -38,6 +38,8 @@ const dateValue = formatDates(dates);
 const locations = entity.locations ?? [];
 const cluster = communityOf(entity);
 const clusterShown = cluster && cluster.size >= CLUSTER_MIN_SIZE ? cluster : null;
+const family = familyOf(entity.id);
+const lineage = lineageOf(entity.id);
 // Shown under the title and weighted in search, so an alias finds the entry.
 const aliases = aliasesOf(entity).filter((a) => a.toLowerCase() !== entity.title.toLowerCase());
 // The rest fold behind "+N more"; all stay in the DOM for search, and show without JavaScript.
@@ -99,6 +101,8 @@ const edited = editedAt && !Number.isNaN(editedAt.getTime())
           {locations.length > 0 && <div><dt>Location</dt><dd>{locations.join(', ')}</dd></div>}
           <div><dt>Mentioned on</dt><dd>{entity.mention_count.toLocaleString()} {entity.mention_count === 1 ? 'page' : 'pages'}</dd></div>
           {clusterShown && <div><dt>Cluster</dt><dd><a href={`/clusters/#c-${clusterShown.id}`}>{clusterShown.label}</a></dd></div>}
+          {family && <div><dt>Family</dt><dd><a href={`/families/${family.id}/`}>{family.name} family tree</a></dd></div>}
+          {lineage && <div><dt>Lineage</dt><dd><a href={`/lineage/${lineage.id}/`}>{lineage.rows.length} people by year</a></dd></div>}
           {ranks.length > 0 && <div><dt>Rank</dt><dd>{ranks.map((r, i) => <>{i > 0 && ' · '}<a href={r.href}>{r.text}</a></>)}</dd></div>}
           {edited && <div data-pagefind-ignore><dt>Last edited</dt><dd><time datetime={editedIso!}>{edited}</time></dd></div>}
         </dl>

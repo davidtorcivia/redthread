@@ -1,6 +1,19 @@
 import { loadAdjacency, type Adjacency } from './adjacency';
 import { TYPE_LABELS, entityHref, el } from './entity-types';
-export { findLinkedPath as findPath, findRoutes } from './graph-path';
+import { routeSentence } from './graph-path';
+export { findLinkedPath as findPath, findRoutes, typedBonus } from './graph-path';
+
+/** The route read as a sentence above its chain, entries linked. */
+export function renderSentence(data: Adjacency, path: number[]): HTMLParagraphElement {
+  const p = el('p', 'path-sentence');
+  p.append(...routeSentence(data, path).map((part) => {
+    if (typeof part === 'string') return part;
+    const a = el('a', `type-${data.types[part]}`, data.titles[part]);
+    a.href = entityHref(data.types[part], data.ids[part]);
+    return a;
+  }));
+  return p;
+}
 
 /** Why two consecutive path nodes are connected. */
 function hopReason(data: Adjacency, a: number, b: number): string {
