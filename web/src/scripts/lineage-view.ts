@@ -240,7 +240,7 @@ async function drawTree(f: Family, svg: SVGSVGElement): Promise<{ width: number;
         : tip({ kicker: 'Marriage', title: who(id), meta: n.label ? `married ${n.label}` : 'date not recorded' });
       s += `<circle class="lv-knot${n.unknown ? ' unknown' : ''}" data-id="${esc(id)}" cx="${n.x}" cy="${n.y}" r="${n.unknown ? 5 : 4.5}"/>`;
       s += `<circle class="lv-knot-hit" cx="${n.x}" cy="${n.y}" r="12" ${t}/>`;
-      if (n.label) s += `<text class="lv-knot-l" x="${n.x + 9}" y="${n.y - 5}">m. ${n.label}</text>`;
+      if (n.label) s += `<text class="lv-knot-l" x="${n.x + 9}" y="${n.y - 5}">m. ${esc(n.label)}</text>`;
       continue;
     }
     const p = byKey.get(id)!, x = n.x - W / 2, y = n.y - n.height / 2, href = hrefOf(p);

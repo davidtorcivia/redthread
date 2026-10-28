@@ -32,6 +32,10 @@ class SpanTests(unittest.TestCase):
         spans = [{"start": 1922, "end": None}, {"start": 1922, "end": 1946}, {"start": 1950, "end": None}]
         self.assertEqual(lineage.dedupe_spans(spans), [{"start": 1922, "end": 1946}, {"start": 1950, "end": None}])
 
+    def test_same_years_keep_the_stronger_relation(self):
+        spans = [{"type": "employed_by", "start": 2013, "end": None}, {"type": "head_of", "start": 2013, "end": None}]
+        self.assertEqual([sp["type"] for sp in lineage.dedupe_spans(spans)], ["head_of"])
+
     def test_exact_repeats_merge_and_separate_stints_stay(self):
         spans = [{"start": 2004, "end": None}, {"start": 2004, "end": None}, {"start": 1981, "end": None}]
         self.assertEqual(lineage.dedupe_spans(spans), [{"start": 1981, "end": None}, {"start": 2004, "end": None}])
@@ -57,6 +61,13 @@ class FamilyTests(unittest.TestCase):
         fam = self.build()[0]
         edge = [e for e in fam["edges"] if e["cls"] == "parent" and "d" in (e["a"], e["b"])]
         self.assertEqual((edge[0]["a"], edge[0]["b"], edge[0]["verified"]), ("f", "d", False))
+
+    def test_a_drawn_pair_is_not_also_listed_as_other(self):
+        f, s, d = ent("f", "Ann Smith", born="1900"), ent("s", "Bob Smith", born="1930"), ent("d", "Cat Smith")
+        s["relations"] = [rel("relative_of", "f", "Ann Smith", role="son"), rel("relative_of", "d", "Cat Smith", role="sister")]
+        f["relations_in"] = [rel("relative_of", "s", "Bob Smith", role=None)]
+        fam = lineage.Lineage([f, s, d]).families()[0]
+        self.assertEqual(fam["others"], [])
 
     def test_people_without_pages_join_and_small_groups_are_skipped(self):
         fams = self.build()

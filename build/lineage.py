@@ -30,6 +30,8 @@ GRANDPARENT = {"grandfather", "grandmother", "maternal grandfather", "paternal g
 GRANDCHILD = {"grandson", "granddaughter"}
 SIBLING = {"brother", "sister", "sibling", "older sister", "younger brother", "half-brother", "half-sister"}
 STAFF = {"employed_by", "head_of", "director_of", "member_of", "partner_of"}
+# When two spans say the same years, the stronger relation is kept.
+_SPAN_RANK = {"head_of": 0, "director_of": 1, "partner_of": 2, "employed_by": 3, "member_of": 4}
 LATER = {"head_of", "founded", "director_of"}
 ORIGIN_LABELS = ("Founded by", "Funded by", "Owned by", "Participants")
 _SUFFIX = re.compile(r"\s+(Jr\.|Sr\.|II|III|IV)$")
@@ -75,7 +77,7 @@ def dedupe_spans(spans: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Drop a span the row already states better: an exact repeat, or an open-ended span starting
     inside a span with both dates (director from 1922 beside head 1922 to 1946 keeps the head)."""
     out: list[dict[str, Any]] = []
-    for sp in sorted(spans, key=lambda sp: (sp["end"] is None, sp["start"])):
+    for sp in sorted(spans, key=lambda sp: (sp["end"] is None, sp["start"], _SPAN_RANK.get(sp.get("type"), 9))):
         if any(o["start"] == sp["start"] and o["end"] == sp["end"] for o in out):
             continue
         if sp["end"] is None and any(o["end"] and o["start"] <= sp["start"] <= o["end"] for o in out):
@@ -177,6 +179,7 @@ class Lineage:
             pages = [self.ents[k] for k in comp if k in self.ents]
             if len(pages) < FAMILY_MIN_PAGES:
                 continue
+            drawn = {frozenset((a, b)) for a, b, cls, *_ in edges if cls != "other"}
             # The most-mentioned member names the page's URL, so it survives new relatives.
             anchor = max(pages, key=lambda e: (e.get("mention_count", 0), e["id"]))
             people = []
@@ -196,9 +199,10 @@ class Lineage:
                 "people": people,
                 "edges": [{"a": a, "b": b, "cls": cls, "verified": v, "start": st}
                           for a, b, cls, v, _, st in edges if a in comp and b in comp and cls != "other"],
+                # A pair the tree already draws is not listed again as an unplaced relative.
                 "others": [{"a": titles[a], "b": titles[b], "role": _clip(role, 120)}
                            for a, b, cls, _, role, _ in sorted(edges, key=lambda x: (titles[x[0]], titles[x[1]]))
-                           if cls == "other" and (a in comp or b in comp)],
+                           if cls == "other" and (a in comp or b in comp) and frozenset((a, b)) not in drawn],
                 "familyEntries": [self.ref(i, t) for i, t in fam_entries],
             })
         out.sort(key=lambda f: (-len(f["people"]), f["id"]))
