@@ -77,7 +77,7 @@ def dedupe_spans(spans: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Drop a span the row already states better: an exact repeat, or an open-ended span starting
     inside a span with both dates (director from 1922 beside head 1922 to 1946 keeps the head)."""
     out: list[dict[str, Any]] = []
-    for sp in sorted(spans, key=lambda sp: (sp["end"] is None, sp["start"], _SPAN_RANK.get(sp.get("type"), 9))):
+    for sp in sorted(spans, key=lambda sp: (sp["end"] is None, sp["start"], _SPAN_RANK.get(sp.get("type", ""), 9))):
         if any(o["start"] == sp["start"] and o["end"] == sp["end"] for o in out):
             continue
         if sp["end"] is None and any(o["end"] and o["start"] <= sp["start"] <= o["end"] for o in out):
@@ -112,12 +112,38 @@ class Lineage:
 
     # ---------- families ----------
 
+    def birth_bounds(self) -> dict[str, tuple[int, int]]:
+        """(earliest, latest) possible birth year per person key. A recorded birth year is exact.
+        Otherwise dated relations bound it: born at most 16 years before the first one, and at
+        most 95 before the last. Marriages count, so people without entries get bounds too.
+        relative_of dates are left out (often the child's birth year), and so is anything dated
+        after a recorded death (an investigation of the dead). A range that comes out inverted
+        is dropped."""
+        starts: dict[str, list[int]] = collections.defaultdict(list)
+        for e in self.ents.values():
+            died = _year((e.get("dates") or {}).get("died"))
+            for r in e["relations"] + e["relations_in"]:
+                y = _year(r["start"])
+                if r["type"] == "relative_of" or not y or (died and y > died):
+                    continue
+                starts[e["id"]].append(y)
+                if r["type"] == "spouse_of" and not r["other_id"]:
+                    starts[self.key(r)].append(y)
+        out = {k: (max(ys) - 95, min(ys) - 16) for k, ys in starts.items() if max(ys) - 95 <= min(ys) - 16}
+        for e in self.ents.values():
+            if (b := _year((e.get("dates") or {}).get("born"))) is not None:
+                out[e["id"]] = (b, b)
+        return out
+
     def kin_edges(self) -> tuple[list[tuple], dict[str, str]]:
         """Each kin fact once, as (a, b, class, verified, role, start); for parent and grandparent
-        edges a is the elder. Birth years decide the direction when both are known. Otherwise the
-        role is read as describing the other person, as entry pages show it, and verified is False."""
+        edges a is the elder. Two recorded birth years decide the direction, and verified is True.
+        Otherwise birth year bounds decide when one person was surely born 12 or more years before
+        the other; failing that the role is read as describing the other person, as entry pages
+        show it. Either way verified is False."""
         out: dict[tuple, tuple] = {}
         titles: dict[str, str] = {}
+        bounds = self.birth_bounds()
         for e in self.ents.values():
             if e["type"] != "person" or self.is_family(e):
                 continue
@@ -143,6 +169,11 @@ class Lineage:
                         other_elder = yb < ya
                     else:
                         verified = False
+                        ba, bb = bounds.get(e["id"]), bounds.get(k)
+                        if ba and bb and bb[1] < ba[0] - 12:
+                            other_elder = True
+                        elif ba and bb and ba[1] < bb[0] - 12:
+                            other_elder = False
                     if other_elder:
                         a, b = b, a
                 pk = (frozenset((a, b)), cls)

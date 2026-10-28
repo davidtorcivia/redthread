@@ -1,18 +1,4 @@
 ---
-import Base from '../../layouts/Base.astro';
-import '../../styles/lineage.css';
-import { entity as getEntity, lineageData } from '../../lib/data.ts';
-
-const families = lineageData().families;
+import Redirect from '../../components/Redirect.astro';
 ---
-<Base bodyClass="utility" title="Families" description="Family trees drawn from the archive's recorded parent, sibling and marriage relations.">
-  <article class="changelog-article lv-article">
-    <h1 class="entity-title">Families</h1>
-    <p class="entity-dek">Trees drawn from recorded parent, sibling and marriage relations. A family appears once at least three of its members have entries.</p>
-    <ul class="lv-index">
-      {families.map((f) => (
-        <li><a href={`/families/${f.id}/`}>{f.name}</a><span>{f.people.length} people · around {getEntity(f.anchor)?.title}</span></li>
-      ))}
-    </ul>
-  </article>
-</Base>
+<Redirect to="/" />

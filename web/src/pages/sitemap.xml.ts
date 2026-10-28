@@ -1,6 +1,6 @@
 // Hand-rolled so each entry gets its own lastmod and each section its own changefreq.
 import type { APIRoute } from 'astro';
-import { allTags, BROWSE_TYPES, dispatches, DISPATCHES_PER_PAGE, entities, hrefFor, lineageData, TAG_INDEX_MIN, TYPE_DIRS } from '../lib/data.ts';
+import { allTags, BROWSE_TYPES, dispatches, DISPATCHES_PER_PAGE, entities, hrefFor, TAG_INDEX_MIN, TYPE_DIRS } from '../lib/data.ts';
 import { escapeHtml as esc } from '../lib/inline-md.ts';
 import { absUrl } from '../lib/site.ts';
 
@@ -13,10 +13,6 @@ export const GET: APIRoute = () => {
     { loc: '/path/',     changefreq: 'monthly', priority: '0.7' },
     { loc: '/bridges/',  changefreq: 'weekly',  priority: '0.7' },
     { loc: '/clusters/', changefreq: 'weekly',  priority: '0.6' },
-    { loc: '/families/', changefreq: 'weekly',  priority: '0.5' },
-    { loc: '/lineage/',  changefreq: 'weekly',  priority: '0.5' },
-    ...lineageData().families.map((f) => ({ loc: `/families/${f.id}/`, changefreq: 'weekly', priority: '0.4' })),
-    ...lineageData().lineages.map((l) => ({ loc: `/lineage/${l.id}/`, changefreq: 'weekly', priority: '0.4' })),
     { loc: '/tags/',     changefreq: 'weekly',  priority: '0.7' },
     { loc: '/timeline/', changefreq: 'weekly',  priority: '0.7' },
     { loc: '/dispatches/', changefreq: 'weekly', priority: '0.7' },

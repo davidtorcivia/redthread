@@ -1,18 +1,4 @@
 ---
-import Base from '../../layouts/Base.astro';
-import '../../styles/lineage.css';
-import { lineageData } from '../../lib/data.ts';
-
-const lineages = lineageData().lineages;
+import Redirect from '../../components/Redirect.astro';
 ---
-<Base bodyClass="utility" title="Lineages" description="Organizations and programs by who founded them, who worked there and when, and where those people went next.">
-  <article class="changelog-article lv-article">
-    <h1 class="entity-title">Lineages</h1>
-    <p class="entity-dek">Organizations and programs with at least five people recorded there by year: who founded them, who ran them, and where those people went next.</p>
-    <ul class="lv-index">
-      {lineages.map((l) => (
-        <li><a href={`/lineage/${l.id}/`}>{l.title}</a><span>{l.rows.length} people · {l.events.length} events</span></li>
-      ))}
-    </ul>
-  </article>
-</Base>
+<Redirect to="/" />

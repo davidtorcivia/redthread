@@ -339,7 +339,11 @@ export function dispatchesCiting(id: string): Dispatch[] {
 
 /** Family trees and institution lineages from build/lineage.py. */
 export const lineageData = memo(() => loadOptional<LineageData>('lineage.json', { families: [], lineages: [] }));
-const familyByMember = memo(() => new Map(lineageData().families.flatMap((f) => f.people.filter((p) => p.id).map((p) => [p.id!, f] as const))));
+// Members, and "... family" entries (never drawn as members) listed beside a tree.
+const familyByMember = memo(() => new Map(lineageData().families.flatMap((f) => [
+  ...f.familyEntries.filter((r) => r.id).map((r) => [r.id!, f] as const),
+  ...f.people.filter((p) => p.id).map((p) => [p.id!, f] as const),
+])));
 const lineageById = memo(() => new Map(lineageData().lineages.map((l) => [l.id, l])));
 export const familyOf = (id: string) => familyByMember().get(id);
 export const lineageOf = (id: string) => lineageById().get(id);
