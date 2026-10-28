@@ -1,0 +1,72 @@
+---
+// The family tree this entry belongs to, folded; it is drawn on first open, centred on this entry.
+import '../styles/lineage.css';
+import { entity as getEntity, familyOf, hrefFor } from '../lib/data.ts';
+
+interface Props { id: string }
+const { id } = Astro.props;
+const f = familyOf(id);
+const kin = f ? f.edges.filter((e) => e.cls === 'parent' || e.cls === 'gp') : [];
+const unverified = kin.filter((e) => !e.verified).length;
+const born = f ? f.people.map((p) => p.born).filter((y): y is number => !!y).sort((a, b) => a - b) : [];
+const meta = f ? [`${f.people.length} people`, `${f.people.filter((p) => p.id).length} with entries`,
+  born.length ? `born ${born[0]}–${born.at(-1)}` : '', unverified ? `${unverified} of ${kin.length} parent links unverified` : '']
+  .filter(Boolean).join(' · ') : '';
+// Inline JSON for the page script; "<" escaped so no entry text can close the tag.
+const json = f ? JSON.stringify({ family: f, focus: id }).replace(/</g, '\\u003c') : '';
+---
+{f && (
+  <details class="lv-section lv-family" id="lv-family" data-pagefind-ignore>
+    <summary class="section-heading">Family tree <span>{f.name} · {f.people.length} people</span></summary>
+    <p class="lv-meta">{meta}</p>
+    <div class="lv-frame">
+      <div class="lv-canvas"><svg class="lv-tree" role="img" aria-label={`Family tree: ${f.name}`}></svg></div>
+      <div class="lv-zoom" role="group" aria-label="Zoom">
+        <button type="button" data-zoom="out" aria-label="Zoom out">−</button>
+        <button type="button" data-zoom="fit">Fit</button>
+        <button type="button" data-zoom="in" aria-label="Zoom in">+</button>
+      </div>
+    </div>
+    <div class="lv-legend">
+      <span><svg width="34" height="10" aria-hidden="true"><path class="lv-edge" d="M0,5H34"/></svg>parent to child</span>
+      <span><svg width="34" height="10" aria-hidden="true"><path class="lv-edge guess" d="M0,5H34"/></svg>direction not confirmed by birth years</span>
+      <span><svg width="34" height="10" aria-hidden="true"><path class="lv-edge grand" d="M0,5H34"/></svg>grandparent</span>
+      <span><svg width="14" height="14" aria-hidden="true"><circle class="lv-knot" cx="7" cy="7" r="4.5"/></svg>marriage</span>
+      <span><svg width="14" height="14" aria-hidden="true"><circle class="lv-knot unknown" cx="7" cy="7" r="4.5"/></svg>siblings, parents not recorded</span>
+      <span><svg width="22" height="14" aria-hidden="true"><rect x="1" y="1" width="20" height="12" style="fill:var(--paper-2);stroke:var(--line-2);stroke-dasharray:3 3"/></svg>no entry yet</span>
+    </div>
+    {(f.others.length > 0 || f.familyEntries.length > 0) && (
+      <div class="lv-below">
+        {f.others.length > 0 && <div>
+          <h3 class="lv-h">Other recorded relatives</h3>
+          <table><tbody>{f.others.map((o) => <tr><td>{o.a}</td><td class="r">{o.role ?? 'no role'}</td><td>{o.b}</td></tr>)}</tbody></table>
+        </div>}
+        {f.familyEntries.length > 0 && <div>
+          <h3 class="lv-h">Family entries</h3>
+          <div class="lv-chips">{f.familyEntries.map((r) => {
+            const e = r.id ? getEntity(r.id) : undefined;
+            return e ? <a href={hrefFor(e)}>{r.title}</a> : <span>{r.title}</span>;
+          })}</div>
+        </div>}
+      </div>
+    )}
+    <script type="application/json" class="lv-data" is:inline set:html={json}></script>
+  </details>
+)}
+
+<script>
+  import { renderFamily } from '../scripts/lineage-view';
+  const root = document.getElementById('lv-family') as HTMLDetailsElement | null;
+  if (root) {
+    const draw = () => {
+      if (!root.open || root.dataset.drawn) return;
+      root.dataset.drawn = '1';
+      const { family, focus } = JSON.parse(root.querySelector('.lv-data')!.textContent!);
+      renderFamily(root, family, focus);
+    };
+    root.addEventListener('toggle', draw);
+    // A link to #lv-family opens it.
+    if (location.hash === '#lv-family') root.open = true;
+    draw();
+  }
+</script>

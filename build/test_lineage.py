@@ -62,6 +62,16 @@ class FamilyTests(unittest.TestCase):
         edge = [e for e in fam["edges"] if e["cls"] == "parent" and "d" in (e["a"], e["b"])]
         self.assertEqual((edge[0]["a"], edge[0]["b"], edge[0]["verified"]), ("f", "d", False))
 
+    def test_dated_relations_set_direction_without_birth_years(self):
+        # The son's page calls his father "son"; the father married in 1911, the son was born in 1916.
+        son, other = ent("s", "Bob Smith", born="1916"), ent("o", "Oz Smith", born="1880")
+        mom = ent("m", "May Smith")
+        son["relations"] = [rel("relative_of", None, "Will Smith", role="child"), rel("relative_of", "o", "Oz Smith", role="sibling")]
+        mom["relations"] = [rel("spouse_of", None, "Will Smith", start="1911"), rel("relative_of", "s", "Bob Smith", role="son")]
+        fam = lineage.Lineage([son, other, mom]).families()[0]
+        will = [e for e in fam["edges"] if e["cls"] == "parent" and "t:will smith" in (e["a"], e["b"])]
+        self.assertEqual((will[0]["a"], will[0]["b"], will[0]["verified"]), ("t:will smith", "s", False))
+
     def test_a_drawn_pair_is_not_also_listed_as_other(self):
         f, s, d = ent("f", "Ann Smith", born="1900"), ent("s", "Bob Smith", born="1930"), ent("d", "Cat Smith")
         s["relations"] = [rel("relative_of", "f", "Ann Smith", role="son"), rel("relative_of", "d", "Cat Smith", role="sister")]

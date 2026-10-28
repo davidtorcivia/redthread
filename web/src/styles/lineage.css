@@ -1,12 +1,19 @@
-/* Family trees and lineages (/families/, /lineage/). Drawn by scripts/lineage-view.ts. */
-.lv-article {--lv-s0:var(--t-organization);--lv-s1:var(--t-person);--lv-s2:var(--t-program);--lv-s3:var(--t-event);--lv-s4:var(--t-concept);--lv-s5:var(--t-place)}
-.lv-article .entity-dek {margin-top:10px}
-.lv-meta {font:500 14px/1.4 var(--sans);color:var(--muted);margin:12px 0 0;font-variant-numeric:tabular-nums}
+/* Lineage and family tree sections on entry pages. Drawn by scripts/lineage-view.ts. */
+.lv-section {--lv-s0:var(--t-organization);--lv-s1:var(--t-person);--lv-s2:var(--t-program);--lv-s3:var(--t-event);--lv-s4:var(--t-concept);--lv-s5:var(--t-place)}
+.lv-section {margin:76px 0 0;padding:0;border-top:2px solid var(--ink)}
+.lv-family>summary {cursor:pointer;list-style:none}
+.lv-family>summary::-webkit-details-marker {display:none}
+.lv-family>summary span {margin-left:auto}
+.lv-family>summary::after {content:"Show";font:600 12px/1 var(--sans);text-transform:uppercase;letter-spacing:.06em;color:var(--ink);border:1px solid var(--line-2);padding:7px 9px;flex:none}
+.lv-family[open]>summary::after {content:"Hide"}
+.lv-family>summary:hover::after {border-color:var(--ink)}
+.lv-family>summary:focus-visible {outline:2px solid var(--accent);outline-offset:2px}
+.lv-meta {font:500 14px/1.4 var(--sans);color:var(--muted);margin:4px 0 0;font-variant-numeric:tabular-nums}
 .lv-meta a {color:inherit}
 .lv-nopage {color:var(--muted)}
 .lv-empty {font:400 14px/1.4 var(--sans);color:var(--muted);margin:0}
 .lv-h {font:700 12px/1.3 var(--sans);letter-spacing:.08em;word-spacing:.14em;text-transform:uppercase;color:var(--muted);margin:0 0 10px}
-.lv-article [data-tip],.lv-article svg a {-webkit-tap-highlight-color:transparent}
+.lv-section [data-tip],.lv-section svg a {-webkit-tap-highlight-color:transparent}
 
 /* Tree */
 .lv-frame {position:relative;margin-top:22px}
@@ -43,6 +50,7 @@
 .lv-tree.lit .lv-card:not(.hl) {opacity:.35}
 .lv-tree .lv-edge.hl {stroke:var(--accent);stroke-width:2.4;opacity:1}
 .lv-tree .lv-card.hl rect.bg {stroke:var(--ink)}
+.lv-card.self rect.bg {stroke:var(--ink);stroke-width:2}
 .lv-legend {display:flex;flex-wrap:wrap;gap:8px 18px;font:500 13px/1.3 var(--sans);color:var(--muted);margin:10px 0 0}
 .lv-legend svg {vertical-align:middle;margin-right:6px}
 .lv-below {display:grid;grid-template-columns:repeat(auto-fit,minmax(min(300px,100%),1fr));gap:28px;margin-top:34px}
@@ -108,13 +116,6 @@
 .lv-node[data-tip]:hover,.lv-later li[data-tip]:hover,.lv-later .who[data-tip]:hover,.lv-shared>div[data-tip]:hover {background:var(--paper-2)}
 [data-tip]:focus-visible {outline:2px solid var(--accent);outline-offset:2px}
 
-/* Index pages */
-.lv-index {list-style:none;margin:28px 0 0;padding:0;display:grid;grid-template-columns:repeat(auto-fill,minmax(min(280px,100%),1fr));gap:0 28px}
-.lv-index li {border-top:1px solid var(--line);padding:12px 0}
-.lv-index a {font:700 18px/1.2 var(--sans);text-decoration:none}
-.lv-index a:hover {color:var(--accent)}
-.lv-index span {display:block;font:400 13.5px/1.4 var(--sans);color:var(--muted);margin-top:3px}
-
 /* Tooltip: floats by the pointer; on touch it is a sheet at the bottom of the screen. */
 .lv-tip {position:fixed;z-index:60;max-width:min(360px,calc(100vw - 32px));background:var(--paper);color:var(--ink);border:1px solid var(--line-2);border-top:3px solid var(--tip-c,var(--ink));box-shadow:0 10px 30px -12px rgba(0,0,0,.35);padding:12px 14px 13px;pointer-events:none;font:400 13.5px/1.45 var(--sans)}
 .lv-tip .tk {font:700 10.5px/1.2 var(--sans);text-transform:uppercase;letter-spacing:.07em;color:var(--muted);margin-bottom:3px}
@@ -130,6 +131,8 @@
 .lv-tip.lv-sheet .tt {padding-right:36px}
 
 @media (max-width:640px) {
+  .lv-family>summary span {display:none}
+  .lv-family>summary::after {margin-left:auto}
   .lv-tier {grid-template-columns:minmax(0,1fr);gap:10px}
   .lv-shared>div {grid-template-columns:minmax(0,1fr)}
   .lv-canvas {height:70vh}

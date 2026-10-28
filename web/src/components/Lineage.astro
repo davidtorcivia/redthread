@@ -1,0 +1,42 @@
+---
+// Who founded and ran this organization, everyone recorded there by year, and where they went next.
+import '../styles/lineage.css';
+import { lineageOf } from '../lib/data.ts';
+
+interface Props { id: string }
+const { id } = Astro.props;
+const l = lineageOf(id);
+const years = l ? l.rows.flatMap((r) => r.spans.flatMap((s) => [s.start, s.end ?? s.start])) : [];
+const meta = l ? [`${l.rows.length} people`, `${Math.min(...years)}–${Math.max(...years)}`,
+  l.events.length ? `${l.events.length} events` : ''].filter(Boolean).join(' · ') : '';
+// Inline JSON for the page script; "<" escaped so no entry text can close the tag.
+const json = l ? JSON.stringify(l).replace(/</g, '\\u003c') : '';
+---
+{l && (
+  <section class="lv-section lv-lineage" id="lv-lineage" data-pagefind-ignore>
+    <h2 class="section-heading">Lineage <span>{meta}</span></h2>
+    <div class="lv-tier"><h3 class="lv-h">Origins</h3><div class="lv-origins"></div></div>
+    <div class="lv-tier">
+      <h3 class="lv-h">People, by year</h3>
+      <div>
+        <div class="lv-gantt"><svg class="lv-names" aria-hidden="true"></svg><svg class="lv-chart" role="img" aria-label={`People at ${l.title} by year`}></svg></div>
+        <div class="lv-key">
+          <span><i style="background:var(--accent)"></i>headed</span>
+          <span><i style="background:var(--ink)"></i>director</span>
+          <span><i style="background:var(--line-2)"></i>member or employed</span>
+          <span><i style="background:var(--line-2);opacity:.5"></i>end not recorded</span>
+          {l.events.length > 0 && <span><i style="background:linear-gradient(var(--accent),transparent);opacity:.5"></i>event</span>}
+        </div>
+      </div>
+    </div>
+    <div class="lv-tier"><h3 class="lv-h">Later roles</h3><div class="lv-later"></div></div>
+    <div class="lv-tier"><h3 class="lv-h">Reached by several members</h3><div class="lv-shared"></div></div>
+    <script type="application/json" class="lv-data" is:inline set:html={json}></script>
+  </section>
+)}
+
+<script>
+  import { renderLineage } from '../scripts/lineage-view';
+  const root = document.getElementById('lv-lineage');
+  if (root) renderLineage(root, JSON.parse(root.querySelector('.lv-data')!.textContent!));
+</script>

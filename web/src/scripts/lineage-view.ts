@@ -83,6 +83,7 @@ function closeTip() {
   el.dispatchEvent(new CustomEvent('lv-close', { bubbles: true }));
 }
 function initTips() {
+  if (tipEl) return;
   tipEl = document.createElement('div');
   tipEl.className = 'lv-tip';
   tipEl.hidden = true;
@@ -155,7 +156,7 @@ function kinLine(f: Family, key: string, byKey: Map<string, Person>): string {
 interface NodeLabel { width: number; height: number; x: number; y: number; knot?: boolean; unknown?: boolean; label?: string; pair?: string[] }
 interface EdgeLabel { minlen: number; kind: 'couple' | 'child' | 'grand'; guess?: boolean }
 
-async function drawTree(f: Family, svg: SVGSVGElement): Promise<{ width: number; height: number; anchor: { x: number; y: number } }> {
+async function drawTree(f: Family, svg: SVGSVGElement, focus: string): Promise<{ width: number; height: number; anchor: { x: number; y: number } }> {
   const { graphlib, layout } = await import('@dagrejs/dagre');
   const sn = [...new Set(f.people.map((p) => surname(p.title)))];
   const colorOf = (p: Person) => `var(--lv-s${sn.indexOf(surname(p.title)) % 6})`;
@@ -228,7 +229,7 @@ async function drawTree(f: Family, svg: SVGSVGElement): Promise<{ width: number;
     const t: Tip = e.kind === 'couple'
       ? { kicker: 'Marriage', title: who(ed.w), meta: node(ed.w).label ? `married ${node(ed.w).label}` : 'date not recorded' }
       : { kicker: e.kind === 'grand' ? 'Grandparent and grandchild' : 'Parent and child', title: `${who(ed.v)} → ${who(ed.w)}`,
-          meta: e.guess ? 'Direction read from the role text; no birth years to check it' : 'Direction confirmed by birth years' };
+          meta: e.guess ? 'Direction not confirmed: estimated from dated relations or read from the role text' : 'Direction confirmed by birth years' };
     hits += `<path class="lv-hit" ${ends} d="${d}" ${tip(t)}/>`;
   }
   s += hits;
@@ -247,7 +248,8 @@ async function drawTree(f: Family, svg: SVGSVGElement): Promise<{ width: number;
     const t = tip({ kicker: href ? 'Person' : 'Person · no entry yet', title: p.title, href,
       meta: [years(p), kinLine(f, p.key, byKey)].filter(Boolean).join(' · '), body: p.summary, list: p.notes,
       color: href ? colorOf(p) : 'var(--line-2)' });
-    s += `${href ? `<a href="${href}" class="lv-card" data-id="${esc(id)}" ${t}>` : `<g class="lv-card nopage" data-id="${esc(id)}" ${t}>`}`;
+    const self = id === focus ? ' self' : '';
+    s += `${href ? `<a href="${href}" class="lv-card${self}" data-id="${esc(id)}" ${t}>` : `<g class="lv-card nopage" data-id="${esc(id)}" ${t}>`}`;
     s += `<rect class="bg" x="${x}" y="${y}" width="${W}" height="${n.height}"/>`;
     if (href) s += `<rect x="${x}" y="${y}" width="${W}" height="3" style="fill:${colorOf(p)}"/>`;
     let ty = y + 21;
@@ -259,7 +261,7 @@ async function drawTree(f: Family, svg: SVGSVGElement): Promise<{ width: number;
   const gw = g.graph().width ?? 0, gh = g.graph().height ?? 0;
   svg.setAttribute('viewBox', `0 0 ${gw} ${gh}`);
   svg.innerHTML = s;
-  const an = node(f.anchor) ?? { x: gw / 2, y: 0 };
+  const an = node(focus) ?? node(f.anchor) ?? { x: gw / 2, y: 0 };
   return { width: gw, height: gh, anchor: { x: an.x, y: an.y } };
 }
 
@@ -295,11 +297,12 @@ function lightsOff(svg: SVGSVGElement) {
   svg.querySelectorAll('.hl').forEach((n) => n.classList.remove('hl'));
 }
 
-export async function renderFamily(root: HTMLElement, f: Family) {
+/** Draws the tree in root, centred on the person whose entry this is (focus, an entry id). */
+export async function renderFamily(root: HTMLElement, f: Family, focus: string) {
   initTips();
   const canvas = root.querySelector<HTMLElement>('.lv-canvas')!;
   const svg = root.querySelector<SVGSVGElement>('.lv-tree')!;
-  const size = await drawTree(f, svg);
+  const size = await drawTree(f, svg, focus);
   let scale = 1;
   const fit = () => Math.min(1, (canvas.clientWidth - 2) / size.width);
   const apply = (z: number, keepCenter = true) => {
@@ -312,7 +315,7 @@ export async function renderFamily(root: HTMLElement, f: Family) {
       canvas.scrollTop = cy * scale - canvas.clientHeight / 2;
     }
   };
-  // Phones open a little smaller than full size, centred on the best-known member.
+  // Phones open a little smaller than full size.
   apply(Math.max(fit(), matchMedia('(max-width: 640px)').matches ? 0.8 : 1), false);
   canvas.scrollLeft = size.anchor.x * scale - canvas.clientWidth / 2;
   canvas.scrollTop = Math.max(0, size.anchor.y * scale - canvas.clientHeight / 3);
@@ -339,7 +342,7 @@ function drawGantt(l: Lineage, names: SVGSVGElement, chart: SVGSVGElement) {
   const hi = Math.max(...rows.flatMap((r) => r.spans.map((s) => s.end ?? s.start + 1)));
   const x0 = Math.floor(lo / 10) * 10, x1 = Math.min(now, Math.ceil((hi + 1) / 10) * 10);
   const L = narrow ? 128 : 200, Wd = Math.max(narrow ? 560 : 640, Math.min(980, (x1 - x0) * 12)), rowH = narrow ? 22 : 18;
-  const X = (y: number) => 8 + (y - x0) / (x1 - x0) * (Wd - 24);
+  const X = (y: number) => 18 + (y - x0) / (x1 - x0) * (Wd - 36);
   // Each event gets a lane: its bar, or a diamond for one date, plus its label, clear of the others.
   const evs = l.events.filter((e) => e.start >= x0 && e.start <= x1).sort((a, b) => a.start - b.start);
   const lanes: number[] = [], LANE = 17, labelW = (e: LineageEvent) => e.title.length * 6.3 + 8;
